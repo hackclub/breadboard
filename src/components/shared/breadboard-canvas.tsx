@@ -478,11 +478,13 @@ export function BreadboardCanvas() {
       </div>
       <canvas
         ref={canvasRef}
+        className="w-full"
         style={{
           display: "block",
           cursor: "crosshair",
           borderRadius: 8,
           border: "2px solid #000",
+          aspectRatio: "1024 / 272",
         }}
       />
     </div>

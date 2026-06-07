@@ -2,6 +2,7 @@
 
 import { gsap } from "gsap";
 import { useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 
 const revealSelector =
   "section:not(.docs-page section), .faq-card, [data-reveal]";
@@ -9,8 +10,11 @@ const revealSelector =
 function CustomCursor() {
   const cursorRef = useRef<HTMLDivElement>(null);
   const trailRef = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
 
   useEffect(() => {
+    if (pathname.startsWith("/platform")) return;
+    if (pathname.startsWith("/editor")) return;
     const cursor = cursorRef.current;
     const trail = trailRef.current;
     if (!cursor || !trail) return;
@@ -74,7 +78,11 @@ function CustomCursor() {
       trailYTo.tween.kill();
       gsap.killTweensOf([cursor, trail]);
     };
-  }, []);
+  }, [pathname]);
+
+  if (pathname.startsWith("/platform") || pathname.startsWith("/editor")) {
+    return null;
+  }
 
   return (
     <>
@@ -92,6 +100,8 @@ function CustomCursor() {
 
 function useButtonRipple() {
   useEffect(() => {
+    if (window.location.pathname.startsWith("/platform")) return;
+    if (window.location.pathname.startsWith("/editor")) return;
     const clickHandler = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null;
       const button = target?.closest(
@@ -127,6 +137,8 @@ function useButtonRipple() {
 
 function useScrollReveal() {
   useEffect(() => {
+    if (window.location.pathname.startsWith("/platform")) return;
+    if (window.location.pathname.startsWith("/editor")) return;
     const targets = Array.from(
       document.querySelectorAll<HTMLElement>(revealSelector),
     );

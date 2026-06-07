@@ -1,72 +1,68 @@
 import { and, eq } from "drizzle-orm";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { getSession } from "@/lib/auth/guards";
+import { VelxioNextEditor } from "@/components/velxio/VelxioEditorClient";
+import { getSession, isAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/connection";
 import { projects } from "@/lib/db/schema";
+import { EditorHeader } from "../_components/EditorHeader";
 
 export default async function ProjectEditorPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ version?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/platform/projects");
   const { id } = await params;
   const projectId = Number(id);
+  if (!Number.isInteger(projectId)) notFound();
+
+  const isAdmin = await isAdminSession(session);
   const rows = await db
     .select()
     .from(projects)
     .where(
-      and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
+      isAdmin
+        ? eq(projects.id, projectId)
+        : and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
     )
     .limit(1);
   const project = rows[0];
   if (!project) notFound();
-  if (project.status !== "draft" && project.status !== "needs_changes") {
+
+  const isOwner = project.userId === session.user.id;
+  const backHref =
+    isAdmin && !isOwner
+      ? `/platform/admin/review/${projectId}`
+      : "/platform/projects";
+  const backLabel = isAdmin && !isOwner ? "Review" : "Projects";
+
+  const { version: versionParam } = await searchParams;
+  const version = versionParam ? Number(versionParam) : undefined;
+  if (version !== undefined && (!Number.isInteger(version) || version < 1)) {
+    notFound();
+  }
+  if (
+    version === undefined &&
+    project.status !== "draft" &&
+    project.status !== "needs_changes"
+  ) {
     redirect("/platform/projects");
   }
 
   return (
-    <div className="min-h-screen bg-[#fefffe] bg-[linear-gradient(to_right,rgba(25,26,35,0.14)_1px,transparent_1px),linear-gradient(to_bottom,rgba(25,26,35,0.14)_1px,transparent_1px)] bg-[length:32px_32px]">
-      <header className="sticky top-0 z-30 flex h-12 items-center border-b border-black/15 bg-white/90 px-4 backdrop-blur-sm">
-        <Link
-          href="/platform/projects"
-          className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-[0.12em] text-black/50 no-underline transition-colors hover:text-[#BD0F32]"
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" className="shrink-0">
-            <path
-              d="M7 2L3 6l4 4"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          Back to projects
-        </Link>
-        <span className="ml-3 text-xs font-bold text-black/25">/</span>
-        <span className="ml-3 truncate text-xs font-black text-black">
-          {project.title}
-        </span>
-      </header>
-
-      <main className="flex min-h-[calc(100vh-48px)] items-center justify-center p-8">
-        <section className="mx-auto max-w-4xl rounded-[18px] border border-black bg-[#f4f4f4] p-10 text-center shadow-[7px_7px_0_#000]">
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-[#BD0F32]">
-            WIP editor
-          </p>
-          <h1 className="mt-3 text-6xl font-black text-black">
-            {project.title}
-          </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-black/65">
-            This will become the schematic/code/layout editor. It will autosave
-            progress and track time spent here. For now, project info and
-            shipping live in My Projects.
-          </p>
-        </section>
-      </main>
-    </div>
+    <>
+      <EditorHeader
+        backHref={backHref}
+        backLabel={backLabel}
+        projectTitle={project.title}
+        version={version}
+      />
+      <div className="flex-1">
+        <VelxioNextEditor projectId={project.id} version={version} />
+      </div>
+    </>
   );
 }

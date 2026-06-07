@@ -35,6 +35,10 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# local ESP32 QEMU runtime binaries extracted for editor backend dev
+/editor-backend/prebuilt/qemu/*.so
+/editor-backend/prebuilt/qemu/*.bin
+
 # vercel
 .vercel
 

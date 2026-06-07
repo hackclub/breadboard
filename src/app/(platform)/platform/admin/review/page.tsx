@@ -1,8 +1,8 @@
-import { asc, eq, inArray } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/connection";
-import { projects, user } from "@/lib/db/schema";
+import { projectEditorVersions, projects, user } from "@/lib/db/schema";
 import { ReviewQueue } from "./_client";
 
 export default async function AdminReviewPage() {
@@ -36,6 +36,10 @@ export default async function AdminReviewPage() {
       status: projects.status,
       shippedAt: projects.shippedAt,
       userEmail: user.email,
+      versionCount: db.$count(
+        projectEditorVersions,
+        eq(projectEditorVersions.projectId, projects.id),
+      ),
     })
     .from(projects)
     .innerJoin(user, eq(projects.userId, user.id))

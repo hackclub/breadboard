@@ -8,6 +8,7 @@ import {
   serial,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 export const user = pgTable("user", {
@@ -242,6 +243,10 @@ export const projects = pgTable(
       .default(""),
     reviewNote: text("review_note").notNull().default(""),
     creditedAmount: integer("credited_amount").notNull().default(0),
+    editorData: text("editor_data").notNull().default(""),
+    editorLastSavedAt: timestamp("editor_last_saved_at", {
+      withTimezone: true,
+    }),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
     shippedAt: timestamp("shipped_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -252,6 +257,32 @@ export const projects = pgTable(
       .defaultNow(),
   },
   (table) => [index("projects_user_id_idx").on(table.userId)],
+);
+
+export const projectEditorVersions = pgTable(
+  "project_editor_versions",
+  {
+    id: serial("id").primaryKey(),
+    projectId: integer("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    versionNumber: integer("version_number").notNull(),
+    editorData: text("editor_data").notNull(),
+    reason: text("reason").notNull().default("autosave"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("project_editor_versions_project_id_idx").on(table.projectId),
+    uniqueIndex("project_editor_versions_project_version_idx").on(
+      table.projectId,
+      table.versionNumber,
+    ),
+  ],
 );
 
 export const userRelations = relations(user, ({ many }) => ({

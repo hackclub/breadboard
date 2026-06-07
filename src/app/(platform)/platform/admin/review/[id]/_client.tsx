@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import {
   HiArrowTopRightOnSquare,
@@ -10,6 +11,7 @@ import {
   HiDocumentText,
   HiExclamationTriangle,
   HiLightBulb,
+  HiPencilSquare,
   HiPhoto,
   HiPlay,
   HiTrash,
@@ -311,6 +313,16 @@ export function ReviewWorkspace({
                 href={screenshot}
                 label="Screenshot"
                 icon={HiPhoto}
+              />
+              <EvidenceButton
+                href={`/editor/${initial.id}`}
+                label="Editor"
+                icon={HiPencilSquare}
+              />
+              <EvidenceButton
+                href={`/platform/admin/projects/${initial.id}/versions`}
+                label="Versions"
+                icon={HiClock}
               />
             </div>
           </div>

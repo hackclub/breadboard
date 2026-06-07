@@ -15,7 +15,20 @@
       "!build",
       "!temp",
       "!.archive",
-      "!.kilo"
+      "!.kilo",
+      "!oldvelxio",
+      "!editor-backend",
+      "!public/boards",
+      "!public/components",
+      "!public/component-svgs",
+      "!public/firmware",
+      "!public/wasm",
+      "!public/components-metadata.json",
+      "!public/littlefs.wasm",
+      "!src/app/editor/velxio-styles",
+      "!src/components/velxio",
+      "!src/lib/velxio",
+      "!src/services/velxio"
     ]
   },
   "formatter": {
@@ -27,6 +40,15 @@
     "enabled": true,
     "rules": {
       "recommended": true,
+      "a11y": {
+        "noAutofocus": "off"
+      },
+      "correctness": {
+        "noUnusedImports": "off"
+      },
+      "performance": {
+        "noImgElement": "off"
+      },
       "suspicious": {
         "noUnknownAtRules": "off"
       }
@@ -39,7 +61,7 @@
   "assist": {
     "actions": {
       "source": {
-        "organizeImports": "on"
+        "organizeImports": "off"
       }
     }
   }

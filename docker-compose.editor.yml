@@ -1,0 +1,27 @@
+services:
+  editor-backend:
+    build:
+      context: ./editor-backend
+      dockerfile: Dockerfile
+      args:
+        VELXIO_LICENSE_KEY: ${VELXIO_LICENSE_KEY:-}
+        QEMU_RELEASE_URL: ${QEMU_RELEASE_URL:-}
+    ports:
+      - "8001:8001"
+    environment:
+      FRONTEND_URL: http://localhost:3000
+      VELXIO_PERSISTENT_BUILD_DIR: "1"
+      IDF_CCACHE_ENABLE: "1"
+    volumes:
+      - editor-arduino:/root/.arduino15
+      - editor-arduino-libs:/root/Arduino
+      - editor-ccache:/var/cache/ccache
+      - editor-builds:/tmp/velxio-builds
+      - editor-idf-builds:/var/lib/velxio-build
+
+volumes:
+  editor-arduino:
+  editor-arduino-libs:
+  editor-ccache:
+  editor-builds:
+  editor-idf-builds:

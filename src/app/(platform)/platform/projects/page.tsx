@@ -29,7 +29,7 @@ export default async function ProjectsPage() {
     <>
       <PageHero title="My Projects">
         <p className="mt-2 text-sm text-black/60">
-          Make projects, open the WIP editor, then ship when ready.
+          Make projects, open the editor, then ship when ready.
         </p>
       </PageHero>
       <ProjectsBoard projects={userProjects} />

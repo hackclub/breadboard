@@ -13,6 +13,7 @@ type ReviewProject = {
   status: string;
   shippedAt: Date | null;
   userEmail: string;
+  versionCount: number;
 };
 
 const filters = ["all", "shipped", "needs_changes", "reviewed", "paid_out"];
@@ -111,6 +112,11 @@ export function ReviewQueue({ projects }: { projects: ReviewProject[] }) {
                   <span className="text-xs text-black/50">
                     {project.hoursSpent}h
                   </span>
+                  {project.versionCount > 0 && (
+                    <span className="text-xs text-black/30">
+                      {project.versionCount}v
+                    </span>
+                  )}
                 </div>
                 <p className="mt-2 line-clamp-2 text-sm font-black text-black leading-snug">
                   {project.title}

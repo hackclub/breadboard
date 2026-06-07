@@ -42,11 +42,11 @@ export default async function PlatformShopPage() {
 
   return (
     <>
-      <PageHero title="Breadboard Store">
+      <PageHero title="The Store">
         <div className="mt-3 flex flex-wrap items-center justify-between gap-5">
           <ShopTabs active="shop" />
           <p className="rounded-full border border-black bg-white px-4 py-2 text-sm font-bold text-black/70 shadow-[3px_3px_0_#000]">
-            Spend credits on parts, grants, and rewards.
+            Spend INSERT CURRENCY you got from making projects
           </p>
         </div>
       </PageHero>
@@ -62,9 +62,6 @@ export default async function PlatformShopPage() {
         )}
         <div className="mb-5 flex items-end justify-between gap-4 border-b border-black/15 pb-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#BD0F32]">
-              Platform shop
-            </p>
             <h2 className="mt-1 text-2xl font-black text-black">In stock</h2>
           </div>
           <p className="text-sm text-black/55">

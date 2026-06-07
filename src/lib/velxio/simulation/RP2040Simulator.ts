@@ -1,0 +1,1030 @@
+// @ts-nocheck
+import {
+  RP2040,
+  GPIOPinState,
+  ConsoleLogger,
+  LogLevel,
+  USBCDC,
+} from "rp2040js";
+import type { RPI2C } from "rp2040js";
+import { PinManager } from "@/lib/velxio/simulation/PinManager";
+import {
+  I2CBusManager,
+  wireRpI2cToBus,
+  nullI2CMaster,
+} from "@/lib/velxio/simulation/I2CBusManager";
+import type { I2CDevice } from "@/lib/velxio/simulation/I2CBusManager";
+import { bootromB1 } from "@/lib/velxio/simulation/rp2040-bootrom";
+import {
+  loadUF2,
+  loadUserFiles,
+  getFirmware,
+} from "@/lib/velxio/simulation/MicroPythonLoader";
+import {
+  Cyw43Emulator,
+  PioBusSniffer,
+  type Cyw43Bridge,
+  type LedEvent,
+  type PacketOutEvent,
+} from "@/lib/velxio/simulation/cyw43";
+
+/**
+ * RP2040Simulator — Emulates Raspberry Pi Pico (RP2040) using rp2040js
+ *
+ * Features:
+ * - ARM Cortex-M0+ dual-core Cortex-M0+ CPU at 125 MHz (single-core emulated)
+ * - 30 GPIO pins (GPIO0-GPIO29)  xc fv       nn
+ * - 2× UART, 2× SPI, 2× I2C
+ * - ADC on GPIO26-GPIO29 (A0-A3) + internal temp sensor (ch4)
+ * - PWM on any GPIO
+ * - LED_BUILTIN on GPIO25
+ * - Full bootrom B1 for proper boot sequence
+ *
+ * Arduino-pico pin mapping (Earle Philhower's core):
+ *   D0  = GPIO0   … D29 = GPIO29
+ *   A0  = GPIO26  … A3  = GPIO29
+ *   LED_BUILTIN = GPIO25
+ *   Default Serial  → UART0 (GPIO0=TX, GPIO1=RX)
+ *   Default I2C     → I2C0  (GPIO4=SDA, GPIO5=SCL)
+ *   Default SPI     → SPI0  (GPIO16=MISO, GPIO19=MOSI, GPIO18=SCK, GPIO17=CS)
+ */
+
+const F_CPU = 125_000_000; // 125 MHz
+const CYCLE_NANOS = 1e9 / F_CPU; // nanoseconds per cycle (~8 ns)
+const FPS = 60;
+const CYCLES_PER_FRAME = Math.floor(F_CPU / FPS); // ~2 083 333
+
+/**
+ * Backward-compatible alias for the unified `I2CDevice` shape used by
+ * both AVR and RP2040 buses now that I2CBusManager is the canonical
+ * abstraction.  Existing call sites that import `RP2040I2CDevice` keep
+ * working without changes.
+ */
+export type RP2040I2CDevice = I2CDevice;
+
+export class RP2040Simulator {
+  private rp2040: RP2040 | null = null;
+  private running = false;
+  private animationFrame: number | null = null;
+  public pinManager: PinManager;
+  private speed = 1.0;
+  private gpioUnsubscribers: Array<() => void> = [];
+  private flashCopy: Uint8Array | null = null;
+  private totalCycles = 0;
+  private scheduledPinChanges: Array<{
+    cycle: number;
+    pin: number;
+    state: boolean;
+  }> = [];
+  private pioStepAccum = 0;
+  private usbCDC: USBCDC | null = null;
+  private micropythonMode = false;
+
+  // ── Pico W WiFi (CYW43439) — only attached when boardKind === 'pi-pico-w'.
+  private cyw43: Cyw43Emulator | null = null;
+  private cyw43Sniffer: PioBusSniffer | null = null;
+  private cyw43Bridge: Cyw43Bridge | null = null;
+  private cyw43HookedFifos: Array<{ restore: () => void }> = [];
+
+  /** Serial output callback — fires for each byte the Pico sends on UART0 (or USBCDC in MicroPython mode) */
+  public onSerialData: ((char: string) => void) | null = null;
+
+  /**
+   * Generic SPI bus adapter — same shape as AVRSimulator.spi so SPI parts
+   * (ILI9341, SD cards, custom chips) can hook the bus uniformly across
+   * boards. Defaults to RP2040 SPI0; firmware that uses SPI1 will need to
+   * wrap rp2040.spi[1] manually until we add a .spi1 alias.
+   *
+   * Lazy-initialised so the rp2040.spi[0].onTransmit is only overridden
+   * once a part actually accesses .spi (avoiding clobbering the default
+   * loopback handler if no SPI part is on the canvas).
+   */
+  private _spiAdapter: {
+    onByte: ((mosi: number) => void) | null;
+    completeTransfer: (miso: number) => void;
+  } | null = null;
+  public get spi(): {
+    onByte: ((mosi: number) => void) | null;
+    completeTransfer: (miso: number) => void;
+  } {
+    if (!this._spiAdapter) {
+      const adapter = {
+        onByte: null as ((mosi: number) => void) | null,
+        completeTransfer: (miso: number) => {
+          this.rp2040?.spi[0].completeTransmit(miso & 0xff);
+        },
+      };
+      // Re-route SPI0's onTransmit through our adapter when initMCU /
+      // initMicroPython runs. Until rp2040 is constructed (mcu=null) the
+      // setter just stages the handler — we wire it in start().
+      this._spiAdapter = adapter;
+      if (this.rp2040) {
+        this.rp2040.spi[0].onTransmit = (v: number) => adapter.onByte?.(v);
+      }
+    }
+    return this._spiAdapter;
+  }
+
+  /** Fires when the on-board LED on Pico W (driven through the CYW43, not GPIO 25) toggles. */
+  public onPicoWLed: ((on: boolean) => void) | null = null;
+  /** Fires whenever the chip emits a Wi-Fi link-up event for the synthetic AP. */
+  public onPicoWWifiUp: ((ssid: string) => void) | null = null;
+
+  /**
+   * Fires for every GPIO pin transition with a millisecond timestamp.
+   * Used by the oscilloscope / logic analyzer.
+   * timeMs is derived from the RP2040 cycle counter (cycles / F_CPU * 1000).
+   */
+  public onPinChangeWithTime:
+    | ((pin: number, state: boolean, timeMs: number) => void)
+    | null = null;
+
+  /**
+   * Track whether the first byte has been transmitted on each UART since
+   * the firmware booted.  Used to seed the oscilloscope baseline at idle
+   * HIGH the first time a frame goes out, mirroring how real silicon
+   * idles the TX line HIGH once UARTEN is asserted.
+   */
+  private uartTxSeeded: [boolean, boolean] = [false, false];
+
+  /**
+   * One `I2CBusManager` per hardware I2C controller (RP2040 has two:
+   * I2C0/Wire and I2C1/Wire1).  Constructed up-front in the
+   * simulator's constructor with a placeholder master so that cross-
+   * board bridges + device registrations can land BEFORE firmware
+   * loads.  The real RPI2C peripheral takes over in `wireI2C()` via
+   * `attachMaster` + `wireRpI2cToBus`.
+   */
+  private i2cBuses: [I2CBusManager, I2CBusManager];
+
+  constructor(pinManager: PinManager) {
+    this.pinManager = pinManager;
+    this.i2cBuses = [
+      new I2CBusManager(nullI2CMaster()),
+      new I2CBusManager(nullI2CMaster()),
+    ];
+  }
+
+  /**
+   * Load a compiled binary into the RP2040 flash memory.
+   * Accepts a base64-encoded string of the raw .bin file output by arduino-cli.
+   */
+  loadBinary(base64: string): void {
+    console.log("[RP2040] Loading binary...");
+
+    const binaryStr = atob(base64);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+
+    console.log(`[RP2040] Binary size: ${bytes.length} bytes`);
+    this.flashCopy = bytes;
+
+    this.initMCU(bytes);
+    console.log("[RP2040] CPU initialized with bootrom, UART, I2C, SPI, GPIO");
+  }
+
+  /** Same interface as AVRSimulator for store compatibility */
+
+  loadHex(_hexContent: string): void {
+    console.warn(
+      "[RP2040] loadHex() called on RP2040Simulator — use loadBinary() instead",
+    );
+  }
+
+  /**
+   * Load MicroPython firmware + user .py files into RP2040 flash.
+   * Uses USBCDC for serial (REPL) instead of UART.
+   */
+  async loadMicroPython(
+    files: Array<{ name: string; content: string }>,
+    onProgress?: (loaded: number, total: number) => void,
+  ): Promise<void> {
+    console.log("[RP2040] Loading MicroPython firmware...");
+
+    // 1. Get MicroPython UF2 firmware (cached in IndexedDB)
+    const firmware = await getFirmware(onProgress);
+
+    // 2. Create fresh RP2040 instance
+    this.rp2040 = new RP2040();
+    this.rp2040.logger = new ConsoleLogger(LogLevel.Error);
+    this.rp2040.loadBootrom(bootromB1);
+
+    // 3. Load UF2 firmware into flash
+    loadUF2(firmware, this.rp2040.flash);
+    console.log(`[RP2040] MicroPython UF2 loaded (${firmware.length} bytes)`);
+
+    // 4. Create LittleFS with user files and load into flash
+    await loadUserFiles(files, this.rp2040.flash);
+    console.log(`[RP2040] LittleFS loaded with ${files.length} file(s)`);
+
+    // Keep a flash copy for reset
+    this.flashCopy = new Uint8Array(this.rp2040.flash);
+
+    // 5. Set up USBCDC for serial REPL (instead of UART)
+    this.usbCDC = new USBCDC(this.rp2040.usbCtrl);
+    this.usbCDC.onDeviceConnected = () => {
+      // Send newline to trigger the REPL prompt
+      this.usbCDC!.sendSerialByte("\r".charCodeAt(0));
+      this.usbCDC!.sendSerialByte("\n".charCodeAt(0));
+    };
+    this.usbCDC.onSerialData = (buffer: Uint8Array) => {
+      for (const byte of buffer) {
+        if (this.onSerialData) {
+          this.onSerialData(String.fromCharCode(byte));
+        }
+      }
+    };
+
+    // 6. Set PC to flash start
+    this.rp2040.core.PC = 0x10000000;
+
+    // 7. Wire peripherals (I2C, SPI, ADC, PIO, GPIO — same as Arduino mode)
+    // But skip UART serial wiring since MicroPython uses USBCDC
+    this.rp2040.uart[1].onByte = (value: number) => {
+      if (this.onSerialData) this.onSerialData(String.fromCharCode(value));
+    };
+    this.wireI2C(0);
+    this.wireI2C(1);
+    // Default loopback for SPI0 — overridden by the generic .spi adapter
+    // if a SPI part later accesses simulator.spi. The adapter routes
+    // onTransmit into adapter.onByte and uses completeTransmit to drive
+    // MISO when the part calls completeTransfer.
+    this.rp2040.spi[0].onTransmit = (v: number) => {
+      if (this._spiAdapter && this._spiAdapter.onByte) {
+        this._spiAdapter.onByte(v);
+      } else {
+        this.rp2040!.spi[0].completeTransmit(v);
+      }
+    };
+    this.rp2040.spi[1].onTransmit = (v: number) => {
+      this.rp2040!.spi[1].completeTransmit(v);
+    };
+    this.rp2040.adc.channelValues[0] = 2048;
+    this.rp2040.adc.channelValues[1] = 2048;
+    this.rp2040.adc.channelValues[2] = 2048;
+    this.rp2040.adc.channelValues[3] = 2048;
+    this.rp2040.adc.channelValues[4] = 876;
+
+    // Patch PIO (same as initMCU)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const pio of (this.rp2040 as any).pio) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      pio.run = function (this: any) {
+        if (this.runTimer) {
+          clearTimeout(this.runTimer);
+          this.runTimer = null;
+        }
+      };
+    }
+    this.pioStepAccum = 0;
+
+    this.setupGpioListeners();
+    this.micropythonMode = true;
+    console.log("[RP2040] MicroPython ready");
+  }
+
+  /** Returns true if currently in MicroPython mode */
+  isMicroPythonMode(): boolean {
+    return this.micropythonMode;
+  }
+
+  // ── Pico W (CYW43439) attachment ────────────────────────────────────────
+
+  /**
+   * Wire a CYW43 chip emulator onto this RP2040 instance. Should only be
+   * called for ``pi-pico-w`` boards. Idempotent — calling twice is a no-op.
+   *
+   * The emulator observes outbound PIO TX FIFO writes (which the cyw43
+   * driver uses to bit-bang the gSPI bus) and feeds back synthesised
+   * responses. When a Cyw43Bridge is supplied, outbound Ethernet frames
+   * are forwarded to the backend network bridge and inbound packets
+   * coming back from the bridge are queued for the chip to deliver.
+   */
+  attachCyw43(bridge: Cyw43Bridge | null = null): Cyw43Emulator {
+    if (this.cyw43) return this.cyw43;
+    const emu = new Cyw43Emulator();
+    const sniffer = new PioBusSniffer();
+    this.cyw43 = emu;
+    this.cyw43Sniffer = sniffer;
+    this.cyw43Bridge = bridge;
+
+    emu.onLed((ev: LedEvent) => {
+      this.onPicoWLed?.(ev.on);
+    });
+    emu.onConnect((ev) => {
+      this.onPicoWWifiUp?.(ev.ssid);
+    });
+    emu.onPacketOut((ev: PacketOutEvent) => {
+      this.cyw43Bridge?.sendPacket(ev.ether);
+    });
+
+    if (bridge) {
+      bridge.onPacketIn = (p) => emu.injectPacket(p.ether);
+    }
+
+    this.installCyw43PioHooks();
+    return emu;
+  }
+
+  /** Detach the CYW43 emulator (called from teardown). */
+  detachCyw43(): void {
+    for (const h of this.cyw43HookedFifos) h.restore();
+    this.cyw43HookedFifos = [];
+    this.cyw43 = null;
+    this.cyw43Sniffer = null;
+    this.cyw43Bridge = null;
+  }
+
+  /** Read access for tests / debug panels. */
+  getCyw43(): Cyw43Emulator | null {
+    return this.cyw43;
+  }
+
+  /**
+   * Hook every PIO state machine's ``txFIFO.push`` so the CYW43 emulator
+   * sees every word the cyw43 driver bit-bangs onto the bus, and
+   * mirror responses back into ``rxFIFO`` so the driver's reads land
+   * without needing a real chip on the wire.
+   */
+  private installCyw43PioHooks(): void {
+    if (!this.rp2040 || !this.cyw43 || !this.cyw43Sniffer) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pios: any[] = (this.rp2040 as any).pio;
+    for (const pio of pios) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const sm of pio.machines as any[]) {
+        const tx = sm.txFIFO;
+        const rx = sm.rxFIFO;
+        if (!tx || !rx) continue;
+        const origPush: (v: number) => void = tx.push.bind(tx);
+        tx.push = (value: number) => {
+          // Feed the gSPI sniffer; if the command produces a response,
+          // surface it word-by-word into the rxFIFO so the driver's
+          // `pull` instruction reads it back.
+          this.feedCyw43Word(value);
+          return origPush(value);
+        };
+        this.cyw43HookedFifos.push({
+          restore: () => {
+            tx.push = origPush;
+          },
+        });
+      }
+    }
+  }
+
+  private cyw43RxQueue: number[] = [];
+  private feedCyw43Word(word: number): void {
+    if (!this.cyw43Sniffer || !this.cyw43) return;
+    for (const ev of this.cyw43Sniffer.feedWord(word)) {
+      if (ev.kind === "payload") {
+        const reply = this.cyw43.onCommand(ev.cmd, ev.payload);
+        if (reply && reply.length > 0) this.queueCyw43Reply(reply);
+      }
+    }
+    // Drain queued reply words into any state machine that has space.
+    this.drainCyw43RxIntoSomeSM();
+  }
+
+  private queueCyw43Reply(reply: Uint8Array): void {
+    // 32-bit big-endian repacking with the same halfword swap the PIO
+    // program does on input. We push host-byte-order words; the SM's
+    // shift register puts them on the wire LSB-first per the gSPI spec.
+    for (let i = 0; i + 4 <= reply.length; i += 4) {
+      const w =
+        ((reply[i + 3] << 24) |
+          (reply[i + 2] << 16) |
+          (reply[i + 1] << 8) |
+          reply[i]) >>>
+        0;
+      this.cyw43RxQueue.push(w);
+    }
+    if (reply.length % 4 !== 0) {
+      // Pad to 4 bytes with zeros — the driver discards trailing bytes
+      // it didn't request.
+      const tail = reply.subarray(reply.length - (reply.length % 4));
+      let w = 0;
+      for (let i = 0; i < tail.length; i++) w |= tail[i] << (i * 8);
+      this.cyw43RxQueue.push(w >>> 0);
+    }
+  }
+
+  private drainCyw43RxIntoSomeSM(): void {
+    if (!this.rp2040 || this.cyw43RxQueue.length === 0) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pios: any[] = (this.rp2040 as any).pio;
+    for (const pio of pios) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const sm of pio.machines as any[]) {
+        const rx = sm.rxFIFO;
+        if (!rx) continue;
+        while (this.cyw43RxQueue.length > 0 && !rx.full) {
+          rx.push(this.cyw43RxQueue.shift());
+        }
+        if (this.cyw43RxQueue.length === 0) return;
+      }
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getADC(): any {
+    return this.rp2040?.adc ?? null;
+  }
+
+  /** Get underlying RP2040 instance (for advanced usage / tests) */
+  getMCU(): RP2040 | null {
+    return this.rp2040;
+  }
+
+  // ── Private initialization ───────────────────────────────────────────────
+
+  private initMCU(programBytes: Uint8Array): void {
+    this.rp2040 = new RP2040();
+
+    // Suppress noisy internal logs (only show errors)
+    this.rp2040.logger = new ConsoleLogger(LogLevel.Error);
+
+    // Load RP2040 B1 bootrom — needed for proper boot sequence
+    this.rp2040.loadBootrom(bootromB1);
+
+    // Load binary into flash starting at offset 0 (maps to 0x10000000)
+    this.rp2040.flash.set(programBytes, 0);
+
+    // Set PC to flash start (boot vector)
+    this.rp2040.core.PC = 0x10000000;
+
+    // ── Wire UART0 (default Serial port for Arduino-Pico) ────────────
+    let serialBuffer = "";
+    this.rp2040.uart[0].onByte = (value: number) => {
+      const ch = String.fromCharCode(value);
+      serialBuffer += ch;
+      if (ch === "\n") {
+        console.log("[RP2040 UART0]", serialBuffer.trimEnd());
+        serialBuffer = "";
+      }
+      if (this.onSerialData) {
+        this.onSerialData(ch);
+      }
+      // Synthesize the bit-level waveform on the UART0 TX pin so an
+      // oscilloscope on it sees a real frame — rp2040js doesn't drive the
+      // GPIO when the UART transmits. See emitUartTxFrame().
+      this.emitUartTxFrame(0, value);
+    };
+
+    // ── Wire UART1 (Serial1) — also forward to onSerialData for now ──
+    this.rp2040.uart[1].onByte = (value: number) => {
+      if (this.onSerialData) {
+        this.onSerialData(String.fromCharCode(value));
+      }
+      this.emitUartTxFrame(1, value);
+    };
+
+    // ── Wire I2C0 and I2C1 ───────────────────────────────────────────
+    this.wireI2C(0);
+    this.wireI2C(1);
+
+    // ── Wire SPI0 and SPI1 ────────────────────────────────────────────
+    // SPI0 must check for a registered .spi adapter on every byte. If a
+    // part on the canvas (ILI9341, custom chip, …) accessed simulator.spi
+    // BEFORE this initMCU runs, the adapter is already staged but
+    // _adapter.onByte points at the part's handler — we have to route
+    // the byte through it. Without this, SPI parts see nothing and the
+    // canvas stays black (real regression — Pico Doom shipped with this
+    // bug for months because the same wiring in initMicroPython was
+    // adapter-aware but this Arduino path wasn't).
+    this.rp2040.spi[0].onTransmit = (v: number) => {
+      if (this._spiAdapter && this._spiAdapter.onByte) {
+        this._spiAdapter.onByte(v);
+      } else {
+        this.rp2040!.spi[0].completeTransmit(v);
+      }
+    };
+    this.rp2040.spi[1].onTransmit = (value: number) => {
+      this.rp2040!.spi[1].completeTransmit(value); // loopback
+    };
+
+    // ── Set default ADC values ───────────────────────────────────────
+    // Channel 0-3: GPIO26-29, channel 4: internal temp sensor
+    // Default to mid-range (~1.65V on 3.3V ref, 12-bit)
+    this.rp2040.adc.channelValues[0] = 2048;
+    this.rp2040.adc.channelValues[1] = 2048;
+    this.rp2040.adc.channelValues[2] = 2048;
+    this.rp2040.adc.channelValues[3] = 2048;
+    // Internal temp sensor: T = 27 - (V - 0.706) / 0.001721
+    // For 27°C: V = 0.706V → ADC = 0.706/3.3 * 4095 ≈ 876
+    this.rp2040.adc.channelValues[4] = 876;
+
+    // ── Patch PIO to use synchronous stepping instead of setTimeout ──
+    // rp2040js PIO uses setTimeout(() => this.run(), 0) which deadlocks
+    // when the CPU busy-waits for PIO FIFO space (e.g. pio_sm_put_blocking).
+    // We step PIO synchronously in the execute loop instead.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const pio of (this.rp2040 as any).pio) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      pio.run = function (this: any) {
+        if (this.runTimer) {
+          clearTimeout(this.runTimer);
+          this.runTimer = null;
+        }
+        // No-op: execute loop calls pio.step() synchronously
+      };
+    }
+    this.pioStepAccum = 0;
+
+    // ── Set up GPIO listeners ────────────────────────────────────────
+    this.setupGpioListeners();
+  }
+
+  /**
+   * Resolve the GPIO index currently routed to a given UART's TX line.
+   *
+   * The RP2040 GPIO function-select register decides which signal each pad
+   * carries; UART has FUNCSEL == 2.  Per datasheet, UART0_TX can land on
+   * GP0 / GP12 / GP16 / GP28 and UART1_TX on GP4 / GP8 / GP20 / GP24.  We
+   * walk the candidates and pick the first whose function select is UART.
+   * If none is mapped (rare — the firmware hasn't called `Serial.begin()`
+   * properly) fall back to the default for that UART (GP0 / GP4).
+   */
+  private rp2040UartTxPin(uartIdx: 0 | 1): number {
+    const FUNCTION_UART = 2;
+    const candidates = uartIdx === 0 ? [0, 12, 16, 28] : [4, 8, 20, 24];
+    if (this.rp2040) {
+      for (const g of candidates) {
+        const pin = this.rp2040.gpio[g];
+        if (
+          pin &&
+          (pin as unknown as { functionSelect: number }).functionSelect ===
+            FUNCTION_UART
+        ) {
+          return g;
+        }
+      }
+    }
+    return uartIdx === 0 ? 0 : 4;
+  }
+
+  /**
+   * Synthesize a bit-level UART frame on the TX pin so the oscilloscope
+   * sees a real waveform during `Serial.print` / `Serial1.print`.
+   *
+   * rp2040js's UART peripheral fires `onByte(value)` per transmitted byte
+   * but never toggles the corresponding GPIO — the same gap closed in
+   * AVRSimulator.emitUartTxFrame().  Here we do the same: build the frame
+   * (start LOW + data LSB-first + stop HIGH) using the UART's live
+   * `baudRate` and `bitsPerChar`, then push one transition per bit-change
+   * through `onPinChangeWithTime` so the scope draws the waveform at the
+   * actual silicon-equivalent baud rate.
+   *
+   * Time is taken from the RP2040 clock (nanos counter), matching the
+   * existing GPIO-listener path in `setupGpioListeners()` — UART
+   * waveforms therefore stack consistently with any other pin trace.
+   */
+  private emitUartTxFrame(uartIdx: 0 | 1, byte: number): void {
+    if (!this.rp2040 || !this.onPinChangeWithTime) return;
+    const uart = this.rp2040.uart[uartIdx];
+    if (!uart) return;
+    const baud = uart.baudRate;
+    if (!baud || baud <= 0) return;
+
+    const txPin = this.rp2040UartTxPin(uartIdx);
+    const dataBits = uart.bitsPerChar;
+    const clk = (this.rp2040 as unknown as { clock?: { nanos: number } }).clock;
+    const startMs = clk ? clk.nanos / 1_000_000 : 0;
+    const bitMs = 1000 / baud;
+
+    // First frame after boot: seed an explicit idle HIGH one bit-period
+    // before the start bit so the scope has a HIGH baseline to draw the
+    // start-bit transition against.  Subsequent frames inherit the HIGH
+    // baseline from the previous frame's stop bit.
+    if (!this.uartTxSeeded[uartIdx]) {
+      this.onPinChangeWithTime(txPin, true, Math.max(0, startMs - bitMs));
+      this.uartTxSeeded[uartIdx] = true;
+    }
+
+    const bits: boolean[] = [false]; // start bit
+    for (let i = 0; i < dataBits; i++) {
+      bits.push(((byte >> i) & 1) !== 0);
+    }
+    bits.push(true); // stop bit (rp2040js doesn't expose 2-stop-bit selection
+    // cleanly; default to 1 — same behaviour as 8N1 sketches)
+
+    let prevState = true;
+    for (let i = 0; i < bits.length; i++) {
+      if (bits[i] !== prevState) {
+        this.onPinChangeWithTime(txPin, bits[i], startMs + i * bitMs);
+        prevState = bits[i];
+      }
+    }
+  }
+
+  private wireI2C(bus: 0 | 1): void {
+    if (!this.rp2040) return;
+    const i2c: RPI2C = this.rp2040.i2c[bus];
+    // Swap in the real RPI2C peripheral and route its per-callback
+    // events into the existing bus manager.  Any devices + bridges
+    // registered before the firmware loaded are preserved.
+    const busManager = this.i2cBuses[bus];
+    busManager.attachMaster(i2c);
+    wireRpI2cToBus(i2c, busManager);
+  }
+
+  private setupGpioListeners(): void {
+    this.gpioUnsubscribers.forEach((fn) => fn());
+    this.gpioUnsubscribers = [];
+
+    if (!this.rp2040) return;
+
+    for (let gpioIdx = 0; gpioIdx < 30; gpioIdx++) {
+      const pin = gpioIdx;
+      const gpio = this.rp2040.gpio[gpioIdx];
+      if (!gpio) continue;
+
+      const unsub = gpio.addListener((state: GPIOPinState) => {
+        const isHigh =
+          state === GPIOPinState.High || state === GPIOPinState.InputPullUp;
+        this.pinManager.triggerPinChange(pin, isHigh, "mcu");
+        if (this.onPinChangeWithTime && this.rp2040) {
+          // IClock interface exposes `nanos` (not `timeUs`)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const clk = (this.rp2040 as any).clock;
+          const timeMs = clk ? (clk.nanos as number) / 1_000_000 : 0;
+          this.onPinChangeWithTime(pin, isHigh, timeMs);
+        }
+      });
+      this.gpioUnsubscribers.push(unsub);
+    }
+  }
+
+  // ── Public API ───────────────────────────────────────────────────────────
+
+  start(): void {
+    if (this.running || !this.rp2040) {
+      console.warn("[RP2040] Already running or not initialized");
+      return;
+    }
+
+    this.running = true;
+    console.log("[RP2040] Starting simulation at 125 MHz...");
+
+    const execute = () => {
+      if (!this.running || !this.rp2040) return;
+
+      const cyclesTarget = Math.floor(CYCLES_PER_FRAME * this.speed);
+      const { core } = this.rp2040;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const clock = (this.rp2040 as any).clock;
+
+      try {
+        let cyclesDone = 0;
+        const pioDiv = this.getPIOClockDiv();
+        while (cyclesDone < cyclesTarget) {
+          if (core.waiting) {
+            if (clock) {
+              const jump: number = clock.nanosToNextAlarm;
+              if (jump <= 0) {
+                // No clock alarms — step PIO so it can unblock the CPU
+                // (e.g. PIO consuming FIFO data may generate an interrupt)
+                this.stepPIO();
+                break;
+              }
+              const jumped = Math.ceil(jump / CYCLE_NANOS);
+              const pioSteps = Math.floor(jumped / pioDiv);
+              // Advance clock incrementally per PIO step so GPIO transitions
+              // get accurate timestamps (not all lumped at the end of the jump).
+              const nanoPerPioStep = pioDiv * CYCLE_NANOS;
+              const maxSteps = Math.min(pioSteps, 50000);
+              let nanosStepped = 0;
+              for (let i = 0; i < maxSteps; i++) {
+                clock.tick(nanoPerPioStep);
+                nanosStepped += nanoPerPioStep;
+                this.totalCycles += pioDiv;
+                this.stepPIO();
+              }
+              // Tick any remaining nanoseconds not covered by PIO steps
+              const remaining = jump - nanosStepped;
+              if (remaining > 0) {
+                clock.tick(remaining);
+                this.totalCycles += Math.ceil(remaining / CYCLE_NANOS);
+              }
+              cyclesDone += jumped;
+              this.flushScheduledPinChanges();
+            } else {
+              break;
+            }
+          } else {
+            const cycles: number = core.executeInstruction();
+            if (clock) clock.tick(cycles * CYCLE_NANOS);
+            cyclesDone += cycles;
+            this.totalCycles += cycles;
+            // Step PIO synchronously at the PIO clock rate
+            this.pioStepAccum += cycles;
+            while (this.pioStepAccum >= pioDiv) {
+              this.pioStepAccum -= pioDiv;
+              this.stepPIO();
+            }
+            this.flushScheduledPinChanges();
+          }
+        }
+      } catch (error) {
+        console.error("[RP2040] Simulation error:", error);
+        this.stop();
+        return;
+      }
+
+      this.animationFrame = requestAnimationFrame(execute);
+    };
+
+    this.animationFrame = requestAnimationFrame(execute);
+  }
+
+  stop(): void {
+    if (!this.running) return;
+    this.running = false;
+    if (this.animationFrame !== null) {
+      cancelAnimationFrame(this.animationFrame);
+      this.animationFrame = null;
+    }
+    // Force a new idle-HIGH seed on the next byte: the scope buffer is
+    // typically cleared on stop/start, so the previous run's "seeded"
+    // flag would suppress the baseline sample for the next session.
+    this.uartTxSeeded = [false, false];
+    console.log("[RP2040] Simulation stopped");
+  }
+
+  reset(): void {
+    this.stop();
+    this.totalCycles = 0;
+    this.scheduledPinChanges = [];
+    if (this.rp2040 && this.flashCopy) {
+      if (this.micropythonMode) {
+        // In MicroPython mode, restore the full flash snapshot (UF2 + LittleFS)
+        this.rp2040 = new RP2040();
+        this.rp2040.logger = new ConsoleLogger(LogLevel.Error);
+        this.rp2040.loadBootrom(bootromB1);
+        this.rp2040.flash.set(this.flashCopy);
+        this.rp2040.core.PC = 0x10000000;
+
+        // Re-wire USBCDC
+        this.usbCDC = new USBCDC(this.rp2040.usbCtrl);
+        this.usbCDC.onDeviceConnected = () => {
+          this.usbCDC!.sendSerialByte("\r".charCodeAt(0));
+          this.usbCDC!.sendSerialByte("\n".charCodeAt(0));
+        };
+        this.usbCDC.onSerialData = (buffer: Uint8Array) => {
+          for (const byte of buffer) {
+            if (this.onSerialData) this.onSerialData(String.fromCharCode(byte));
+          }
+        };
+
+        // Re-wire peripherals (skipping UART0 serial)
+        this.rp2040.uart[1].onByte = (value: number) => {
+          if (this.onSerialData) this.onSerialData(String.fromCharCode(value));
+        };
+        this.wireI2C(0);
+        this.wireI2C(1);
+        this.rp2040.spi[0].onTransmit = (v: number) => {
+          this.rp2040!.spi[0].completeTransmit(v);
+        };
+        this.rp2040.spi[1].onTransmit = (v: number) => {
+          this.rp2040!.spi[1].completeTransmit(v);
+        };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        for (const pio of (this.rp2040 as any).pio) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          pio.run = function (this: any) {
+            if (this.runTimer) {
+              clearTimeout(this.runTimer);
+              this.runTimer = null;
+            }
+          };
+        }
+        this.pioStepAccum = 0;
+        this.setupGpioListeners();
+      } else {
+        this.initMCU(this.flashCopy);
+      }
+      console.log("[RP2040] CPU reset");
+    }
+  }
+
+  isRunning(): boolean {
+    return this.running;
+  }
+
+  setSpeed(speed: number): void {
+    this.speed = Math.max(0.1, Math.min(10.0, speed));
+  }
+
+  getSpeed(): number {
+    return this.speed;
+  }
+
+  /** Returns the CPU clock frequency in Hz. */
+  getClockHz(): number {
+    return F_CPU;
+  }
+
+  /** Returns total CPU cycles executed since last reset/load. */
+  getCurrentCycles(): number {
+    return this.totalCycles;
+  }
+
+  /**
+   * Schedule a GPIO pin state change at a specific future cycle count.
+   * Enables cycle-accurate protocol simulation (e.g. HC-SR04 echo timing).
+   */
+  schedulePinChange(pin: number, state: boolean, atCycle: number): void {
+    let i = this.scheduledPinChanges.length;
+    while (i > 0 && this.scheduledPinChanges[i - 1].cycle > atCycle) i--;
+    this.scheduledPinChanges.splice(i, 0, { cycle: atCycle, pin, state });
+  }
+
+  /** Get the PIO clock divider from the first enabled state machine. */
+  private getPIOClockDiv(): number {
+    if (!this.rp2040) return 64;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const pio of (this.rp2040 as any).pio) {
+      if (pio.stopped) continue;
+      for (const m of pio.machines) {
+        if (m.enabled) {
+          return Math.max(1, m.clockDivInt || 1);
+        }
+      }
+    }
+    return 64; // default
+  }
+
+  /** Step PIO state machines synchronously (prevents setTimeout deadlock). */
+  private stepPIO(): void {
+    if (!this.rp2040) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pio = (this.rp2040 as any).pio;
+    if (pio[0] && !pio[0].stopped) pio[0].step();
+    if (pio[1] && !pio[1].stopped) pio[1].step();
+  }
+
+  private flushScheduledPinChanges(): void {
+    if (this.scheduledPinChanges.length === 0) return;
+    while (
+      this.scheduledPinChanges.length > 0 &&
+      this.scheduledPinChanges[0].cycle <= this.totalCycles
+    ) {
+      const { pin, state } = this.scheduledPinChanges.shift()!;
+      this.setPinState(pin, state);
+    }
+  }
+
+  /**
+   * Drive a GPIO pin externally (e.g. from a button or slider).
+   * GPIO n = Arduino D(n) for Raspberry Pi Pico.
+   */
+  setPinState(arduinoPin: number, state: boolean): void {
+    if (!this.rp2040) return;
+    const gpio = this.rp2040.gpio[arduinoPin];
+    if (gpio) {
+      gpio.setInputValue(state);
+    }
+  }
+
+  /**
+   * Send text to UART0 RX (or USBCDC in MicroPython mode).
+   */
+  serialWrite(text: string): void {
+    if (!this.rp2040) return;
+    if (this.micropythonMode && this.usbCDC) {
+      for (let i = 0; i < text.length; i++) {
+        this.usbCDC.sendSerialByte(text.charCodeAt(i));
+      }
+    } else {
+      for (let i = 0; i < text.length; i++) {
+        this.rp2040.uart[0].feedByte(text.charCodeAt(i));
+      }
+    }
+  }
+
+  /**
+   * Send a raw byte to the serial interface (for control characters like Ctrl+C).
+   */
+  serialWriteByte(byte: number): void {
+    if (!this.rp2040) return;
+    if (this.micropythonMode && this.usbCDC) {
+      this.usbCDC.sendSerialByte(byte);
+    } else {
+      this.rp2040.uart[0].feedByte(byte);
+    }
+  }
+
+  /**
+   * Register a virtual I2C device on the specified bus (0 or 1).
+   * Default bus 0 = Wire, bus 1 = Wire1.  Devices are added directly
+   * to the bus manager (which exists from construction time, with a
+   * placeholder master until the real RPI2C is wired in start()).
+   */
+  addI2CDevice(device: I2CDevice, bus: 0 | 1 = 0): void {
+    this.i2cBuses[bus].addDevice(device);
+  }
+
+  /** Remove an I2C device by address from the given bus. */
+  removeI2CDevice(address: number, bus: 0 | 1 = 0): void {
+    this.i2cBuses[bus].removeDevice(address);
+  }
+
+  /**
+   * Get the I2CBusManager for a given hardware bus (0 or 1).
+   * Available from construction time so Interconnect can install
+   * cross-board bridges before firmware loads.
+   */
+  getI2CBus(bus: 0 | 1 = 0): I2CBusManager {
+    return this.i2cBuses[bus];
+  }
+
+  /**
+   * Execute one ARM instruction synchronously and return the number
+   * of CPU cycles it took.  Mirrors `AVRSimulator.step()` for tests
+   * that need deterministic single-stepping outside the
+   * `requestAnimationFrame` loop used in production.  No-op if the
+   * firmware has not been loaded.
+   *
+   * Does NOT advance PIO or fire scheduled pin changes — for those
+   * use the production `start()` loop or call `stepCycles(n)`.
+   */
+  step(): number {
+    if (!this.rp2040) return 0;
+    const core = this.rp2040.core;
+    const clock = this.rp2040.clock;
+    if (core.waiting) {
+      // CPU is in WFE/WFI — advance clock to the next alarm so an
+      // interrupt can wake it.  Without this, single-stepping a
+      // waiting CPU spins indefinitely.
+      const jump = clock?.nanosToNextAlarm ?? CYCLE_NANOS;
+      if (jump > 0 && clock) clock.tick(jump);
+      this.totalCycles += Math.ceil((jump || CYCLE_NANOS) / CYCLE_NANOS);
+      return Math.ceil((jump || CYCLE_NANOS) / CYCLE_NANOS);
+    }
+    const cycles: number = core.executeInstruction();
+    if (clock) clock.tick(cycles * CYCLE_NANOS);
+    this.totalCycles += cycles;
+    return cycles;
+  }
+
+  /**
+   * Drive the CPU forward by approximately `targetCycles` cycles,
+   * synchronously.  Useful for test harnesses that want bounded,
+   * deterministic execution without depending on
+   * `requestAnimationFrame`.  Returns the actual number of cycles
+   * consumed (may exceed targetCycles by at most the cost of one
+   * instruction).
+   */
+  stepCycles(targetCycles: number): number {
+    let consumed = 0;
+    while (consumed < targetCycles) {
+      const c = this.step();
+      if (c === 0) break; // firmware not loaded
+      consumed += c;
+    }
+    return consumed;
+  }
+
+  /**
+   * Set ADC channel value (0-4095 for 12-bit).
+   * Channels 0-3 = GPIO26-29, channel 4 = internal temperature sensor.
+   */
+  setADCValue(channel: number, value: number): void {
+    if (!this.rp2040) return;
+    if (channel >= 0 && channel < 5) {
+      this.rp2040.adc.channelValues[channel] = Math.max(
+        0,
+        Math.min(4095, value),
+      );
+    }
+  }
+
+  /**
+   * Set SPI onTransmit handler for a bus (0 or 1).
+   * callback receives TX byte and must call completeTransmit on the SPI instance.
+   */
+  setSPIHandler(bus: 0 | 1, handler: (value: number) => number): void {
+    if (!this.rp2040) return;
+    const spi = this.rp2040.spi[bus];
+    spi.onTransmit = (value: number) => {
+      const response = handler(value);
+      spi.completeTransmit(response);
+    };
+  }
+
+  // ── Generic sensor registration (board-agnostic API) ──────────────────────
+  // RP2040 handles all sensor protocols locally via schedulePinChange,
+  // so these return false / no-op — the sensor runs its own frontend logic.
+
+  registerSensor(
+    _type: string,
+    _pin: number,
+    _props: Record<string, unknown>,
+  ): boolean {
+    return false;
+  }
+  updateSensor(_pin: number, _props: Record<string, unknown>): void {}
+  unregisterSensor(_pin: number): void {}
+}

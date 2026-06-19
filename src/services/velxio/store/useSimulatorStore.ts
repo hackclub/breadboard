@@ -912,6 +912,13 @@ interface SimulatorState {
   esp32CrashBoardId: string | null;
   dismissEsp32Crash: () => void;
 
+  // ── Canvas viewport (captured for timelapse) ──────────────────────────────
+  canvasPan: { x: number; y: number };
+  canvasZoom: number;
+  syncCanvasView: (pan: { x: number; y: number }, zoom: number) => void;
+  _timelapseReplay: boolean;
+  setTimelapseReplay: (v: boolean) => void;
+
   // ── Components ──────────────────────────────────────────────────────────
   components: Component[];
   addComponent: (component: Component) => void;
@@ -2100,6 +2107,12 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
 
     esp32CrashBoardId: null,
     dismissEsp32Crash: () => set({ esp32CrashBoardId: null }),
+
+    canvasPan: { x: 0, y: 0 },
+    canvasZoom: 1,
+    syncCanvasView: (pan, zoom) => set({ canvasPan: pan, canvasZoom: zoom }),
+    _timelapseReplay: false,
+    setTimelapseReplay: (v) => set({ _timelapseReplay: v }),
 
     setBoardType: (type: BoardType) => {
       const { activeBoardId, running, stopSimulation } = get();

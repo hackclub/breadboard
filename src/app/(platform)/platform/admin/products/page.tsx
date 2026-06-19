@@ -2,9 +2,12 @@ import Link from "next/link";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { DocsFrame, PageHero } from "@/components/shared/platform-docs-frame";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
-import { db } from "@/lib/db/connection";
+import { db } from "@/lib/db/db";
 import { products } from "@/lib/db/schema";
-import { AddProductForm, ProductAdminCard } from "./_client";
+import {
+  AddProductForm,
+  ProductAdminCard,
+} from "@/components/platform/admin-products";
 
 export default async function AdminProductsPage() {
   const session = await getSession();

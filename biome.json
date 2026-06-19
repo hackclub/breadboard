@@ -16,6 +16,7 @@
       "!temp",
       "!.archive",
       "!.kilo",
+      "!drizzle/meta",
       "!oldvelxio",
       "!editor-backend",
       "!public/boards",
@@ -27,6 +28,7 @@
       "!public/littlefs.wasm",
       "!src/app/editor/velxio-styles",
       "!src/components/velxio",
+      "!src/lib/editor",
       "!src/lib/velxio",
       "!src/services/velxio"
     ]

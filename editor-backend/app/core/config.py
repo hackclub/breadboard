@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # CORS — used by main.py to whitelist the SPA origin during local dev
     # and to build redirect URLs from auth routes in the overlay.
-    FRONTEND_URL: str = "http://localhost:5173"
+    FRONTEND_URL: str = "http://localhost:3000"
 
     # extra="ignore": tolerate legacy keys (DATA_DIR, SECRET_KEY, DATABASE_URL, …)
     # left over from pre-split .env files or from the velxio-prod overlay so the

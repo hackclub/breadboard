@@ -462,3 +462,8 @@ PartSimulationRegistry.register("7segment", {
     }
   },
 });
+
+const sevenSegmentLogic = PartSimulationRegistry.get("7segment");
+if (sevenSegmentLogic) {
+  PartSimulationRegistry.register("7segment-4digit", sevenSegmentLogic);
+}

@@ -5,7 +5,7 @@ import { HiArrowRight, HiHandRaised, HiPencilSquare } from "react-icons/hi2";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { Badge } from "@/components/ui/badge";
 import { getSession } from "@/lib/auth/guards";
-import { db } from "@/lib/db/connection";
+import { db } from "@/lib/db/db";
 import { projects } from "@/lib/db/schema";
 import { canEditProject, statusLabel } from "@/lib/utils";
 

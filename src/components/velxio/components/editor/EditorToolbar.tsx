@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useEditorStore,
@@ -41,12 +41,6 @@ import type {
   CompilationLog,
   CompileTarget,
 } from "@/lib/velxio/utils/compilationLogger";
-import { exportToWokwiZip } from "@/lib/velxio/utils/wokwiZip";
-import {
-  importProjectFile,
-  PROJECT_FILE_ACCEPT,
-} from "@/lib/velxio/utils/importProject";
-import { readFirmwareFile } from "@/lib/velxio/utils/firmwareLoader";
 import {
   trackCompileCode,
   trackRunSimulation,
@@ -116,6 +110,7 @@ interface EditorToolbarProps {
    * to add deployment-specific actions without forking the toolbar.
    */
   rightSlot?: React.ReactNode;
+  readOnly?: boolean;
 }
 
 const _BOARD_PILL_ICON: Record<BoardKind, string> = {
@@ -167,6 +162,7 @@ export const EditorToolbar = ({
   setCompileLogs,
   centerSlot,
   rightSlot,
+  readOnly = false,
 }: EditorToolbarProps) => {
   const { t } = useTranslation();
   const { files, codeChangedSinceLastCompile, markCompiled } = useEditorStore();
@@ -254,34 +250,8 @@ export const EditorToolbar = ({
   const [libManagerOpen, setLibManagerOpen] = useState(false);
   const [pendingLibraries, setPendingLibraries] = useState<string[]>([]);
   const [installModalOpen, setInstallModalOpen] = useState(false);
-  const importInputRef = useRef<HTMLInputElement>(null);
-  const firmwareInputRef = useRef<HTMLInputElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [missingLibHint, setMissingLibHint] = useState(false);
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
-  const moreMenuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!moreMenuOpen) return;
-    const onClickOutside = (e: MouseEvent) => {
-      if (
-        moreMenuRef.current &&
-        !moreMenuRef.current.contains(e.target as Node)
-      ) {
-        setMoreMenuOpen(false);
-      }
-    };
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMoreMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onClickOutside);
-    document.addEventListener("keydown", onEsc);
-    return () => {
-      document.removeEventListener("mousedown", onClickOutside);
-      document.removeEventListener("keydown", onEsc);
-    };
-  }, [moreMenuOpen]);
-
   // Compile All / Run All — runs sequentially, logs to console (no dialog)
   const [compileAllRunning, setCompileAllRunning] = useState(false);
 
@@ -1202,212 +1172,6 @@ export const EditorToolbar = ({
     }
   };
 
-  const handleExport = async () => {
-    try {
-      const {
-        components,
-        wires,
-        boardPosition,
-        boardType: legacyBoardType,
-      } = useSimulatorStore.getState();
-      const projectName =
-        files.find((f) => f.name.endsWith(".ino"))?.name.replace(".ino", "") ||
-        "velxio-project";
-      await exportToWokwiZip(
-        files,
-        components,
-        wires,
-        legacyBoardType,
-        projectName,
-        boardPosition,
-      );
-    } catch (_err) {
-      setMessage({ type: "error", text: "Export failed." });
-    }
-  };
-
-  // Phase 3 D3.2 — Schematic screenshot. Pro-tier-gated by the backend.
-  // Same UX pattern as BOM export: everyone can click; 402 redirects to
-  // /pricing. The server-side headless chromium renders the canvas and
-  // returns a PNG, which we trigger a download for.
-  const handleExportScreenshot = async () => {
-    const projectId = currentProject?.id;
-    if (!projectId) {
-      setMessage({
-        type: "error",
-        text: "Save the project before exporting an image.",
-      });
-      return;
-    }
-    setMessage({
-      type: "info",
-      text: "Rendering screenshot — may take 5-10 seconds…",
-    });
-    try {
-      const resp = await fetch(
-        `/api/pro/projects/${projectId}/screenshot.png`,
-        {
-          credentials: "include",
-        },
-      );
-      if (resp.status === 422) {
-        setMessage({
-          type: "error",
-          text: "Add at least one component to export an image.",
-        });
-        return;
-      }
-      if (!resp.ok) {
-        setMessage({ type: "error", text: "Screenshot export failed." });
-        return;
-      }
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      const cd = resp.headers.get("Content-Disposition") || "";
-      const m = /filename="?([^"]+)"?/.exec(cd);
-      a.download = m ? m[1] : `velxio-${projectId}.png`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-      setMessage({ type: "success", text: "Screenshot downloaded." });
-    } catch {
-      setMessage({ type: "error", text: "Screenshot export failed." });
-    }
-  };
-
-  // Phase 3 D3.1 — BOM export. Pro-tier-gated by the backend (402 if not pro).
-  // We let everyone click; the 402 response feeds the upgrade prompt below
-  // so free/maker users hit the funnel naturally instead of an obviously-
-  // locked button (which they'd just dismiss).
-  const handleExportBom = async () => {
-    const projectId = currentProject?.id;
-    if (!projectId) {
-      setMessage({
-        type: "error",
-        text: "Save the project before exporting a BOM.",
-      });
-      return;
-    }
-    try {
-      const resp = await fetch(`/api/pro/projects/${projectId}/bom.csv`, {
-        credentials: "include",
-      });
-      if (!resp.ok) {
-        setMessage({ type: "error", text: "BOM export failed." });
-        return;
-      }
-      const blob = await resp.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      const cd = resp.headers.get("Content-Disposition") || "";
-      const m = /filename="?([^"]+)"?/.exec(cd);
-      a.download = m ? m[1] : `bom-${projectId}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch {
-      setMessage({ type: "error", text: "BOM export failed." });
-    }
-  };
-
-  const handleFirmwareUpload = async (
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) => {
-    const file = e.target.files?.[0];
-    if (firmwareInputRef.current) firmwareInputRef.current.value = "";
-    if (!file) return;
-
-    setConsoleOpen(true);
-    addLog({
-      timestamp: new Date(),
-      type: "info",
-      message: `Loading firmware: ${file.name}...`,
-    });
-
-    try {
-      const boardKind = activeBoard?.boardKind;
-      if (!boardKind) {
-        setMessage({ type: "error", text: "No board selected" });
-        return;
-      }
-
-      const result = await readFirmwareFile(file, boardKind);
-
-      // Architecture mismatch warning for ELF files
-      if (
-        result.elfInfo?.suggestedBoard &&
-        result.elfInfo.suggestedBoard !== boardKind
-      ) {
-        const detected = result.elfInfo.architectureName;
-        const current = activeBoard ? boardDisplayName(activeBoard) : boardKind;
-        addLog({
-          timestamp: new Date(),
-          type: "info",
-          message: `Note: Detected ${detected} architecture, but current board is ${current}. Loading anyway.`,
-        });
-      }
-
-      if (activeBoardId) {
-        compileBoardProgram(activeBoardId, result.program);
-        markCompiled();
-        addLog({
-          timestamp: new Date(),
-          type: "info",
-          message: result.message,
-        });
-        setMessage({ type: "success", text: `Firmware loaded: ${file.name}` });
-      }
-    } catch (_err) {
-      const errMsg =
-        err instanceof Error ? err.message : "Failed to load firmware";
-      addLog({ timestamp: new Date(), type: "error", message: errMsg });
-      setMessage({ type: "error", text: errMsg });
-    }
-  };
-
-  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!importInputRef.current) return;
-    importInputRef.current.value = "";
-    if (!file) return;
-    try {
-      const result = await importProjectFile(file);
-      if (result.kind === "vlx") {
-        // importVlxFile already wrote into the stores.
-        setMessage({ type: "success", text: `Imported ${file.name}` });
-        return;
-      }
-      // .zip path: apply the parsed payload to the stores ourselves, then
-      // surface any missing libraries via the existing install modal.
-      const { loadFiles } = useEditorStore.getState();
-      const {
-        setComponents,
-        setWires,
-        setBoardType,
-        setBoardPosition,
-        stopSimulation,
-      } = useSimulatorStore.getState();
-      stopSimulation();
-      if (result.boardType) setBoardType(result.boardType);
-      setBoardPosition(result.boardPosition);
-      setComponents(result.components);
-      setWires(result.wires);
-      if (result.files.length > 0) loadFiles(result.files);
-      setMessage({ type: "success", text: `Imported ${file.name}` });
-      if (result.libraries.length > 0) {
-        setPendingLibraries(result.libraries);
-        setInstallModalOpen(true);
-      }
-    } catch (err: any) {
-      setMessage({ type: "error", text: err?.message || "Import failed." });
-    }
-  };
-
   return (
     <>
       <div className="editor-toolbar-wrapper" style={{ position: "relative" }}>
@@ -1421,6 +1185,7 @@ export const EditorToolbar = ({
                 className="tb-lang-select"
                 value={activeBoard.languageMode ?? "arduino"}
                 onChange={(e) => {
+                  if (readOnly) return;
                   if (activeBoardId)
                     setBoardLanguageMode(
                       activeBoardId,
@@ -1449,7 +1214,7 @@ export const EditorToolbar = ({
             {/* Compile */}
             <button
               onClick={handleCompile}
-              disabled={compiling || !activeBoard}
+              disabled={readOnly || compiling || !activeBoard}
               className="tb-btn tb-btn-compile"
               title={
                 !activeBoard
@@ -1497,9 +1262,10 @@ export const EditorToolbar = ({
             <button
               onClick={handleRun}
               disabled={
-                isBoardless
+                readOnly ||
+                (isBoardless
                   ? digitalRunning
-                  : running || compiling || !activeBoard
+                  : running || compiling || !activeBoard)
               }
               className="tb-btn tb-btn-run"
               title={
@@ -1528,7 +1294,9 @@ export const EditorToolbar = ({
             {/* Stop */}
             <button
               onClick={handleStop}
-              disabled={isBoardless ? !digitalRunning : !anyBoardRunning}
+              disabled={
+                readOnly || (isBoardless ? !digitalRunning : !anyBoardRunning)
+              }
               className="tb-btn tb-btn-stop"
               title={
                 isBoardless
@@ -1550,7 +1318,9 @@ export const EditorToolbar = ({
             {/* Reset */}
             <button
               onClick={handleReset}
-              disabled={!compiledHex && !activeBoard?.compiledProgram}
+              disabled={
+                readOnly || (!compiledHex && !activeBoard?.compiledProgram)
+              }
               className="tb-btn tb-btn-reset"
               title={t("editor.toolbar.reset")}
             >
@@ -1576,7 +1346,7 @@ export const EditorToolbar = ({
                 {/* Compile All — boards + programmable chips */}
                 <button
                   onClick={handleCompileAll}
-                  disabled={compileAllRunning}
+                  disabled={readOnly || compileAllRunning}
                   className="tb-btn tb-btn-compile-all"
                   title={t("editor.toolbar.compileAll")}
                 >
@@ -1599,7 +1369,10 @@ export const EditorToolbar = ({
                 <button
                   onClick={handleRunAll}
                   disabled={
-                    compileAllRunning || anyBoardRunning || digitalRunning
+                    readOnly ||
+                    compileAllRunning ||
+                    anyBoardRunning ||
+                    digitalRunning
                   }
                   className="tb-btn tb-btn-run-all"
                   title={t("editor.toolbar.runAll")}
@@ -1625,25 +1398,6 @@ export const EditorToolbar = ({
           )}
 
           <div className="toolbar-group toolbar-group-right">
-            {/* Hidden file input for project import. Accepts both .vlx
-                (Velxio native) and .zip (Wokwi bundle); the dispatcher in
-                utils/importProject.ts picks the right loader by extension. */}
-            <input
-              ref={importInputRef}
-              type="file"
-              accept={PROJECT_FILE_ACCEPT}
-              style={{ display: "none" }}
-              onChange={handleImportFile}
-            />
-            {/* Hidden file input for firmware upload */}
-            <input
-              ref={firmwareInputRef}
-              type="file"
-              accept=".hex,.bin,.elf,.ihex"
-              style={{ display: "none" }}
-              onChange={handleFirmwareUpload}
-            />
-
             {/* Library Manager — always visible with label */}
             <button
               onClick={() => {
@@ -1671,317 +1425,6 @@ export const EditorToolbar = ({
                 {t("editor.toolbar.libraries.label")}
               </span>
             </button>
-
-            {/* Import zip — inline by default; container query at narrow
-                widths swaps this for the corresponding overflow-menu item. */}
-            <button
-              onClick={() => importInputRef.current?.click()}
-              className="tb-btn tb-btn-import-inline"
-              title={t("editor.toolbar.import")}
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-            </button>
-            <button
-              onClick={() => handleExport()}
-              className="tb-btn tb-btn-export-inline"
-              title={t("editor.toolbar.export")}
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="17 8 12 3 7 8" />
-                <line x1="12" y1="3" x2="12" y2="15" />
-              </svg>
-            </button>
-            {/* Overflow "More" menu — collects the secondary actions
-                (BOM, Schematic image, Upload firmware) so the toolbar no
-                longer overflows on narrow widths.  The two Pro items show
-                a small "PRO" pill in the menu so users know they're
-                premium BEFORE clicking, instead of being surprised by an
-                upgrade prompt. */}
-            <div className="tb-overflow-wrap" ref={moreMenuRef}>
-              <button
-                onClick={() => setMoreMenuOpen((v) => !v)}
-                className={`tb-btn tb-btn-overflow${moreMenuOpen ? " tb-btn-overflow-active" : ""}`}
-                title={t("editor.toolbar.more", "More")}
-                aria-haspopup="true"
-                aria-expanded={moreMenuOpen}
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                >
-                  <circle cx="5" cy="12" r="1.8" />
-                  <circle cx="12" cy="12" r="1.8" />
-                  <circle cx="19" cy="12" r="1.8" />
-                </svg>
-              </button>
-              {moreMenuOpen && (
-                <div className="tb-overflow-menu" role="menu">
-                  {/* Responsive items — hidden by default, shown via
-                      container query when the toolbar is too narrow to
-                      keep their inline twins.  Keeps mobile users from
-                      losing access to Import / Export entirely. */}
-                  <button
-                    className="tb-overflow-item tb-overflow-import"
-                    role="menuitem"
-                    onClick={() => {
-                      setMoreMenuOpen(false);
-                      importInputRef.current?.click();
-                    }}
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="7 10 12 15 17 10" />
-                      <line x1="12" y1="15" x2="12" y2="3" />
-                    </svg>
-                    <span className="tb-overflow-label">
-                      {t("editor.toolbar.importLabel", "Import project")}
-                    </span>
-                  </button>
-                  <button
-                    className="tb-overflow-item tb-overflow-export"
-                    role="menuitem"
-                    onClick={() => {
-                      setMoreMenuOpen(false);
-                      handleExport();
-                    }}
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="17 8 12 3 7 8" />
-                      <line x1="12" y1="3" x2="12" y2="15" />
-                    </svg>
-                    <span className="tb-overflow-label">
-                      {t("editor.toolbar.exportLabel", "Export project (.zip)")}
-                    </span>
-                  </button>
-                  <button
-                    className="tb-overflow-item"
-                    role="menuitem"
-                    onClick={() => {
-                      setMoreMenuOpen(false);
-                      handleExportBom();
-                    }}
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <rect x="3" y="4" width="18" height="16" rx="2" />
-                      <line x1="3" y1="10" x2="21" y2="10" />
-                      <line x1="9" y1="4" x2="9" y2="20" />
-                    </svg>
-                    <span className="tb-overflow-label">
-                      {t(
-                        "editor.toolbar.exportBomLabel",
-                        "Bill of Materials (CSV)",
-                      )}
-                    </span>
-                    <span className="tb-overflow-pro">PRO</span>
-                  </button>
-                  <button
-                    className="tb-overflow-item"
-                    role="menuitem"
-                    onClick={() => {
-                      setMoreMenuOpen(false);
-                      handleExportScreenshot();
-                    }}
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                      <circle cx="12" cy="13" r="4" />
-                    </svg>
-                    <span className="tb-overflow-label">
-                      {t(
-                        "editor.toolbar.exportScreenshotLabel",
-                        "Schematic image (PNG)",
-                      )}
-                    </span>
-                    <span className="tb-overflow-pro">PRO</span>
-                  </button>
-                  <button
-                    className="tb-overflow-item"
-                    role="menuitem"
-                    onClick={() => {
-                      setMoreMenuOpen(false);
-                      firmwareInputRef.current?.click();
-                    }}
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-                      <line x1="12" y1="15" x2="12" y2="22" />
-                      <polyline points="8 18 12 22 16 18" />
-                    </svg>
-                    <span className="tb-overflow-label">
-                      {t(
-                        "editor.toolbar.uploadFirmwareLabel",
-                        "Upload firmware",
-                      )}
-                    </span>
-                  </button>
-                  {/* Sync to GitHub — Pro feature.  Fires a window event the
-                      pro overlay listens for; if no overlay is loaded (OSS
-                      build) the click is a silent no-op which is fine —
-                      OSS users can't have linked repos anyway. */}
-                  <button
-                    className="tb-overflow-item"
-                    role="menuitem"
-                    onClick={() => {
-                      setMoreMenuOpen(false);
-                      window.dispatchEvent(
-                        new CustomEvent("velxio-pro-github-sync-prompt", {
-                          detail: { projectId: currentProject?.id ?? null },
-                        }),
-                      );
-                    }}
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                    >
-                      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.44 9.8 8.21 11.39.6.11.82-.26.82-.58 0-.29-.01-1.05-.02-2.06-3.34.72-4.04-1.61-4.04-1.61-.55-1.38-1.33-1.75-1.33-1.75-1.09-.74.08-.72.08-.72 1.2.08 1.84 1.24 1.84 1.24 1.07 1.84 2.81 1.31 3.5 1 .11-.78.42-1.31.76-1.62-2.66-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.12-.3-.54-1.52.11-3.18 0 0 1.01-.32 3.3 1.23A11.5 11.5 0 0 1 12 5.8c1.02.01 2.05.14 3.01.4 2.29-1.55 3.3-1.23 3.3-1.23.65 1.66.24 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.62-5.49 5.92.43.37.82 1.1.82 2.22 0 1.6-.02 2.89-.02 3.29 0 .32.22.7.83.58A12 12 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
-                    </svg>
-                    <span className="tb-overflow-label">
-                      {t("editor.toolbar.githubSyncLabel", "Sync to GitHub")}
-                    </span>
-                    <span className="tb-overflow-pro">PRO</span>
-                  </button>
-                  {/* Share / Embed — free for all users with a public project.
-                      Watermark removal on the embed is the Pro perk; the
-                      Share modal itself is open to everyone so they can
-                      copy the link / iframe snippet. */}
-                  <button
-                    className="tb-overflow-item"
-                    role="menuitem"
-                    onClick={() => {
-                      setMoreMenuOpen(false);
-                      window.dispatchEvent(
-                        new CustomEvent("velxio-pro-share-prompt", {
-                          detail: { projectId: currentProject?.id ?? null },
-                        }),
-                      );
-                    }}
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <circle cx="18" cy="5" r="3" />
-                      <circle cx="6" cy="12" r="3" />
-                      <circle cx="18" cy="19" r="3" />
-                      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-                    </svg>
-                    <span className="tb-overflow-label">
-                      {t("editor.toolbar.shareLabel", "Share / Embed")}
-                    </span>
-                  </button>
-                  {/* Record simulation — Pro feature. Dispatches a toggle the
-                      pro overlay handles (plan check, board-type check,
-                      start/stop the recorder). OSS build → no listener →
-                      silent no-op. */}
-                  <button
-                    className="tb-overflow-item"
-                    role="menuitem"
-                    onClick={() => {
-                      setMoreMenuOpen(false);
-                      window.dispatchEvent(
-                        new CustomEvent("velxio-pro-replay-record-toggle", {
-                          detail: { projectId: currentProject?.id ?? null },
-                        }),
-                      );
-                    }}
-                  >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                    >
-                      <circle cx="12" cy="12" r="7" />
-                    </svg>
-                    <span className="tb-overflow-label">
-                      {t("editor.toolbar.recordLabel", "Record simulation")}
-                    </span>
-                    <span className="tb-overflow-pro">PRO</span>
-                  </button>
-                </div>
-              )}
-            </div>
 
             <div className="tb-divider" />
 

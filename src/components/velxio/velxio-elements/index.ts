@@ -19,6 +19,7 @@ import "@/components/velxio/velxio-elements/capacitor-element";
 import "@/components/velxio/velxio-elements/capacitor-electrolytic-element";
 import "@/components/velxio/velxio-elements/inductor-element";
 import "@/components/velxio/velxio-elements/custom-chip-element";
+import "@/components/velxio/components/velxio-components/KitModuleElements";
 
 export { CapacitorElement } from "@/components/velxio/velxio-elements/capacitor-element";
 export { CapacitorElectrolyticElement } from "@/components/velxio/velxio-elements/capacitor-electrolytic-element";

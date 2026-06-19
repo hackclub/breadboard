@@ -1,8 +1,11 @@
 import type { ReactNode } from "react";
+import { eq } from "drizzle-orm";
 import { PlatformSidebar } from "@/components/layout/platform-sidebar";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { pageGridClass } from "@/components/shared/styles";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
+import { db } from "@/lib/db/db";
+import { user as userTable } from "@/lib/db/schema";
 
 export default async function PlatformLayout({
   children,
@@ -31,13 +34,23 @@ export default async function PlatformLayout({
 
   const isAdmin = await isAdminSession(session);
 
+  const userRow = await db
+    .select({ slackId: userTable.slackId })
+    .from(userTable)
+    .where(eq(userTable.id, session.user.id))
+    .limit(1);
+
   return (
     <div className={`${pageGridClass} min-h-screen`}>
       <PlatformSidebar
         isAdmin={isAdmin}
         user={
           session
-            ? { name: session.user.name, email: session.user.email }
+            ? {
+                name: session.user.name,
+                email: session.user.email,
+                slackId: userRow[0]?.slackId ?? null,
+              }
             : null
         }
       />

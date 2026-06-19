@@ -3,9 +3,9 @@ import Link from "next/link";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { DocsFrame, PageHero } from "@/components/shared/platform-docs-frame";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
-import { db } from "@/lib/db/connection";
+import { db } from "@/lib/db/db";
 import { orderItems, orders, products, user } from "@/lib/db/schema";
-import { FulfillmentCard } from "./_client";
+import { FulfillmentCard } from "@/components/platform/fulfillment-card";
 
 export default async function FulfillmentPage() {
   const session = await getSession();

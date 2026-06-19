@@ -169,6 +169,35 @@ export const SENSOR_CONTROLS: Record<string, SensorControlDef> = {
     defaultValues: { temperature: 25, humidity: 50 },
   },
 
+  dht11: {
+    title: "DHT11 Temperature & Humidity",
+    controls: [
+      {
+        type: "slider",
+        key: "temperature",
+        label: "Temperature",
+        min: 0,
+        max: 50,
+        step: 1,
+        unit: "°C",
+        defaultValue: 25,
+        formatValue: oneDecimal,
+      },
+      {
+        type: "slider",
+        key: "humidity",
+        label: "Humidity",
+        min: 20,
+        max: 90,
+        step: 1,
+        unit: "%",
+        defaultValue: 50,
+        formatValue: oneDecimal,
+      },
+    ],
+    defaultValues: { temperature: 25, humidity: 50 },
+  },
+
   // ── BMP280 Barometric Pressure + Temperature ───────────────────────────────
   bmp280: {
     title: "BMP280 Barometric Pressure Sensor",
@@ -279,6 +308,47 @@ export const SENSOR_CONTROLS: Record<string, SensorControlDef> = {
     defaultValues: { temperature: 25 },
   },
 
+  lm35dz: {
+    title: "LM35DZ Temperature Sensor",
+    controls: [
+      {
+        type: "slider",
+        key: "temperature",
+        label: "Temperature",
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "°C",
+        defaultValue: 25,
+        formatValue: oneDecimal,
+      },
+    ],
+    defaultValues: { temperature: 25 },
+  },
+
+  "water-level-sensor": {
+    title: "Water Level Sensor",
+    controls: [
+      {
+        type: "slider",
+        key: "level",
+        label: "Water Level",
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "%",
+        defaultValue: 0,
+      },
+    ],
+    defaultValues: { level: 0 },
+  },
+
+  "rc522-rfid": {
+    title: "RC522 RFID Module",
+    controls: [{ type: "button", key: "cardPresent", label: "Present card" }],
+    defaultValues: { cardPresent: true },
+  },
+
   // ── Gas Sensor (MQ-series) ────────────────────────────────────────────────
   "gas-sensor": {
     title: "Gas Sensor (MQ-series)",
@@ -355,6 +425,15 @@ export const SENSOR_CONTROLS: Record<string, SensorControlDef> = {
   "tilt-switch": {
     title: "Tilt Switch",
     controls: [{ type: "button", key: "toggle", label: "Toggle tilt" }],
+    defaultValues: {},
+  },
+
+  "vibration-switch": {
+    title: "HDX Vibration Switch",
+    controls: [
+      { type: "button", key: "pulse", label: "Pulse vibration" },
+      { type: "button", key: "toggle", label: "Toggle output" },
+    ],
     defaultValues: {},
   },
 

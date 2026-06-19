@@ -1,13 +1,13 @@
 import { desc, eq } from "drizzle-orm";
 import Image from "next/image";
 import Link from "next/link";
-import { ShopCart } from "@/app/(platform)/platform/shop/_client";
+import { ShopCart } from "@/components/platform/shop-cart";
 import { ShopTabs } from "@/app/(platform)/platform/shop/_nav";
-import { CancelOrderButton } from "@/app/(platform)/platform/shop/orders/_client";
+import { CancelOrderButton } from "@/components/platform/cancel-order-button";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { PageHero } from "@/components/shared/docs-frame";
 import { getSession } from "@/lib/auth/guards";
-import { db } from "@/lib/db/connection";
+import { db } from "@/lib/db/db";
 import { orderItems, orders, products } from "@/lib/db/schema";
 
 export default async function PlatformOrdersPage() {
@@ -109,9 +109,7 @@ async function OrderCard({ orderId }: { orderId: number }) {
     <div className="overflow-hidden rounded-[12px] border border-black bg-white shadow-[4px_4px_0_#000]">
       <div className="grid gap-3 border-b border-black bg-[#f4f4f4] px-5 py-4 text-sm sm:grid-cols-[1fr_auto_auto] sm:items-center">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-black/45">
-            Order placed
-          </p>
+          <p className="text-xs font-semibold text-black/45">Order placed</p>
           <p className="mt-1 font-semibold text-black">
             {new Date(o.createdAt).toLocaleDateString("en-US", {
               month: "long",
@@ -121,17 +119,13 @@ async function OrderCard({ orderId }: { orderId: number }) {
           </p>
         </div>
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-black/45">
-            Total
-          </p>
-          <p className="mt-1 font-black text-black">{o.totalCost} credits</p>
+          <p className="text-xs font-semibold text-black/45">Total</p>
+          <p className="mt-1 font-black text-black">{o.totalCost} bread</p>
         </div>
         <div className="sm:text-right">
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-black/45">
-            Order #{o.id}
-          </p>
+          <p className="text-xs font-semibold text-black/45">Order #{o.id}</p>
           <span
-            className={`mt-1 inline-flex rounded-full border px-3 py-1 text-xs font-black ${statusColors[o.status] ?? ""}`}
+            className={`mt-1 inline-flex rounded border px-2 py-1 text-xs font-semibold ${statusColors[o.status] ?? ""}`}
           >
             {o.status.replace(/_/g, " ")}
           </span>
@@ -159,7 +153,7 @@ async function OrderCard({ orderId }: { orderId: number }) {
                 Quantity: {item.quantity}
               </p>
               <p className="mt-1 text-sm text-black/55">
-                {item.unitPrice} credits each
+                {item.unitPrice} bread each
               </p>
               {o.trackingInfo ? (
                 <p className="mt-3 rounded-[8px] border border-black bg-[#f4f4f4] px-3 py-2 text-sm font-semibold text-black">
@@ -168,7 +162,7 @@ async function OrderCard({ orderId }: { orderId: number }) {
               ) : null}
             </div>
             <p className="font-black text-black sm:text-right">
-              {item.unitPrice * item.quantity} credits
+              {item.unitPrice * item.quantity} bread
             </p>
           </li>
         ))}

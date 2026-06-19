@@ -1,132 +1,174 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import { requireSession } from "@/lib/auth/guards";
-import { db } from "@/lib/db/connection";
-import { projects } from "@/lib/db/schema";
-import { clean } from "@/lib/utils";
-import type { ShipInput } from "@/types";
+import {
+  createProjectForUser,
+  shipProjectForUser,
+  updateProjectBasicsForUser,
+} from "@/lib/projects/mutations";
+import type { ProjectFormState, ShipInput } from "@/types";
 
-export async function createProject(title: string, description: string) {
-  const session = await requireSession();
-  if (!clean(title)) throw new Error("Project title is required");
+const projectBasicsSchema = z.object({
+  title: z.string().trim().min(1, "Project title is required"),
+  description: z.string().trim().max(2000).default(""),
+  screenshotUrl: z.string().trim().max(2048).default(""),
+});
 
-  const [project] = await db
-    .insert(projects)
-    .values({
-      userId: session.user.id,
-      title: clean(title) || "Untitled project",
-      description: clean(description),
-      email: session.user.email ?? "",
-    })
-    .returning({ id: projects.id });
+const createProjectSchema = projectBasicsSchema
+  .pick({ title: true, description: true })
+  .extend({ kitType: z.enum(["arduino", "esp32"]).default("arduino") });
 
-  revalidatePath("/platform/projects");
-  return project.id;
+const shipProjectSchema = z.object({
+  email: z.email("A valid email is required").trim(),
+  playableUrl: z.string().trim().min(1, "Playable URL is required").max(2048),
+  codeUrl: z.string().trim().min(1, "Code URL is required").max(2048),
+  screenshotUrl: z
+    .string()
+    .trim()
+    .min(1, "Screenshot URL is required")
+    .max(2048),
+  addressLine1: z.string().trim().min(1, "Address line 1 is required").max(200),
+  addressLine2: z.string().trim().max(200).default(""),
+  city: z.string().trim().min(1, "City is required").max(120),
+  region: z.string().trim().min(1, "State / Province is required").max(120),
+  country: z.string().trim().min(1, "Country is required").max(120),
+  postalCode: z.string().trim().min(1, "ZIP / Postal Code is required").max(40),
+  birthday: z.string().trim().min(1, "Birthday is required").max(40),
+  firstName: z.string().trim().min(1, "First name is required").max(120),
+  lastName: z.string().trim().min(1, "Last name is required").max(120),
+});
+
+const projectFormError = (error: unknown): ProjectFormState => ({
+  success: false,
+  message:
+    error instanceof z.ZodError
+      ? error.issues.map((issue) => issue.message).join(", ")
+      : error instanceof Error
+        ? error.message
+        : "Something went wrong.",
+});
+
+export async function createProjectFromForm(
+  _previousState: ProjectFormState,
+  formData: FormData,
+): Promise<ProjectFormState> {
+  try {
+    const { title, description, kitType } = createProjectSchema.parse({
+      title: formData.get("title"),
+      description: formData.get("description") ?? "",
+      kitType: formData.get("kitType") ?? "arduino",
+    });
+    const session = await requireSession();
+    const id = await createProjectForUser(
+      { userId: session.user.id, email: session.user.email },
+      { title, description, kitType },
+    );
+    revalidatePath("/platform/projects");
+
+    return {
+      success: true,
+      project: {
+        id,
+        title: title || "Untitled project",
+        description,
+        email: "",
+        playableUrl: "",
+        codeUrl: "",
+        screenshotUrl: "",
+        addressLine1: "",
+        addressLine2: "",
+        city: "",
+        region: "",
+        country: "",
+        postalCode: "",
+        birthday: "",
+        firstName: "",
+        lastName: "",
+        hoursSpent: 0,
+        status: "draft",
+        reviewNote: "",
+        kitType,
+      },
+    };
+  } catch (error) {
+    return projectFormError(error);
+  }
 }
 
-export async function updateProjectBasics(
-  projectId: number,
-  title: string,
-  description: string,
-) {
-  const session = await requireSession();
-  const existing = await db
-    .select({ status: projects.status })
-    .from(projects)
-    .where(
-      and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
-    )
-    .limit(1);
+export async function updateProjectBasicsFromForm(
+  _previousState: ProjectFormState,
+  formData: FormData,
+): Promise<ProjectFormState> {
+  try {
+    const projectId = Number(formData.get("projectId"));
+    const { title, description, screenshotUrl } = projectBasicsSchema.parse({
+      title: formData.get("title"),
+      description: formData.get("description") ?? "",
+      screenshotUrl: formData.get("screenshotUrl") ?? "",
+    });
 
-  if (
-    !existing[0] ||
-    !["draft", "needs_changes"].includes(existing[0].status)
-  ) {
-    throw new Error("This project is locked and cannot be edited.");
-  }
-
-  await db
-    .update(projects)
-    .set({
-      title: clean(title) || "Untitled project",
-      description: clean(description),
-      updatedAt: new Date(),
-    })
-    .where(
-      and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
+    if (!Number.isInteger(projectId)) throw new Error("Invalid project.");
+    const session = await requireSession();
+    await updateProjectBasicsForUser(
+      { userId: session.user.id, email: session.user.email },
+      { projectId, title, description, screenshotUrl },
     );
+    revalidatePath("/platform/projects");
 
-  revalidatePath("/platform/projects");
+    return {
+      success: true,
+      project: {
+        id: projectId,
+        title: title || "Untitled project",
+        description,
+        screenshotUrl,
+      },
+    };
+  } catch (error) {
+    return projectFormError(error);
+  }
 }
 
-export async function shipProject(projectId: number, data: ShipInput) {
-  const session = await requireSession();
-  const existing = await db
-    .select({ status: projects.status })
-    .from(projects)
-    .where(
-      and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
-    )
-    .limit(1);
+export async function shipProjectFromForm(
+  _previousState: ProjectFormState,
+  formData: FormData,
+): Promise<ProjectFormState> {
+  try {
+    const projectId = Number(formData.get("projectId"));
+    if (!Number.isInteger(projectId)) throw new Error("Invalid project.");
 
-  if (
-    !existing[0] ||
-    !["draft", "needs_changes"].includes(existing[0].status)
-  ) {
-    throw new Error("This project cannot be shipped from its current status.");
-  }
+    const data: ShipInput = shipProjectSchema.parse({
+      email: formData.get("email"),
+      playableUrl: formData.get("playableUrl"),
+      codeUrl: formData.get("codeUrl"),
+      screenshotUrl: formData.get("screenshotUrl"),
+      addressLine1: formData.get("addressLine1"),
+      addressLine2: formData.get("addressLine2") ?? "",
+      city: formData.get("city"),
+      region: formData.get("region"),
+      country: formData.get("country"),
+      postalCode: formData.get("postalCode"),
+      birthday: formData.get("birthday"),
+      firstName: formData.get("firstName"),
+      lastName: formData.get("lastName"),
+    });
 
-  const normalized = {
-    email: clean(data.email),
-    playableUrl: clean(data.playableUrl),
-    codeUrl: clean(data.codeUrl),
-    screenshotUrl: clean(data.screenshotUrl),
-    addressLine1: clean(data.addressLine1),
-    addressLine2: clean(data.addressLine2),
-    city: clean(data.city),
-    region: clean(data.region),
-    country: clean(data.country),
-    postalCode: clean(data.postalCode),
-    birthday: clean(data.birthday),
-    firstName: clean(data.firstName),
-    lastName: clean(data.lastName),
-  };
-
-  const missing = [
-    ["Email", normalized.email],
-    ["Playable URL", normalized.playableUrl],
-    ["Code URL", normalized.codeUrl],
-    ["Screenshot", normalized.screenshotUrl],
-    ["Address line 1", normalized.addressLine1],
-    ["City", normalized.city],
-    ["State / Province", normalized.region],
-    ["Country", normalized.country],
-    ["ZIP / Postal Code", normalized.postalCode],
-    ["Birthday", normalized.birthday],
-    ["First name", normalized.firstName],
-    ["Last name", normalized.lastName],
-  ].filter(([, value]) => !value);
-
-  if (missing.length > 0) {
-    throw new Error(
-      `Missing fields: ${missing.map(([label]) => label).join(", ")}`,
+    const session = await requireSession();
+    await shipProjectForUser(
+      { userId: session.user.id, email: session.user.email },
+      projectId,
+      data,
     );
+    revalidatePath("/platform/projects");
+    revalidatePath("/platform/admin/review");
+
+    return {
+      success: true,
+      project: { id: projectId, ...data, status: "shipped", reviewNote: "" },
+    };
+  } catch (error) {
+    return projectFormError(error);
   }
-
-  await db
-    .update(projects)
-    .set({
-      ...normalized,
-      status: "shipped",
-      shippedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(
-      and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
-    );
-
-  revalidatePath("/platform/projects");
-  revalidatePath("/platform/admin/review");
 }

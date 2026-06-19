@@ -17,7 +17,7 @@ function getLanguage(filename: string): string {
   return "plaintext";
 }
 
-export const CodeEditor = () => {
+export const CodeEditor = ({ readOnly = false }: { readOnly?: boolean }) => {
   const { files, activeFileId, setFileContent, theme, fontSize } =
     useEditorStore();
   const activeFile = files.find((f) => f.id === activeFileId);
@@ -37,9 +37,12 @@ export const CodeEditor = () => {
           registerRetroAsm(monaco);
         }}
         onChange={(value) => {
+          if (readOnly) return;
           if (activeFileId) setFileContent(activeFileId, value || "");
         }}
         options={{
+          readOnly,
+          domReadOnly: readOnly,
           minimap: { enabled: true },
           fontSize,
           automaticLayout: true,

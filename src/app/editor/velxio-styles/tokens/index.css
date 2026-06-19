@@ -15,7 +15,7 @@
 /* Global focus ring — applied to every interactive element. WCAG 2.4.7 +
  * Apple HIG focus-state guidance. Override per-component if needed.
  */
-*:focus-visible {
+.editor-root *:focus-visible {
   box-shadow: var(--color-focus-ring);
   outline: none;
 }

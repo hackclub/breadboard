@@ -2553,6 +2553,18 @@
       ]
     },
     {
+      "id": "uln2003-driver",
+      "tagName": "velxio-uln2003-v3",
+      "name": "ULN2003 Stepper Driver Module",
+      "category": "motors",
+      "description": "ULN2003 Darlington stepper driver board for 28BYJ-style steppers. IN1-IN4 mirror to motor outputs A-D in simulation.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"5\" y=\"9\" width=\"54\" height=\"46\" rx=\"6\" fill=\"#123f88\"/><rect x=\"20\" y=\"21\" width=\"24\" height=\"18\" rx=\"2\" fill=\"#111827\"/><circle cx=\"15\" cy=\"48\" r=\"3\" fill=\"#facc15\"/><circle cx=\"25\" cy=\"48\" r=\"3\" fill=\"#facc15\"/><circle cx=\"35\" cy=\"48\" r=\"3\" fill=\"#facc15\"/><circle cx=\"45\" cy=\"48\" r=\"3\" fill=\"#facc15\"/><text x=\"32\" y=\"18\" text-anchor=\"middle\" font-size=\"7\" font-weight=\"800\" fill=\"#fff\">ULN2003</text></svg>",
+      "properties": [],
+      "defaultValues": {},
+      "pinCount": 10,
+      "tags": ["uln2003", "stepper driver", "driver", "28byj", "motor", "darlington"]
+    },
+    {
       "id": "7segment",
       "tagName": "wokwi-7segment",
       "name": "7 Segment",
@@ -2645,6 +2657,36 @@
       ]
     },
     {
+      "id": "7segment-4digit",
+      "tagName": "wokwi-7segment",
+      "name": "4-Digit 7 Segment Display",
+      "category": "other",
+      "description": "Four digit multiplexed 7-segment display. Uses the same native renderer and simulator as the single display with digits set to 4.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" rx=\"7\" fill=\"#111827\"/><text x=\"32\" y=\"38\" text-anchor=\"middle\" font-family=\"monospace\" font-size=\"18\" font-weight=\"800\" fill=\"#ef4444\">8.8.8.8</text></svg>",
+      "properties": [
+        { "name": "color", "type": "string", "defaultValue": "red", "control": "text" },
+        { "name": "offColor", "type": "string", "defaultValue": "#441111", "control": "text" },
+        { "name": "background", "type": "string", "defaultValue": "black", "control": "text" },
+        { "name": "digits", "type": "string", "defaultValue": 4, "control": "text" },
+        { "name": "colon", "type": "string", "defaultValue": true, "control": "text" },
+        { "name": "colonValue", "type": "string", "defaultValue": false, "control": "text" },
+        { "name": "pins", "type": "string", "defaultValue": "top", "control": "text" },
+        { "name": "values", "type": "number", "defaultValue": [0, 0, 0, 0, 0, 0, 0, 0], "control": "range" }
+      ],
+      "defaultValues": {
+        "color": "red",
+        "offColor": "#441111",
+        "background": "black",
+        "digits": 4,
+        "colon": true,
+        "colonValue": false,
+        "pins": "top",
+        "values": [0, 0, 0, 0, 0, 0, 0, 0]
+      },
+      "pinCount": 12,
+      "tags": ["7segment", "4 digit", "four digit", "digital display", "tm1637", "clock display"]
+    },
+    {
       "id": "analog-joystick",
       "tagName": "wokwi-analog-joystick",
       "name": "Analog Joystick",
@@ -2728,6 +2770,18 @@
       "tags": [
         "ds1307"
       ]
+    },
+    {
+      "id": "ds1302",
+      "tagName": "velxio-ds1302-v3",
+      "name": "DS1302 RTC Module",
+      "category": "other",
+      "description": "DS1302 real-time clock module with VCC, GND, CLK, DAT and RST pins. Simulates the common 3-wire RTC module used in starter kits.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"5\" y=\"9\" width=\"54\" height=\"46\" rx=\"6\" fill=\"#177163\"/><circle cx=\"18\" cy=\"32\" r=\"10\" fill=\"#d1d5db\"/><rect x=\"34\" y=\"21\" width=\"15\" height=\"22\" rx=\"2\" fill=\"#111827\"/><text x=\"32\" y=\"57\" text-anchor=\"middle\" font-size=\"7\" fill=\"#fff\">DS1302</text></svg>",
+      "properties": [],
+      "defaultValues": {},
+      "pinCount": 5,
+      "tags": ["ds1302", "rtc", "real time clock", "clock", "module"]
     },
     {
       "id": "flame-sensor",
@@ -3184,6 +3238,21 @@
         "tilt",
         "switch"
       ]
+    },
+    {
+      "id": "vibration-switch",
+      "tagName": "wokwi-tilt-switch",
+      "name": "HDX Vibration Switch",
+      "category": "other",
+      "description": "Digital vibration/shock switch module. Click or use sensor controls to simulate vibration pulses on OUT.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"7\" y=\"10\" width=\"50\" height=\"44\" rx=\"6\" fill=\"#156b3f\"/><path d=\"M18 36c6-10 12 10 18 0s12 10 18 0\" stroke=\"#facc15\" stroke-width=\"4\" fill=\"none\"/><text x=\"32\" y=\"23\" text-anchor=\"middle\" font-size=\"8\" font-weight=\"700\" fill=\"#fff\">HDX</text></svg>",
+      "properties": [
+        { "name": "activeHigh", "type": "boolean", "defaultValue": true, "control": "text" },
+        { "name": "pulseMs", "type": "number", "defaultValue": 90, "control": "number", "min": 10, "max": 1000 }
+      ],
+      "defaultValues": { "activeHigh": true, "pulseMs": 90 },
+      "pinCount": 3,
+      "tags": ["vibration", "vibration switch", "hdx", "shock", "sensor", "switch"]
     },
     {
       "id": "buzzer",
@@ -4271,6 +4340,61 @@
       "tags": [
         "dht22"
       ]
+    },
+    {
+      "id": "dht11",
+      "tagName": "velxio-dht11-v3",
+      "name": "DHT11 Module",
+      "category": "sensors",
+      "description": "DHT11 temperature and humidity module. Uses DHT single-wire timing with DHT11 ranges and controls.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"9\" y=\"8\" width=\"46\" height=\"48\" rx=\"6\" fill=\"#2791d5\"/><rect x=\"18\" y=\"17\" width=\"28\" height=\"26\" rx=\"3\" fill=\"#e0f2fe\"/><path d=\"M22 23h20M22 29h20M22 35h20\" stroke=\"#0284c7\" stroke-width=\"2\"/><text x=\"32\" y=\"53\" text-anchor=\"middle\" font-size=\"7\" font-weight=\"700\" fill=\"#fff\">DHT11</text></svg>",
+      "properties": [
+        { "name": "temperature", "type": "number", "defaultValue": 25, "control": "number", "min": 0, "max": 50 },
+        { "name": "humidity", "type": "number", "defaultValue": 50, "control": "number", "min": 20, "max": 90 }
+      ],
+      "defaultValues": { "temperature": 25, "humidity": 50 },
+      "pinCount": 3,
+      "tags": ["dht11", "dht", "temperature", "humidity", "sensor", "module"]
+    },
+    {
+      "id": "lm35dz",
+      "tagName": "velxio-lm35dz-v3",
+      "name": "LM35DZ Temperature Sensor",
+      "category": "sensors",
+      "description": "Analog LM35DZ temperature sensor. OUT voltage is 10mV per degree Celsius.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"12\" y=\"14\" width=\"40\" height=\"36\" rx=\"6\" fill=\"#2546a0\"/><circle cx=\"32\" cy=\"32\" r=\"10\" fill=\"#dbeafe\"/><text x=\"32\" y=\"35\" text-anchor=\"middle\" font-size=\"7\" font-weight=\"800\" fill=\"#1e3a8a\">LM35</text></svg>",
+      "properties": [{ "name": "temperature", "type": "number", "defaultValue": 25, "control": "number", "min": 0, "max": 100 }],
+      "defaultValues": { "temperature": 25 },
+      "pinCount": 3,
+      "tags": ["lm35", "lm35dz", "temperature", "analog", "sensor"]
+    },
+    {
+      "id": "water-level-sensor",
+      "tagName": "velxio-water-level-v3",
+      "name": "Water Level Module",
+      "category": "sensors",
+      "description": "Analog water level sensor module. Sensor controls set the detected level and drive the S pin voltage.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"10\" y=\"7\" width=\"44\" height=\"50\" rx=\"5\" fill=\"#137b9f\"/><path d=\"M18 20h28M18 28h28M18 36h28M18 44h28\" stroke=\"#bae6fd\" stroke-width=\"3\"/><path d=\"M18 48c7-8 13 8 20 0s10 6 14 1\" fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"3\"/></svg>",
+      "properties": [{ "name": "level", "type": "number", "defaultValue": 0, "control": "number", "min": 0, "max": 100 }],
+      "defaultValues": { "level": 0 },
+      "pinCount": 3,
+      "tags": ["water", "water level", "level", "sensor", "analog", "module"]
+    },
+    {
+      "id": "rc522-rfid",
+      "tagName": "velxio-rc522-v3",
+      "name": "RC522 RFID Module",
+      "category": "sensors",
+      "description": "MFRC522-compatible SPI RFID module with starter-kit pinout. Provides a simulated card-present state and fixed UID for sketches that poll the module.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect x=\"5\" y=\"8\" width=\"54\" height=\"48\" rx=\"6\" fill=\"#1c5fb8\"/><rect x=\"15\" y=\"16\" width=\"34\" height=\"32\" rx=\"4\" fill=\"none\" stroke=\"#bfdbfe\" stroke-width=\"3\"/><text x=\"32\" y=\"36\" text-anchor=\"middle\" font-size=\"8\" font-weight=\"800\" fill=\"#fff\">RC522</text></svg>",
+      "properties": [
+        { "name": "cardPresent", "type": "boolean", "defaultValue": true, "control": "text" },
+        { "name": "uid", "type": "string", "defaultValue": "DE AD BE EF", "control": "text" },
+        { "name": "version", "type": "string", "defaultValue": "0x92", "control": "text" }
+      ],
+      "defaultValues": { "cardPresent": true, "uid": "DE AD BE EF", "version": "0x92" },
+      "pinCount": 8,
+      "tags": ["rc522", "rfid", "mfrc522", "spi", "card", "reader"]
     },
     {
       "id": "hc-sr04",

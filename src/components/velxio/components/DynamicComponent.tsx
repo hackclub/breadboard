@@ -421,6 +421,7 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
       }
     });
 
+    containerRef.current.innerHTML = "";
     containerRef.current.appendChild(element);
     elementRef.current = element;
     mountedRef.current = true;

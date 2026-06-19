@@ -7,6 +7,7 @@ import { useState } from "react";
 import type { IconType } from "react-icons";
 import {
   HiClipboardDocumentCheck,
+  HiClock,
   HiCog6Tooth,
   HiCube,
   HiHome,
@@ -14,10 +15,12 @@ import {
   HiUsers,
 } from "react-icons/hi2";
 import { authClient } from "@/lib/auth/client";
+import { slackPfpUrl } from "@/lib/utils/slack-pfp";
 
 type SidebarUser = {
   name?: string | null;
   email?: string | null;
+  slackId?: string | null;
 };
 
 type SidebarLink = {
@@ -58,6 +61,7 @@ const adminNavigation: SidebarSection = {
     { name: "Orders", href: "/platform/admin/orders", icon: HiShoppingBag },
     { name: "Products", href: "/platform/admin/products", icon: HiCube },
     { name: "Users", href: "/platform/admin/users", icon: HiUsers },
+    { name: "Audit", href: "/platform/admin/audit", icon: HiClock },
   ],
 };
 
@@ -80,6 +84,7 @@ export function PlatformSidebar({
   const sections = isAdmin
     ? [...mainNavigation, adminNavigation]
     : mainNavigation;
+  const userAvatarUrl = user ? slackPfpUrl(user.slackId) : null;
 
   async function signIn() {
     setAuthLoading(true);
@@ -156,6 +161,22 @@ export function PlatformSidebar({
         {user ? (
           <>
             <div className="mb-3 min-w-0 px-2">
+              <div className="mb-2 size-10 overflow-hidden rounded-full border border-zinc-200">
+                {userAvatarUrl ? (
+                  <Image
+                    src={userAvatarUrl}
+                    alt=""
+                    width={40}
+                    height={40}
+                    className="size-full object-cover"
+                    unoptimized
+                  />
+                ) : (
+                  <div className="grid size-full place-items-center bg-zinc-100 text-sm font-bold text-zinc-500">
+                    {user.name?.slice(0, 1).toUpperCase() || "?"}
+                  </div>
+                )}
+              </div>
               <p className="truncate text-sm font-medium text-zinc-950">
                 {user.name ?? "Signed in"}
               </p>

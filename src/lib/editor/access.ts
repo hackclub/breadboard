@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
-import { db } from "@/lib/db/connection";
+import { db } from "@/lib/db/db";
 import { projects } from "@/lib/db/schema";
 
 export const EDITABLE_PROJECT_STATUSES = ["draft", "needs_changes"] as const;
@@ -27,4 +27,11 @@ export function canEditEditorProject(project: { status: string }) {
   return EDITABLE_PROJECT_STATUSES.includes(
     project.status as (typeof EDITABLE_PROJECT_STATUSES)[number],
   );
+}
+
+export function canWriteEditorProject(
+  project: { status: string; userId: string },
+  session: { user: { id: string } } | null,
+) {
+  return !!session && project.userId === session.user.id && canEditEditorProject(project);
 }

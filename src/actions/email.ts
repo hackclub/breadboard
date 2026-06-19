@@ -1,6 +1,6 @@
 "use server";
 
-import { db } from "@/lib/db/connection";
+import { db } from "@/lib/db/db";
 import { emailSignups } from "@/lib/db/schema";
 import { isValidEmail } from "@/lib/utils";
 import type { SignupState } from "@/types";

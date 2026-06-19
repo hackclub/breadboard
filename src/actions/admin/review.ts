@@ -1,13 +1,34 @@
 "use server";
 
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth/guards";
-import { CREDITS_PER_HOUR } from "@/lib/constants";
-import { db } from "@/lib/db/connection";
-import { projects, userBalances } from "@/lib/db/schema";
+import { audit } from "@/lib/audit";
+import { BREAD_PER_HOUR } from "@/lib/constants";
+import { db } from "@/lib/db/db";
+import { projects, userBread } from "@/lib/db/schema";
 
-async function getProject(projectId: number) {
+const REVIEW_TEXT_LIMIT = 2000;
+
+function requirePositiveProjectId(value: number) {
+  const projectId = Math.floor(Number(value));
+  if (!Number.isFinite(projectId) || projectId <= 0) {
+    throw new Error("Project ID must be a positive number");
+  }
+  return projectId;
+}
+
+function normalizeHours(value: number, fallback = 0) {
+  return Math.max(0, Math.floor(Number(value || fallback) || 0));
+}
+
+function normalizeReviewText(value: string, label: string) {
+  const text = value.trim();
+  if (text.length > REVIEW_TEXT_LIMIT) throw new Error(`${label} is too long`);
+  return text;
+}
+
+async function getProjectOrThrow(projectId: number) {
   const row = await db
     .select()
     .from(projects)
@@ -18,23 +39,7 @@ async function getProject(projectId: number) {
   return project;
 }
 
-async function creditUser(userId: string, amount: number) {
-  const existing = await db
-    .select()
-    .from(userBalances)
-    .where(eq(userBalances.userId, userId))
-    .limit(1);
-  if (existing[0]) {
-    await db
-      .update(userBalances)
-      .set({ balance: existing[0].balance + amount, updatedAt: new Date() })
-      .where(eq(userBalances.id, existing[0].id));
-  } else {
-    await db.insert(userBalances).values({ userId, balance: amount });
-  }
-}
-
-function revalidateReview(projectId?: number) {
+function revalidateReviewViews(projectId?: number) {
   revalidatePath("/platform/admin/review");
   if (projectId) revalidatePath(`/platform/admin/review/${projectId}`);
   revalidatePath("/platform/projects");
@@ -46,25 +51,33 @@ export async function markReviewed(
   justification: string,
 ) {
   await requireAdminSession();
-  const project = await getProject(projectId);
+  const id = requirePositiveProjectId(projectId);
+  const project = await getProjectOrThrow(id);
   if (project.status !== "shipped")
     throw new Error("Only shipped projects can be reviewed");
-  const hours = Math.max(
-    0,
-    Math.floor(Number(overrideHours || project.hoursSpent) || 0),
+  const hours = normalizeHours(overrideHours, project.hoursSpent);
+  const reviewJustification = normalizeReviewText(
+    justification,
+    "Justification",
   );
 
-  await db
+  const [updatedProject] = await db
     .update(projects)
     .set({
       status: "reviewed",
       overrideHoursSpent: hours,
-      overrideHoursSpentJustification: justification.trim(),
+      overrideHoursSpentJustification: reviewJustification,
       reviewNote: "",
       updatedAt: new Date(),
     })
-    .where(eq(projects.id, projectId));
-  revalidateReview(projectId);
+    .where(and(eq(projects.id, id), eq(projects.status, "shipped")))
+    .returning({ id: projects.id });
+  if (!updatedProject) throw new Error("Only shipped projects can be reviewed");
+  await audit("admin.review.mark_reviewed", "project", String(id), {
+    hours,
+    justification: reviewJustification,
+  });
+  revalidateReviewViews(id);
 }
 
 export async function approveProject(
@@ -74,82 +87,159 @@ export async function approveProject(
   userComment: string,
 ) {
   await requireAdminSession();
-  const project = await getProject(projectId);
-  if (project.status !== "shipped")
-    throw new Error("Only shipped projects can be approved");
-  const hours = Math.max(0, Math.floor(Number(approvedHours) || 0));
-  const credits = hours * CREDITS_PER_HOUR;
-  await creditUser(project.userId, credits);
+  const id = requirePositiveProjectId(projectId);
+  const hours = normalizeHours(approvedHours);
+  const bread = hours * BREAD_PER_HOUR;
+  const reviewJustification = normalizeReviewText(
+    justification,
+    "Justification",
+  );
+  const reviewComment = normalizeReviewText(userComment, "User comment");
 
-  await db
-    .update(projects)
-    .set({
-      status: "paid_out",
-      overrideHoursSpent: hours,
-      overrideHoursSpentJustification: justification.trim(),
-      reviewNote: userComment.trim(),
-      creditedAmount: credits,
-      approvedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(projects.id, projectId));
-  revalidateReview(projectId);
+  const creditedUser = await db.transaction(async (tx) => {
+    const [updatedProject] = await tx
+      .update(projects)
+      .set({
+        status: "paid_out",
+        overrideHoursSpent: hours,
+        overrideHoursSpentJustification: reviewJustification,
+        reviewNote: reviewComment,
+        breadAmount: bread,
+        approvedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(projects.id, id), eq(projects.status, "shipped")))
+      .returning({ userId: projects.userId });
+
+    if (!updatedProject)
+      throw new Error("Only shipped projects can be approved");
+
+    await tx
+      .insert(userBread)
+      .values({ userId: updatedProject.userId, balance: bread })
+      .onConflictDoUpdate({
+        target: userBread.userId,
+        set: {
+          balance: sql`${userBread.balance} + ${bread}`,
+          updatedAt: new Date(),
+        },
+      });
+
+    return updatedProject.userId;
+  });
+
+  await audit("admin.user.bread_add", "user", creditedUser, { amount: bread });
+  await audit("admin.review.approve", "project", String(id), {
+    hours,
+    bread,
+  });
+  revalidateReviewViews(id);
 }
 
 export async function payOutProject(projectId: number) {
   await requireAdminSession();
-  const project = await getProject(projectId);
+  const id = requirePositiveProjectId(projectId);
+  const project = await getProjectOrThrow(id);
   if (project.status !== "reviewed")
     throw new Error("Only reviewed projects can be paid out");
-  const hours = Math.max(
-    0,
-    Math.floor(Number(project.overrideHoursSpent ?? project.hoursSpent) || 0),
+  const hours = normalizeHours(
+    project.overrideHoursSpent ?? project.hoursSpent,
   );
-  await creditUser(project.userId, hours * CREDITS_PER_HOUR);
+  const bread = hours * BREAD_PER_HOUR;
+  const creditedUser = await db.transaction(async (tx) => {
+    const [updatedProject] = await tx
+      .update(projects)
+      .set({
+        status: "paid_out",
+        breadAmount: bread,
+        approvedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(projects.id, id), eq(projects.status, "reviewed")))
+      .returning({ userId: projects.userId });
 
-  await db
-    .update(projects)
-    .set({
-      status: "paid_out",
-      creditedAmount: hours * CREDITS_PER_HOUR,
-      approvedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(projects.id, projectId));
-  revalidateReview(projectId);
+    if (!updatedProject)
+      throw new Error("Only reviewed projects can be paid out");
+
+    await tx
+      .insert(userBread)
+      .values({ userId: updatedProject.userId, balance: bread })
+      .onConflictDoUpdate({
+        target: userBread.userId,
+        set: {
+          balance: sql`${userBread.balance} + ${bread}`,
+          updatedAt: new Date(),
+        },
+      });
+
+    return updatedProject.userId;
+  });
+
+  await audit("admin.user.bread_add", "user", creditedUser, { amount: bread });
+  await audit("admin.review.pay_out", "project", String(id), { hours });
+  revalidateReviewViews(id);
 }
 
 export async function fulfillProject(projectId: number) {
   await requireAdminSession();
-  const project = await getProject(projectId);
+  const id = requirePositiveProjectId(projectId);
+  const project = await getProjectOrThrow(id);
   if (project.status !== "paid_out")
     throw new Error("Only paid out projects can be fulfilled");
 
-  await db
+  const [updatedProject] = await db
     .update(projects)
     .set({ status: "fulfilled", updatedAt: new Date() })
-    .where(eq(projects.id, projectId));
-  revalidateReview(projectId);
+    .where(and(eq(projects.id, id), eq(projects.status, "paid_out")))
+    .returning({ id: projects.id });
+  if (!updatedProject)
+    throw new Error("Only paid out projects can be fulfilled");
+  await audit("admin.review.fulfill", "project", String(id));
+  revalidateReviewViews(id);
 }
 
 export async function requestChanges(projectId: number, note: string) {
   await requireAdminSession();
-  await db
+  const id = requirePositiveProjectId(projectId);
+  const reviewNote = normalizeReviewText(note, "Note");
+  const [updatedProject] = await db
     .update(projects)
     .set({
       status: "needs_changes",
-      reviewNote: note.trim(),
+      reviewNote,
       updatedAt: new Date(),
     })
-    .where(eq(projects.id, projectId));
-  revalidateReview(projectId);
+    .where(
+      and(
+        eq(projects.id, id),
+        inArray(projects.status, ["shipped", "reviewed", "needs_changes"]),
+      ),
+    )
+    .returning({ id: projects.id });
+  if (!updatedProject) throw new Error("This project cannot request changes");
+  await audit("admin.review.request_changes", "project", String(id), {
+    note: reviewNote,
+  });
+  revalidateReviewViews(id);
 }
 
 export async function rejectProject(projectId: number, note: string) {
   await requireAdminSession();
-  await db
+  const id = requirePositiveProjectId(projectId);
+  const reviewNote = normalizeReviewText(note, "Note");
+  const [updatedProject] = await db
     .update(projects)
-    .set({ status: "rejected", reviewNote: note.trim(), updatedAt: new Date() })
-    .where(eq(projects.id, projectId));
-  revalidateReview(projectId);
+    .set({ status: "rejected", reviewNote, updatedAt: new Date() })
+    .where(
+      and(
+        eq(projects.id, id),
+        inArray(projects.status, ["shipped", "reviewed", "needs_changes"]),
+      ),
+    )
+    .returning({ id: projects.id });
+  if (!updatedProject) throw new Error("This project cannot be rejected");
+  await audit("admin.review.reject", "project", String(id), {
+    note: reviewNote,
+  });
+  revalidateReviewViews(id);
 }

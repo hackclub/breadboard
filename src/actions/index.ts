@@ -1,5 +1,9 @@
 export { subscribe } from "./email";
-export { createProject, shipProject, updateProjectBasics } from "./projects";
+export {
+  createProjectFromForm,
+  shipProjectFromForm,
+  updateProjectBasicsFromForm,
+} from "./projects";
 export {
   addProduct,
   addToCart,
@@ -7,8 +11,8 @@ export {
   deleteProduct,
   placeOrder,
   removeFromCart,
-  seedProducts,
   toggleProduct,
   updateOrderStatus,
+  updateOrderStatusFromForm,
   updateProduct,
 } from "./shop";

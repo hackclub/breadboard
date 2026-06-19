@@ -32,12 +32,10 @@ import { Oscilloscope } from "@/components/velxio/components/simulator/Oscillosc
 import { triggerSaveAction } from "@/lib/velxio/lib/proSaveAction";
 import {
   useSimulatorStore,
-  DEFAULT_BOARD_POSITION,
 } from "@/services/velxio/store/useSimulatorStore";
 import { useEditorStore } from "@/services/velxio/store/useEditorStore";
 import { useCompileLogsStore } from "@/services/velxio/store/useCompileLogsStore";
 import { useOscilloscopeStore } from "@/services/velxio/store/useOscilloscopeStore";
-import { useProjectStore } from "@/services/velxio/store/useProjectStore";
 import { useAutoSaveProject } from "@/services/velxio/hooks/useAutoSaveProject";
 
 const MOBILE_BREAKPOINT = 768;
@@ -59,7 +57,9 @@ const resizeHandleStyle: React.CSSProperties = {
   borderBottom: "1px solid #3c3c3c",
 };
 
-export const EditorPage: React.FC = () => {
+export const EditorPage: React.FC<{ readOnly?: boolean }> = ({
+  readOnly = false,
+}) => {
   const { t } = useTranslation();
   useAutoSaveProject();
   const [editorWidthPct, setEditorWidthPct] = useState(45);
@@ -107,31 +107,6 @@ export const EditorPage: React.FC = () => {
     triggerSaveAction();
   }, []);
 
-  const handleNewClick = useCallback(() => {
-    if (
-      !window.confirm(
-        "Start a new workspace? This clears every board, component, wire and file. This cannot be undone.",
-      )
-    ) {
-      return;
-    }
-    const sim = useSimulatorStore.getState();
-    sim.boards.forEach((b) => sim.stopBoard(b.id));
-    const ids = sim.boards.map((b) => b.id);
-    ids.forEach((id) => sim.removeBoard(id));
-    sim.setComponents([]);
-    sim.setWires([]);
-    useProjectStore.getState().clearCurrentProject();
-    const newId = useSimulatorStore
-      .getState()
-      .addBoard(
-        "arduino-uno",
-        DEFAULT_BOARD_POSITION.x,
-        DEFAULT_BOARD_POSITION.y,
-      );
-    useSimulatorStore.getState().setActiveBoardId(newId);
-  }, []);
-
   // Track mobile breakpoint
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`);
@@ -148,6 +123,7 @@ export const EditorPage: React.FC = () => {
   // Ctrl+S shortcut
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (readOnly) return;
       if ((e.ctrlKey || e.metaKey) && e.key === "s") {
         e.preventDefault();
         handleSaveClick();
@@ -155,7 +131,7 @@ export const EditorPage: React.FC = () => {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [handleSaveClick]);
+  }, [handleSaveClick, readOnly]);
 
   // Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z — canvas undo/redo. Skipped when the
   // user is typing in any input/textarea/contenteditable so the Monaco
@@ -163,6 +139,7 @@ export const EditorPage: React.FC = () => {
   // working untouched.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      if (readOnly) return;
       const t = e.target as HTMLElement | null;
       if (t) {
         const tag = t.tagName;
@@ -188,7 +165,7 @@ export const EditorPage: React.FC = () => {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [readOnly]);
 
   // Prevent body scroll on the editor page
   useEffect(() => {
@@ -435,6 +412,7 @@ export const EditorPage: React.FC = () => {
               compileLogs={compileLogs}
               setCompileLogs={setCompileLogs}
               centerSlot={!isRaspberryPi3 ? <FileTabs /> : null}
+              readOnly={readOnly}
             />
           </div>
           <div className="unified-toolbar-canvas" ref={setCanvasHeaderSlot} />
@@ -472,10 +450,7 @@ export const EditorPage: React.FC = () => {
                   overflow: "hidden",
                 }}
               >
-                <FileExplorer
-                  onSaveClick={handleSaveClick}
-                  onNewClick={handleNewClick}
-                />
+                <FileExplorer onSaveClick={handleSaveClick} readOnly={readOnly} />
               </div>
               {!isMobile && (
                 <div
@@ -533,6 +508,7 @@ export const EditorPage: React.FC = () => {
                     compileLogs={compileLogs}
                     setCompileLogs={setCompileLogs}
                     centerSlot={!isRaspberryPi3 ? <FileTabs /> : null}
+                    readOnly={readOnly}
                   />
                 </div>
               </div>
@@ -551,10 +527,13 @@ export const EditorPage: React.FC = () => {
                     </div>
                   }
                 >
-                  <RaspberryPiWorkspace boardId={activeBoardId} />
+                  <RaspberryPiWorkspace
+                    boardId={activeBoardId}
+                    readOnly={readOnly}
+                  />
                 </Suspense>
               ) : (
-                <CodeEditor />
+                <CodeEditor readOnly={readOnly} />
               )}
             </div>
 
@@ -613,7 +592,10 @@ export const EditorPage: React.FC = () => {
               minHeight: 0,
             }}
           >
-            <SimulatorCanvas headerSlot={!isMobile ? canvasHeaderSlot : null} />
+            <SimulatorCanvas
+              headerSlot={!isMobile ? canvasHeaderSlot : null}
+              readOnly={readOnly}
+            />
           </div>
           {serialMonitorOpen && (
             <>

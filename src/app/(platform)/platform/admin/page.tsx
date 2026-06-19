@@ -1,5 +1,4 @@
 import { desc, eq } from "drizzle-orm";
-import Image from "next/image";
 import Link from "next/link";
 import {
   HiArchiveBox,
@@ -11,7 +10,7 @@ import {
 } from "react-icons/hi2";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
-import { db } from "@/lib/db/connection";
+import { db } from "@/lib/db/db";
 import { orders, products, projects, user } from "@/lib/db/schema";
 
 const adminLinks = [
@@ -84,6 +83,7 @@ export default async function PlatformAdminPage() {
         title: projects.title,
         status: projects.status,
         hoursSpent: projects.hoursSpent,
+        kitType: projects.kitType,
       })
       .from(projects)
       .where(eq(projects.status, "shipped"))
@@ -130,10 +130,7 @@ export default async function PlatformAdminPage() {
     <main className="max-w-6xl space-y-6">
       <section className="grid gap-5 lg:grid-cols-[1fr_360px]">
         <div className="rounded-[16px] border border-black bg-white p-6 shadow-[4px_4px_0_#000]">
-          <p className="text-xs font-black tracking-[0.18em] text-[#BD0F32] uppercase">
-            Admin
-          </p>
-          <h1 className="mt-2 text-4xl font-black text-black">Dashboard</h1>
+          <h1 className="text-4xl font-black text-black">Admin</h1>
           <p className="mt-2 text-sm text-black/60">{session.user.email}</p>
 
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
@@ -144,7 +141,7 @@ export default async function PlatformAdminPage() {
                 className="rounded-[12px] border border-black bg-[#f4f4f4] p-4 text-black no-underline transition hover:-translate-y-0.5 hover:bg-white"
               >
                 <p className="text-3xl font-black leading-none">{stat.value}</p>
-                <p className="mt-2 text-xs font-black tracking-[0.14em] text-black/50 uppercase">
+                <p className="mt-2 text-sm font-semibold text-black/55">
                   {stat.label}
                 </p>
               </Link>
@@ -152,18 +149,12 @@ export default async function PlatformAdminPage() {
           </div>
         </div>
 
-        <div className="relative min-h-56 overflow-hidden rounded-[16px] border border-black bg-black shadow-[4px_4px_0_#BD0F32]">
-          <Image
-            src="/assets/EmailSample.png"
-            alt="Admin desk"
-            fill
-            sizes="360px"
-            className="object-cover opacity-60"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/35 to-transparent" />
-          <div className="absolute right-5 bottom-5 left-5 text-white">
-            <p className="text-2xl font-black">Review, pack, ship.</p>
-          </div>
+        <div className="rounded-[16px] border border-black bg-white p-6 shadow-[4px_4px_0_#000]">
+          <h2 className="text-xl font-black text-black">Today</h2>
+          <p className="mt-2 text-sm leading-6 text-black/60">
+            Review shipped projects, keep orders moving, and check account
+            changes from the audit log when something looks off.
+          </p>
         </div>
       </section>
 
@@ -194,7 +185,8 @@ export default async function PlatformAdminPage() {
                       {project.hoursSpent}h tracked
                     </p>
                   </div>
-                  <span className="rounded-full bg-[#BD0F32] px-2 py-1 text-[10px] font-black text-white uppercase">
+                  <span className="text-xs font-semibold text-black/45">
+                    {project.kitType === "esp32" ? "ESP32" : "Arduino"} ·
                     shipped
                   </span>
                 </Link>
@@ -230,10 +222,10 @@ export default async function PlatformAdminPage() {
                       #{order.id} {order.name || "No name"}
                     </p>
                     <p className="text-xs text-black/50">
-                      {order.totalCost} credits
+                      {order.totalCost} bread
                     </p>
                   </div>
-                  <span className="rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-black text-zinc-600 uppercase">
+                  <span className="text-xs font-semibold text-black/45">
                     {statusLabel(order.status)}
                   </span>
                 </Link>

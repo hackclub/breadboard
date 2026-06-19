@@ -10,6 +10,12 @@ export type ProjectStatus =
 
 export type OrderStatus = "pending" | "being_fulfilled" | "sent" | "cancelled";
 
+export type OrderStatusFormState = {
+  success: boolean;
+  message?: string;
+  status?: OrderStatus;
+};
+
 export type SidebarUser = {
   name?: string | null;
   email?: string | null;
@@ -40,6 +46,22 @@ export type ShipInput = {
   birthday: string;
   firstName: string;
   lastName: string;
+};
+
+export type ProjectFormState = {
+  success: boolean;
+  message?: string;
+  project?: Partial<PlatformProject> & { id: number };
+};
+
+export type PlatformProject = ShipInput & {
+  id: number;
+  title: string;
+  description: string;
+  hoursSpent: number;
+  status: ProjectStatus;
+  reviewNote: string;
+  kitType: "arduino" | "esp32";
 };
 
 export type ShippingAddress = {

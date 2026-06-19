@@ -1,7 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getEditorProject } from "@/lib/editor/access";
-import { db } from "@/lib/db/connection";
+import { db } from "@/lib/db/db";
 import { projectEditorVersions } from "@/lib/db/schema";
 
 export async function GET(

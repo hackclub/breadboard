@@ -3,9 +3,10 @@ import Link from "next/link";
 import { HiArrowLeft } from "react-icons/hi2";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
-import { db } from "@/lib/db/connection";
+import { BREAD_PER_HOUR } from "@/lib/constants";
+import { db } from "@/lib/db/db";
 import { projects, reviewNotes, user } from "@/lib/db/schema";
-import { ReviewWorkspace } from "./_client";
+import { ReviewWorkspace } from "@/components/platform/review-workspace";
 
 export default async function AdminReviewProjectPage({
   params,
@@ -52,10 +53,11 @@ export default async function AdminReviewProjectPage({
       overrideHoursSpentJustification: projects.overrideHoursSpentJustification,
       status: projects.status,
       reviewNote: projects.reviewNote,
-      creditedAmount: projects.creditedAmount,
+      breadAmount: projects.breadAmount,
       shippedAt: projects.shippedAt,
       updatedAt: projects.updatedAt,
       createdAt: projects.createdAt,
+      kitType: projects.kitType,
       userName: user.name,
       userEmail: user.email,
       userId: projects.userId,
@@ -114,6 +116,7 @@ export default async function AdminReviewProjectPage({
         userNotes={userNotes}
         currentUserId={session.user.id}
         targetUserId={project.userId}
+        breadPerHour={BREAD_PER_HOUR}
       />
     </main>
   );

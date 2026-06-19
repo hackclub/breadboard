@@ -4,7 +4,7 @@ import { HiArrowLeft, HiArrowTopRightOnSquare } from "react-icons/hi2";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { Badge } from "@/components/ui/badge";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
-import { db } from "@/lib/db/connection";
+import { db } from "@/lib/db/db";
 import { projectEditorVersions, projects, user } from "@/lib/db/schema";
 
 function reasonLabel(reason: string): string {

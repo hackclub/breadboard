@@ -113,9 +113,13 @@ interface SimulatorCanvasProps {
    * top bar that doesn't reflow when the editor/canvas splitter moves.
    */
   headerSlot?: HTMLElement | null;
+  readOnly?: boolean;
 }
 
-export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
+export const SimulatorCanvas = ({
+  headerSlot,
+  readOnly = false,
+}: SimulatorCanvasProps = {}) => {
   const { t } = useTranslation();
   const isTouchDevice = useIsCoarsePointer();
   // Mirror to a ref so the long-lived touch handler effect (deps deliberately
@@ -138,6 +142,10 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
     updateComponent,
     serialMonitorOpen,
     toggleSerialMonitor,
+    syncCanvasView,
+    canvasPan: initialCanvasPan,
+    canvasZoom: initialCanvasZoom,
+    _timelapseReplay,
   } = useSimulatorStore();
   // `addComponent` / `removeComponent` / `removeWire` are no longer used here —
   // every user-initiated mutation routes through the record* actions below
@@ -285,14 +293,21 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
   // Canvas ref for coordinate calculations
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  // Pan & zoom state
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState(1);
+  // Pan & zoom state (initialized from store for timelapse replay)
+  const [pan, setPan] = useState({ x: initialCanvasPan?.x ?? 0, y: initialCanvasPan?.y ?? 0 });
+  const [zoom, setZoom] = useState(initialCanvasZoom ?? 1);
   // Use refs during active pan to avoid setState lag
   const isPanningRef = useRef(false);
   const panStartRef = useRef({ mouseX: 0, mouseY: 0, panX: 0, panY: 0 });
   const panRef = useRef({ x: 0, y: 0 });
   const zoomRef = useRef(1);
+
+  // Sync canvas viewport to store for timelapse capture
+  const syncCanvasViewRef = useRef(syncCanvasView);
+  syncCanvasViewRef.current = syncCanvasView;
+  useEffect(() => {
+    syncCanvasViewRef.current(pan, zoom);
+  }, [pan, zoom]);
 
   // Board-less SPICE circuits (analog / digital examples with no MCU on
   // the canvas) have no concept of a board to "start", so `running` is
@@ -457,6 +472,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
   // user-driven property change.
   useEffect(() => {
     const onPropertyChange = (evt: Event) => {
+      if (readOnly) return;
       const { componentId, propName, value } = (
         evt as CustomEvent<PropertyChangeDetail>
       ).detail;
@@ -471,7 +487,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
     window.addEventListener(PROPERTY_CHANGE_EVENT, onPropertyChange);
     return () =>
       window.removeEventListener(PROPERTY_CHANGE_EVENT, onPropertyChange);
-  }, []);
+  }, [readOnly]);
 
   // Auto-start/stop Pi bridges when simulation state changes
   const startBoard = useSimulatorStore((s) => s.startBoard);
@@ -853,6 +869,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
           worldEl.style.transform = `translate(${newPan.x}px, ${newPan.y}px) scale(${zoomRef.current})`;
         }
       } else if (touchDraggedComponentIdRef.current) {
+        if (readOnly) return;
         // ── Single finger component/board drag ──
         const world = toWorld(touch.clientX, touch.clientY);
         const touchId = touchDraggedComponentIdRef.current;
@@ -916,6 +933,11 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
 
       // ── Finish segment drag (wire editing) via touch ──
       if (segmentDragRef.current) {
+        if (readOnly) {
+          segmentDragRef.current = null;
+          setSegmentDragPreview(null);
+          return;
+        }
         const sd = segmentDragRef.current;
         if (sd.isDragging) {
           segmentDragJustCommittedRef.current = true;
@@ -1013,6 +1035,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
       // tapping a pin name from a list — far more reliable than poking at a
       // 12px overlay with a fingertip. Empty-canvas taps still drop waypoints.
       if (wireInProgressRef.current) {
+        if (readOnly) return;
         if (isShortTap) {
           const tapTarget = document.elementFromPoint(
             changed.clientX,
@@ -1036,7 +1059,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
 
       // ── Short tap on empty canvas: wire selection + double-tap inserts waypoint ──
       // Disabled while running — the canvas is interact-only then.
-      if (isShortTap && !interactionRunningRef.current) {
+      if (isShortTap && !readOnly && !interactionRunningRef.current) {
         const now = Date.now();
         const world = toWorld(changed.clientX, changed.clientY);
         const baseThreshold = isTouchDeviceRef.current ? 20 : 8;
@@ -1345,6 +1368,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
   // Handle keyboard delete for components and boards
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (readOnly) return;
       // Skip when the user is typing in an input/textarea/contenteditable —
       // otherwise Backspace inside the AI chat (or any future text field)
       // also asks to delete the active board.
@@ -1373,10 +1397,11 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedComponentId, recordRemoveComponent, activeBoardId]);
+  }, [readOnly, selectedComponentId, recordRemoveComponent, activeBoardId]);
 
   // Handle component selection from modal
   const handleSelectComponent = (metadata: ComponentMetadata) => {
+    if (readOnly) return;
     // Anchor new components to the visible top-left of the canvas, so they
     // appear in the user's current viewport regardless of pan/zoom (instead
     // of growing off-screen at fixed world coords like (400, 100 + row*250)).
@@ -1411,6 +1436,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
   // Component rotation — applies the new angle and records it as a single
   // undoable command (round-trip flips the rotation property both ways).
   const handleRotateComponent = (componentId: string) => {
+    if (readOnly) return;
     const component = components.find((c) => c.id === componentId);
     if (!component) return;
 
@@ -1430,6 +1456,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
     componentId: string,
     e: React.MouseEvent,
   ) => {
+    if (readOnly) return;
     if (showPropertyDialog) return;
 
     // While running, the canvas is read-only and most components
@@ -1489,6 +1516,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
 
     // Handle component/board dragging
     if (draggedComponentId) {
+      if (readOnly) return;
       const world = toWorld(e.clientX, e.clientY);
       if (draggedComponentId.startsWith("__board__:")) {
         const boardId = draggedComponentId.slice("__board__:".length);
@@ -1512,6 +1540,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
 
     // Handle wire creation preview
     if (wireInProgress) {
+      if (readOnly) return;
       const world = toWorld(e.clientX, e.clientY);
       updateWireInProgress(world.x, world.y);
       return;
@@ -1519,6 +1548,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
 
     // Handle segment handle dragging
     if (segmentDragRef.current) {
+      if (readOnly) return;
       const world = toWorld(e.clientX, e.clientY);
       const sd = segmentDragRef.current;
       sd.isDragging = true;
@@ -1625,6 +1655,12 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
 
     // Commit segment handle drag
     if (segmentDragRef.current) {
+      if (readOnly) {
+        segmentDragRef.current = null;
+        setSegmentDragPreview(null);
+        setAlignmentGuides([]);
+        return;
+      }
       const sd = segmentDragRef.current;
       if (sd.isDragging) {
         segmentDragJustCommittedRef.current = true;
@@ -1654,6 +1690,13 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
 
     // Commit waypoint handle drag
     if (waypointDragRef.current) {
+      if (readOnly) {
+        waypointDragRef.current = null;
+        setWaypointDragPreview(null);
+        setSegmentDragPreview(null);
+        setAlignmentGuides([]);
+        return;
+      }
       const wd = waypointDragRef.current;
       if (wd.isDragging) {
         segmentDragJustCommittedRef.current = true;
@@ -1697,6 +1740,10 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
     }
 
     if (draggedComponentId) {
+      if (readOnly) {
+        setDraggedComponentId(null);
+        return;
+      }
       const timeDiff = Date.now() - clickStartTime;
       const posDiff = Math.sqrt(
         Math.pow(e.clientX - clickStartPos.x, 2) +
@@ -1791,6 +1838,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
     (e: React.MouseEvent, segIndex: number) => {
       e.stopPropagation();
       e.preventDefault();
+      if (readOnly) return;
       if (interactionRunningRef.current) return; // interact-only while running
       if (!selectedWireId) return;
       const wire = wiresRef.current.find((w) => w.id === selectedWireId);
@@ -1807,13 +1855,14 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
         isDragging: false,
       };
     },
-    [selectedWireId],
+    [readOnly, selectedWireId],
   );
 
   // Handle touchstart on a segment handle circle (mobile wire editing)
   const handleHandleTouchStart = useCallback(
     (e: React.TouchEvent, segIndex: number) => {
       e.stopPropagation();
+      if (readOnly) return;
       if (interactionRunningRef.current) return;
       if (!selectedWireId) return;
       const wire = wiresRef.current.find((w) => w.id === selectedWireId);
@@ -1830,7 +1879,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
         isDragging: false,
       };
     },
-    [selectedWireId],
+    [readOnly, selectedWireId],
   );
 
   // Handle mousedown on a waypoint (bend-point) handle: free 2D drag
@@ -1838,6 +1887,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
     (e: React.MouseEvent, waypointIndex: number) => {
       e.stopPropagation();
       e.preventDefault();
+      if (readOnly) return;
       if (interactionRunningRef.current) return; // interact-only while running
       if (!selectedWireId) return;
       const wire = wiresRef.current.find((w) => w.id === selectedWireId);
@@ -1849,13 +1899,14 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
         isDragging: false,
       };
     },
-    [selectedWireId],
+    [readOnly, selectedWireId],
   );
 
   // Handle touchstart on a waypoint handle (mobile)
   const handleWaypointTouchStart = useCallback(
     (e: React.TouchEvent, waypointIndex: number) => {
       e.stopPropagation();
+      if (readOnly) return;
       if (interactionRunningRef.current) return;
       if (!selectedWireId) return;
       const wire = wiresRef.current.find((w) => w.id === selectedWireId);
@@ -1867,7 +1918,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
         isDragging: false,
       };
     },
-    [selectedWireId],
+    [readOnly, selectedWireId],
   );
 
   // Zoom centered on cursor
@@ -1909,6 +1960,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
     x: number,
     y: number,
   ) => {
+    if (readOnly) return;
     // No making connections while the simulation runs — interact-only.
     if (interactionRunningRef.current) return;
     // Close property dialog when starting wire creation
@@ -1944,6 +1996,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
   // Keyboard handlers for wires
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (readOnly) return;
       // Escape → cancel in-progress wire
       if (e.key === "Escape" && wireInProgress) {
         cancelWireCreation();
@@ -1969,6 +2022,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
     wireInProgress,
+    readOnly,
     cancelWireCreation,
     selectedWireId,
     recordRemoveWire,
@@ -2000,6 +2054,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
   // ~400px-wide phone, with everything piled into the top-left corner.
   const prevComponentCountRef = useRef(-1);
   useEffect(() => {
+    if (_timelapseReplay) return;
     const prev = prevComponentCountRef.current;
     const curr = components.length;
     prevComponentCountRef.current = curr;
@@ -2563,9 +2618,11 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                 {/* Add Component */}
                 <button
                   className="add-component-btn"
-                  onClick={() => setShowComponentPicker(true)}
+                  onClick={() => {
+                    if (!readOnly) setShowComponentPicker(true);
+                  }}
                   title={t("editor.canvas.addComponentTitle")}
-                  disabled={running}
+                  disabled={readOnly || running}
                 >
                   <svg
                     width="22"
@@ -2604,6 +2661,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
           }}
           onClick={(e) => {
             if (wireInProgress) {
+              if (readOnly) return;
               const world = toWorld(e.clientX, e.clientY);
               addWireWaypoint(world.x, world.y);
               return;
@@ -2616,7 +2674,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
             // While the simulation runs the canvas is interact-only: a click on
             // a button must press it (its own handler), not select the wire
             // underneath it for editing.
-            if (interactionRunning) return;
+            if (readOnly || interactionRunning) return;
             // Wire selection via canvas-level hit detection
             const world = toWorld(e.clientX, e.clientY);
             const threshold = 8 / zoomRef.current;
@@ -2634,7 +2692,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
             }
           }}
           onDoubleClick={(e) => {
-            if (wireInProgress || interactionRunning) return;
+            if (readOnly || wireInProgress || interactionRunning) return;
             const world = toWorld(e.clientX, e.clientY);
             const threshold = 8 / zoomRef.current;
             const wire = findWireNearPoint(
@@ -2793,6 +2851,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
           {!wireInProgress &&
             isTouchDevice &&
             !interactionRunning &&
+            !readOnly &&
             (() => {
               if (selectedWireId) {
                 const wire = wires.find((w) => w.id === selectedWireId);
@@ -2884,7 +2943,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
             : "Tap a pin to start a wire";
           // Rotate is only meaningful for components (boards have no rotation).
           const handlePickerRotate =
-            pinPicker.kind === "component"
+            !readOnly && pinPicker.kind === "component"
               ? () => {
                   handleRotateComponent(id);
                 }
@@ -2893,6 +2952,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
           // removeComponent() directly; boards use the confirmation dialog
           // that's already wired for the right-click "Remove board" item.
           const handlePickerDelete = () => {
+            if (readOnly) return;
             if (pinPicker.kind === "board") {
               setPinPicker(null);
               setBoardToRemove(id);
@@ -2943,6 +3003,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                   }
                 }
                 setPinPicker(null);
+                if (readOnly) return;
                 handlePinClick(targetId, pinName, worldX, worldY);
               }}
             />
@@ -2952,6 +3013,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
       {/* Component Property Dialog */}
       {showPropertyDialog &&
         propertyDialogComponentId &&
+        !readOnly &&
         (() => {
           const component = components.find(
             (c) => c.id === propertyDialogComponentId,
@@ -3029,6 +3091,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
 
       {/* Custom Chip Designer Dialog */}
       {customChipComponentId &&
+        !readOnly &&
         (() => {
           const comp = components.find((c) => c.id === customChipComponentId);
           if (!comp) return null;
@@ -3057,10 +3120,11 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
 
       {/* Component Picker Modal */}
       <ComponentPickerModal
-        isOpen={showComponentPicker}
+        isOpen={showComponentPicker && !readOnly}
         onClose={() => setShowComponentPicker(false)}
         onSelectComponent={handleSelectComponent}
         onSelectBoard={(kind: BoardKind) => {
+          if (readOnly) return;
           trackSelectBoard(kind);
           const sameKind = boards.filter((b) => b.boardKind === kind);
           const newBoardId =
@@ -3074,6 +3138,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
 
       {/* Board right-click context menu */}
       {boardContextMenu &&
+        !readOnly &&
         (() => {
           const board = boards.find((b) => b.id === boardContextMenu.boardId);
           const label = board ? boardDisplayName(board) : "Board";
@@ -3234,6 +3299,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
           the user has compiled the sketch + clicks "Flash to real
           board". Only present in Tauri (web hides the menu item). */}
       {boardOptionsModalFor &&
+        !readOnly &&
         (() => {
           const b = boards.find((x) => x.id === boardOptionsModalFor);
           if (!b) return null;
@@ -3256,6 +3322,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
 
       {/* Board removal confirmation dialog */}
       {boardToRemove &&
+        !readOnly &&
         (() => {
           const board = boards.find((b) => b.id === boardToRemove);
           const label = board
@@ -3330,6 +3397,7 @@ export const SimulatorCanvas = ({ headerSlot }: SimulatorCanvasProps = {}) => {
                   </button>
                   <button
                     onClick={() => {
+                      if (readOnly) return;
                       removeBoard(boardToRemove);
                       setBoardToRemove(null);
                     }}

@@ -27,6 +27,7 @@ const PiTerminal = lazy(() =>
 
 interface RaspberryPiWorkspaceProps {
   boardId: string;
+  readOnly?: boolean;
 }
 
 interface OpenFile {
@@ -36,6 +37,7 @@ interface OpenFile {
 
 export const RaspberryPiWorkspace: React.FC<RaspberryPiWorkspaceProps> = ({
   boardId,
+  readOnly = false,
 }) => {
   const { t } = useTranslation();
   const [activePane, setActivePane] = useState<"terminal" | string>("terminal"); // string = nodeId
@@ -139,7 +141,11 @@ export const RaspberryPiWorkspace: React.FC<RaspberryPiWorkspaceProps> = ({
     <div style={styles.container}>
       {/* Left: VFS explorer */}
       <div style={styles.sidebar}>
-        <VirtualFileSystem boardId={boardId} onFileSelect={handleFileSelect} />
+        <VirtualFileSystem
+          boardId={boardId}
+          onFileSelect={handleFileSelect}
+          readOnly={readOnly}
+        />
       </div>
 
       {/* Right: terminal or file editor */}
@@ -175,6 +181,7 @@ export const RaspberryPiWorkspace: React.FC<RaspberryPiWorkspaceProps> = ({
                   borderColor: "#4caf50",
                 }}
                 onClick={() => startBoard(boardId)}
+                disabled={readOnly}
                 title={t("editor.pi.powerOnTitle")}
               >
                 ▶ {t("editor.pi.startPi")}
@@ -258,7 +265,10 @@ export const RaspberryPiWorkspace: React.FC<RaspberryPiWorkspaceProps> = ({
                 </div>
                 <button
                   style={styles.startBtn}
-                  onClick={() => startBoard(boardId)}
+                  onClick={() => {
+                    if (!readOnly) startBoard(boardId);
+                  }}
+                  disabled={readOnly}
                 >
                   ▶ {t("editor.pi.startPi")}
                 </button>
@@ -289,8 +299,12 @@ export const RaspberryPiWorkspace: React.FC<RaspberryPiWorkspaceProps> = ({
               }
               theme="vs-dark"
               value={activeFileNode.content ?? ""}
-              onChange={(val) => setContent(boardId, activePane, val ?? "")}
+              onChange={(val) => {
+                if (!readOnly) setContent(boardId, activePane, val ?? "");
+              }}
               options={{
+                readOnly,
+                domReadOnly: readOnly,
                 minimap: { enabled: false },
                 fontSize: 13,
                 automaticLayout: true,

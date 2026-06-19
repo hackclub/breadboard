@@ -28,7 +28,7 @@
   font-display: swap;
 }
 
-:root {
+.editor-root {
   --font-sans:
     "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
     Roboto, "Helvetica Neue", Arial, sans-serif;

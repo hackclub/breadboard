@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "kit_type" text DEFAULT 'arduino' NOT NULL;

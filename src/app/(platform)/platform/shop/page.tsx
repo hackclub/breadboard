@@ -3,9 +3,9 @@ import Image from "next/image";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { PageHero } from "@/components/shared/docs-frame";
 import { getSession } from "@/lib/auth/guards";
-import { db } from "@/lib/db/connection";
+import { db } from "@/lib/db/db";
 import { products } from "@/lib/db/schema";
-import { AddToCartButton, ShopCart } from "./_client";
+import { AddToCartButton, ShopCart } from "@/components/platform/shop-cart";
 import { ShopTabs } from "./_nav";
 
 export default async function PlatformShopPage() {
@@ -16,7 +16,7 @@ export default async function PlatformShopPage() {
       <>
         <PageHero title="Breadboard Store">
           <p className="mt-2 text-base text-black/80">
-            The docs are public. The shop needs Hack Club login so credits and
+            The docs are public. The shop needs Hack Club login so bread and
             orders attach to your account.
           </p>
         </PageHero>
@@ -46,7 +46,7 @@ export default async function PlatformShopPage() {
         <div className="mt-3 flex flex-wrap items-center justify-between gap-5">
           <ShopTabs active="shop" />
           <p className="rounded-full border border-black bg-white px-4 py-2 text-sm font-bold text-black/70 shadow-[3px_3px_0_#000]">
-            Spend INSERT CURRENCY you got from making projects
+            Spend bread you earned from building projects
           </p>
         </div>
       </PageHero>
@@ -99,7 +99,7 @@ export default async function PlatformShopPage() {
                     <p className="text-2xl font-black text-black">
                       {product.price}
                       <span className="ml-1 text-sm font-bold text-black/50">
-                        credits
+                        bread
                       </span>
                     </p>
                     <p

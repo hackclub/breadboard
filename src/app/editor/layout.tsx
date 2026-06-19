@@ -7,7 +7,7 @@ export default function EditorLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#1e1e1e]">
+    <div className="editor-root fixed inset-0 z-50 flex flex-col bg-[#1e1e1e]">
       {children}
     </div>
   );

@@ -3,16 +3,118 @@
 import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireAdminSession, requireSession } from "@/lib/auth/guards";
-import { db } from "@/lib/db/connection";
+import { db } from "@/lib/db/db";
 import {
   cartItems,
   carts,
   orderItems,
   orders,
   products,
-  userBalances,
+  userBread,
 } from "@/lib/db/schema";
-import type { CheckoutItem, ShippingAddress } from "@/types";
+import type {
+  CheckoutItem,
+  OrderStatusFormState,
+  ShippingAddress,
+} from "@/types";
+
+const SHIPPING_FIELD_LIMIT = 120;
+const PRODUCT_TEXT_LIMIT = 500;
+
+const ORDER_STATUSES = [
+  "pending",
+  "being_fulfilled",
+  "sent",
+  "cancelled",
+] as const;
+
+type OrderStatus = (typeof ORDER_STATUSES)[number];
+
+type ProductInput = {
+  name: string;
+  description: string;
+  imageUrl: string;
+  price: number;
+  stock?: number | null;
+  active?: boolean;
+};
+
+function requirePositiveInt(value: unknown, label: string) {
+  const number = Math.floor(Number(value));
+  if (!Number.isFinite(number) || number <= 0) {
+    throw new Error(`${label} must be a positive number`);
+  }
+  return number;
+}
+
+function normalizeNonNegativeInt(value: unknown, label: string) {
+  const number = Math.floor(Number(value));
+  if (!Number.isFinite(number) || number < 0) {
+    throw new Error(`${label} must be zero or greater`);
+  }
+  return number;
+}
+
+function requiredText(value: string | undefined, label: string) {
+  const text = value?.trim() ?? "";
+  if (!text) throw new Error(`${label} is required`);
+  if (text.length > SHIPPING_FIELD_LIMIT) {
+    throw new Error(
+      `${label} must be ${SHIPPING_FIELD_LIMIT} characters or less`,
+    );
+  }
+  return text;
+}
+
+function limitedText(
+  value: unknown,
+  label: string,
+  limit = PRODUCT_TEXT_LIMIT,
+) {
+  const text = String(value ?? "").trim();
+  if (!text) throw new Error(`${label} is required`);
+  if (text.length > limit) throw new Error(`${label} is too long`);
+  return text;
+}
+
+function normalizeProductInput(data: ProductInput) {
+  const imageUrl = limitedText(data.imageUrl, "Image URL");
+  try {
+    new URL(imageUrl);
+  } catch {
+    throw new Error("Image URL must be valid");
+  }
+
+  return {
+    name: limitedText(data.name, "Name", 120),
+    description: limitedText(data.description, "Description", 1000),
+    imageUrl,
+    price: requirePositiveInt(data.price, "Price"),
+    stock:
+      data.stock === null || data.stock === undefined
+        ? null
+        : normalizeNonNegativeInt(data.stock, "Stock"),
+    ...(data.active !== undefined ? { active: Boolean(data.active) } : {}),
+  };
+}
+
+function normalizeOrderStatus(status: unknown): OrderStatus {
+  if (ORDER_STATUSES.includes(status as OrderStatus))
+    return status as OrderStatus;
+  throw new Error("Invalid order status");
+}
+
+function normalizeAddress(address: ShippingAddress): ShippingAddress {
+  return {
+    name: requiredText(address.name, "Name"),
+    line1: requiredText(address.line1, "Address line 1"),
+    line2: address.line2?.trim().slice(0, SHIPPING_FIELD_LIMIT) ?? "",
+    city: requiredText(address.city, "City"),
+    region: requiredText(address.region, "Region"),
+    postalCode: requiredText(address.postalCode, "Postal code"),
+    country: requiredText(address.country, "Country"),
+  };
+}
 
 async function getOrCreateCart(userId: string) {
   const existing = await db
@@ -28,20 +130,19 @@ async function getOrCreateCart(userId: string) {
 export async function addToCart(productId: number) {
   const session = await requireSession();
   const cart = await getOrCreateCart(session.user.id);
+  const id = requirePositiveInt(productId, "Product ID");
 
   const product = await db
     .select()
     .from(products)
-    .where(and(eq(products.id, productId), eq(products.active, true)))
+    .where(and(eq(products.id, id), eq(products.active, true)))
     .limit(1);
   if (!product[0]) throw new Error("Product not found");
 
   const existingItem = await db
     .select()
     .from(cartItems)
-    .where(
-      and(eq(cartItems.cartId, cart.id), eq(cartItems.productId, productId)),
-    )
+    .where(and(eq(cartItems.cartId, cart.id), eq(cartItems.productId, id)))
     .limit(1);
 
   if (existingItem[0]) {
@@ -52,7 +153,7 @@ export async function addToCart(productId: number) {
   } else {
     await db
       .insert(cartItems)
-      .values({ cartId: cart.id, productId, quantity: 1 });
+      .values({ cartId: cart.id, productId: id, quantity: 1 });
   }
 
   revalidatePath("/platform/shop");
@@ -61,9 +162,10 @@ export async function addToCart(productId: number) {
 export async function removeFromCart(cartItemId: number) {
   const session = await requireSession();
   const cart = await getOrCreateCart(session.user.id);
+  const id = requirePositiveInt(cartItemId, "Cart item ID");
   await db
     .delete(cartItems)
-    .where(and(eq(cartItems.id, cartItemId), eq(cartItems.cartId, cart.id)));
+    .where(and(eq(cartItems.id, id), eq(cartItems.cartId, cart.id)));
   revalidatePath("/platform/shop");
 }
 
@@ -72,6 +174,7 @@ export async function placeOrder(
   address: ShippingAddress,
 ) {
   const session = await requireSession();
+  const shippingAddress = normalizeAddress(address);
 
   const normalizedItems = checkoutItems
     .map((item) => ({
@@ -107,7 +210,9 @@ export async function placeOrder(
       quantity: quantityByProduct.get(product.productId) ?? 0,
     }));
 
-  if (items.length === 0) throw new Error("Cart is empty");
+  if (items.length !== quantityByProduct.size) {
+    throw new Error("One or more items are unavailable");
+  }
 
   const unavailableItem = items.find(
     (item) => item.stock !== null && item.quantity > item.stock,
@@ -123,98 +228,7 @@ export async function placeOrder(
     0,
   );
 
-  const balance = await db
-    .select()
-    .from(userBalances)
-    .where(eq(userBalances.userId, session.user.id))
-    .limit(1);
-
-  if (balance[0] && balance[0].balance < totalCost) {
-    throw new Error(
-      `Insufficient balance. You have ${balance[0].balance} credits, need ${totalCost}.`,
-    );
-  }
-
-  const existingOrder = await db
-    .select()
-    .from(orders)
-    .where(
-      and(eq(orders.userId, session.user.id), eq(orders.status, "pending")),
-    )
-    .orderBy(sql`${orders.createdAt} DESC`)
-    .limit(1);
-
-  let orderId = 0;
-
-  if (existingOrder[0]) {
-    orderId = existingOrder[0].id;
-    await db
-      .update(orders)
-      .set({
-        totalCost: existingOrder[0].totalCost + totalCost,
-        updatedAt: new Date(),
-      })
-      .where(eq(orders.id, orderId));
-  } else {
-    const [order] = await db.transaction(async (tx) => {
-      for (const item of items) {
-        if (item.stock === null) continue;
-        const [updatedProduct] = await tx
-          .update(products)
-          .set({ stock: sql`${products.stock} - ${item.quantity}` })
-          .where(
-            and(
-              eq(products.id, item.productId),
-              eq(products.active, true),
-              sql`${products.stock} IS NOT NULL`,
-              sql`${products.stock} >= ${item.quantity}`,
-            ),
-          )
-          .returning({ id: products.id });
-        if (!updatedProduct)
-          throw new Error(`${item.productName} is no longer in stock.`);
-      }
-
-      if (balance[0]) {
-        await tx
-          .update(userBalances)
-          .set({ balance: balance[0].balance - totalCost })
-          .where(eq(userBalances.id, balance[0].id));
-      }
-
-      const [createdOrder] = await tx
-        .insert(orders)
-        .values({
-          userId: session.user.id,
-          totalCost,
-          shippingName: address.name,
-          shippingLine1: address.line1,
-          shippingLine2: address.line2,
-          shippingCity: address.city,
-          shippingRegion: address.region,
-          shippingPostalCode: address.postalCode,
-          shippingCountry: address.country,
-        })
-        .returning();
-
-      for (const item of items) {
-        await tx.insert(orderItems).values({
-          orderId: createdOrder.id,
-          productId: item.productId,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-        });
-      }
-
-      return [createdOrder];
-    });
-    orderId = order.id;
-    revalidatePath("/platform/shop/orders");
-    revalidatePath("/platform/shop");
-    return { orderId, totalCost, merged: false };
-  }
-
-  await db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     for (const item of items) {
       if (item.stock === null) continue;
       const [updatedProduct] = await tx
@@ -233,12 +247,77 @@ export async function placeOrder(
         throw new Error(`${item.productName} is no longer in stock.`);
     }
 
-    if (balance[0]) {
-      await tx
-        .update(userBalances)
-        .set({ balance: balance[0].balance - totalCost })
-        .where(eq(userBalances.id, balance[0].id));
+    const [updatedBalance] = await tx
+      .update(userBread)
+      .set({
+        balance: sql`${userBread.balance} - ${totalCost}`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(userBread.userId, session.user.id),
+          sql`${userBread.balance} >= ${totalCost}`,
+        ),
+      )
+      .returning({ balance: userBread.balance });
+
+    if (!updatedBalance) {
+      throw new Error(`Insufficient balance. You need ${totalCost} bread.`);
     }
+
+    const existingOrder = await tx
+      .select()
+      .from(orders)
+      .where(
+        and(eq(orders.userId, session.user.id), eq(orders.status, "pending")),
+      )
+      .orderBy(sql`${orders.createdAt} DESC`)
+      .limit(1);
+
+    const pendingOrder = existingOrder[0];
+
+    if (!pendingOrder) {
+      const [createdOrder] = await tx
+        .insert(orders)
+        .values({
+          userId: session.user.id,
+          totalCost,
+          shippingName: shippingAddress.name,
+          shippingLine1: shippingAddress.line1,
+          shippingLine2: shippingAddress.line2,
+          shippingCity: shippingAddress.city,
+          shippingRegion: shippingAddress.region,
+          shippingPostalCode: shippingAddress.postalCode,
+          shippingCountry: shippingAddress.country,
+        })
+        .returning();
+
+      for (const item of items) {
+        await tx.insert(orderItems).values({
+          orderId: createdOrder.id,
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+        });
+      }
+
+      return { orderId: createdOrder.id, totalCost, merged: false };
+    }
+
+    await tx
+      .update(orders)
+      .set({
+        totalCost: pendingOrder.totalCost + totalCost,
+        shippingName: shippingAddress.name,
+        shippingLine1: shippingAddress.line1,
+        shippingLine2: shippingAddress.line2,
+        shippingCity: shippingAddress.city,
+        shippingRegion: shippingAddress.region,
+        shippingPostalCode: shippingAddress.postalCode,
+        shippingCountry: shippingAddress.country,
+        updatedAt: new Date(),
+      })
+      .where(eq(orders.id, pendingOrder.id));
 
     for (const item of items) {
       const existingOrderItem = await tx
@@ -246,7 +325,7 @@ export async function placeOrder(
         .from(orderItems)
         .where(
           and(
-            eq(orderItems.orderId, orderId),
+            eq(orderItems.orderId, pendingOrder.id),
             eq(orderItems.productId, item.productId),
           ),
         )
@@ -259,18 +338,19 @@ export async function placeOrder(
           .where(eq(orderItems.id, existingOrderItem[0].id));
       } else {
         await tx.insert(orderItems).values({
-          orderId,
+          orderId: pendingOrder.id,
           productId: item.productId,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
         });
       }
     }
+    return { orderId: pendingOrder.id, totalCost, merged: true };
   });
 
   revalidatePath("/platform/shop/orders");
   revalidatePath("/platform/shop");
-  return { orderId, totalCost, merged: true };
+  return result;
 }
 
 export async function updateOrderStatus(
@@ -280,29 +360,63 @@ export async function updateOrderStatus(
   adminNotes?: string,
 ) {
   await requireAdminSession();
+  const id = requirePositiveInt(orderId, "Order ID");
+  const nextStatus = normalizeOrderStatus(status);
 
-  await db
+  const [updatedOrder] = await db
     .update(orders)
     .set({
-      status,
-      ...(trackingInfo !== undefined ? { trackingInfo } : {}),
-      ...(adminNotes !== undefined ? { adminNotes } : {}),
+      status: nextStatus,
+      ...(trackingInfo !== undefined
+        ? { trackingInfo: trackingInfo.trim() }
+        : {}),
+      ...(adminNotes !== undefined ? { adminNotes: adminNotes.trim() } : {}),
       updatedAt: new Date(),
     })
-    .where(eq(orders.id, orderId));
+    .where(eq(orders.id, id))
+    .returning({ id: orders.id });
+  if (!updatedOrder) throw new Error("Order not found");
 
   revalidatePath("/platform/admin/orders");
   revalidatePath("/platform/admin/fulfillment");
   revalidatePath("/platform/shop/orders");
 }
 
+export async function updateOrderStatusFromForm(
+  _previousState: OrderStatusFormState,
+  formData: FormData,
+): Promise<OrderStatusFormState> {
+  try {
+    const orderId = Number(formData.get("orderId"));
+    const status = normalizeOrderStatus(formData.get("status"));
+    const trackingInfo = formData.get("trackingInfo");
+    const adminNotes = formData.get("adminNotes");
+
+    await updateOrderStatus(
+      orderId,
+      status,
+      typeof trackingInfo === "string" ? trackingInfo : undefined,
+      typeof adminNotes === "string" ? adminNotes : undefined,
+    );
+
+    return { success: true, status };
+  } catch (error) {
+    return {
+      success: false,
+      message:
+        error instanceof Error ? error.message : "Failed to update order.",
+    };
+  }
+}
+
 export async function cancelOrder(orderId: number) {
   const session = await requireSession();
+  const id = requirePositiveInt(orderId, "Order ID");
 
   const existingOrder = await db
     .select()
     .from(orders)
-    .where(and(eq(orders.id, orderId), eq(orders.userId, session.user.id)))
+    .where(and(eq(orders.id, id), eq(orders.userId, session.user.id)))
     .limit(1);
 
   const order = existingOrder[0];
@@ -314,25 +428,25 @@ export async function cancelOrder(orderId: number) {
     await tx
       .update(orders)
       .set({ status: "cancelled", updatedAt: new Date() })
-      .where(and(eq(orders.id, orderId), eq(orders.userId, session.user.id)));
+      .where(and(eq(orders.id, id), eq(orders.userId, session.user.id)));
 
     const balance = await tx
       .select()
-      .from(userBalances)
-      .where(eq(userBalances.userId, session.user.id))
+      .from(userBread)
+      .where(eq(userBread.userId, session.user.id))
       .limit(1);
 
     if (balance[0]) {
       await tx
-        .update(userBalances)
+        .update(userBread)
         .set({
           balance: balance[0].balance + order.totalCost,
           updatedAt: new Date(),
         })
-        .where(eq(userBalances.id, balance[0].id));
+        .where(eq(userBread.id, balance[0].id));
     } else {
       await tx
-        .insert(userBalances)
+        .insert(userBread)
         .values({ userId: session.user.id, balance: order.totalCost });
     }
   });
@@ -342,6 +456,11 @@ export async function cancelOrder(orderId: number) {
 }
 
 export async function seedProducts() {
+  await requireAdminSession();
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Seed products is disabled in production");
+  }
+
   const existing = await db.select().from(products).limit(1);
   if (existing.length > 0) return;
 
@@ -403,16 +522,7 @@ export async function addProduct(data: {
   stock?: number | null;
 }) {
   await requireAdminSession();
-  await db.insert(products).values({
-    name: data.name,
-    description: data.description,
-    imageUrl: data.imageUrl,
-    price: data.price,
-    stock:
-      data.stock === null || data.stock === undefined
-        ? null
-        : Math.max(0, Math.floor(Number(data.stock) || 0)),
-  });
+  await db.insert(products).values(normalizeProductInput(data));
   revalidatePath("/platform/shop");
   revalidatePath("/platform/admin/products");
 }
@@ -429,39 +539,39 @@ export async function updateProduct(
   },
 ) {
   await requireAdminSession();
-  await db
+  const id = requirePositiveInt(productId, "Product ID");
+  const [updatedProduct] = await db
     .update(products)
-    .set({
-      name: data.name,
-      description: data.description,
-      imageUrl: data.imageUrl,
-      price: Math.max(1, Math.floor(Number(data.price) || 1)),
-      stock:
-        data.stock === null
-          ? null
-          : Math.max(0, Math.floor(Number(data.stock) || 0)),
-      active: data.active,
-    })
-    .where(eq(products.id, productId));
+    .set(normalizeProductInput(data))
+    .where(eq(products.id, id))
+    .returning({ id: products.id });
+  if (!updatedProduct) throw new Error("Product not found");
   revalidatePath("/platform/shop");
   revalidatePath("/platform/admin/products");
 }
 
 export async function deleteProduct(productId: number) {
   await requireAdminSession();
+  const id = requirePositiveInt(productId, "Product ID");
   const existingOrderItems = await db
     .select({ id: orderItems.id })
     .from(orderItems)
-    .where(eq(orderItems.productId, productId))
+    .where(eq(orderItems.productId, id))
     .limit(1);
 
   if (existingOrderItems[0]) {
-    await db
+    const [updatedProduct] = await db
       .update(products)
       .set({ active: false })
-      .where(eq(products.id, productId));
+      .where(eq(products.id, id))
+      .returning({ id: products.id });
+    if (!updatedProduct) throw new Error("Product not found");
   } else {
-    await db.delete(products).where(eq(products.id, productId));
+    const [deletedProduct] = await db
+      .delete(products)
+      .where(eq(products.id, id))
+      .returning({ id: products.id });
+    if (!deletedProduct) throw new Error("Product not found");
   }
   revalidatePath("/platform/shop");
   revalidatePath("/platform/admin/products");
@@ -469,7 +579,13 @@ export async function deleteProduct(productId: number) {
 
 export async function toggleProduct(productId: number, active: boolean) {
   await requireAdminSession();
-  await db.update(products).set({ active }).where(eq(products.id, productId));
+  const id = requirePositiveInt(productId, "Product ID");
+  const [updatedProduct] = await db
+    .update(products)
+    .set({ active: Boolean(active) })
+    .where(eq(products.id, id))
+    .returning({ id: products.id });
+  if (!updatedProduct) throw new Error("Product not found");
   revalidatePath("/platform/shop");
   revalidatePath("/platform/admin/products");
 }

@@ -23,7 +23,7 @@ export function canShipProject(status: string) {
   return status === "draft" || status === "needs_changes";
 }
 
-export function normalizeCredits(amount: number) {
+export function normalizeBread(amount: number) {
   return Math.max(0, Math.floor(Number(amount) || 0));
 }
 

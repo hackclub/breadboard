@@ -41,4 +41,4 @@ export const ROUTES = {
   },
 } as const;
 
-export const CREDITS_PER_HOUR = 30;
+export const BREAD_PER_HOUR = 30;

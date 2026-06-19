@@ -3,9 +3,9 @@ import Link from "next/link";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { DocsFrame, PageHero } from "@/components/shared/platform-docs-frame";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
-import { db } from "@/lib/db/connection";
+import { db } from "@/lib/db/db";
 import { orderItems, orders, products, user } from "@/lib/db/schema";
-import { OrderRow } from "./_client";
+import { OrderRow } from "@/components/platform/admin-order-row";
 
 export default async function AdminOrdersPage() {
   const session = await getSession();

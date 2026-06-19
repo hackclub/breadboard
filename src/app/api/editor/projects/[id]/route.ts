@@ -1,28 +1,19 @@
 import { and, desc, eq, max, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { canEditEditorProject, getEditorProject } from "@/lib/editor/access";
-import { db } from "@/lib/db/connection";
+import { canWriteEditorProject, getEditorProject } from "@/lib/editor/access";
+import { validateEditorPayload } from "@/lib/editor/payload";
+import {
+  enforceSameOrigin,
+  hasAllowedContentLength,
+} from "@/lib/editor/security";
+import { db } from "@/lib/db/db";
 import { projectEditorVersions, projects } from "@/lib/db/schema";
 
-const MAX_EDITOR_BYTES = 5_000_000;
 const VERSION_INTERVAL_MS = 10 * 60 * 1000;
 const MAX_VERSIONS_PER_PROJECT = 100;
 
 function error(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
-}
-
-function isSafeEditorPayload(value: unknown) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const data = value as Record<string, unknown>;
-  return (
-    data.format === "velxio-project" &&
-    typeof data.version === "number" &&
-    Array.isArray(data.boards) &&
-    typeof data.fileGroups === "object" &&
-    Array.isArray(data.components) &&
-    Array.isArray(data.wires)
-  );
 }
 
 export async function GET(
@@ -33,7 +24,7 @@ export async function GET(
   const projectId = Number(id);
   if (!Number.isInteger(projectId)) return error("Invalid project id", 400);
 
-  const { project } = await getEditorProject(projectId);
+  const { session, project } = await getEditorProject(projectId);
   if (!project) return error("Not found", 404);
 
   const url = new URL(request.url);
@@ -67,7 +58,7 @@ export async function GET(
       title: project.title,
       description: project.description,
       status: project.status,
-      editable: canEditEditorProject(project),
+      editable: canWriteEditorProject(project, session),
       lastSavedAt: project.editorLastSavedAt,
     },
     version,
@@ -82,25 +73,41 @@ export async function PUT(
   const { id } = await params;
   const projectId = Number(id);
   if (!Number.isInteger(projectId)) return error("Invalid project id", 400);
+  if (!(await enforceSameOrigin(request))) return error("Forbidden", 403);
+  if (!hasAllowedContentLength(request))
+    return error("Editor data too large", 413);
 
-  const { project } = await getEditorProject(projectId);
+  const { session, project } = await getEditorProject(projectId);
   if (!project) return error("Not found", 404);
-  if (!canEditEditorProject(project)) return error("Project is locked", 423);
+  if (!canWriteEditorProject(project, session))
+    return error("Project is locked", 423);
 
   const body = await request.json().catch(() => null);
   const editorData = body?.editorData;
-  if (!isSafeEditorPayload(editorData))
-    return error("Invalid editor data", 400);
+  const validationError = validateEditorPayload(editorData);
+  if (validationError) {
+    return error(
+      validationError,
+      validationError.includes("large") ? 413 : 400,
+    );
+  }
 
   const serialized = JSON.stringify(editorData);
-  if (serialized.length > MAX_EDITOR_BYTES)
-    return error("Editor data too large", 413);
+  if (serialized === project.editorData) {
+    return NextResponse.json({
+      savedAt: project.editorLastSavedAt?.toISOString() ?? null,
+      versionNumber: null,
+      unchanged: true,
+    });
+  }
 
   const now = new Date();
   await db
     .update(projects)
     .set({ editorData: serialized, editorLastSavedAt: now, updatedAt: now })
-    .where(eq(projects.id, projectId));
+    .where(
+      and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
+    );
 
   const reason = typeof body?.reason === "string" ? body.reason : "autosave";
   const lastVersion = await db
@@ -148,5 +155,9 @@ export async function PUT(
     }
   }
 
-  return NextResponse.json({ savedAt: now.toISOString(), versionNumber });
+  return NextResponse.json({
+    savedAt: now.toISOString(),
+    versionNumber,
+    unchanged: false,
+  });
 }

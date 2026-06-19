@@ -1,9 +1,9 @@
 import { asc, eq, inArray, sql } from "drizzle-orm";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
-import { db } from "@/lib/db/connection";
+import { db } from "@/lib/db/db";
 import { projectEditorVersions, projects, user } from "@/lib/db/schema";
-import { ReviewQueue } from "./_client";
+import { ReviewQueue } from "@/components/platform/review-queue";
 
 export default async function AdminReviewPage() {
   const session = await getSession();
@@ -36,6 +36,7 @@ export default async function AdminReviewPage() {
       status: projects.status,
       shippedAt: projects.shippedAt,
       userEmail: user.email,
+      kitType: projects.kitType,
       versionCount: db.$count(
         projectEditorVersions,
         eq(projectEditorVersions.projectId, projects.id),
@@ -58,12 +59,9 @@ export default async function AdminReviewPage() {
     <main className="space-y-5">
       <section className="rounded-[16px] border border-black bg-white p-6 shadow-[4px_4px_0_#000]">
         <p className="text-xs font-black tracking-[0.18em] text-[#BD0F32] uppercase">
-          Admin review
+          Admin
         </p>
         <h1 className="mt-2 text-4xl font-black text-black">Project review</h1>
-        <p className="mt-2 text-sm text-black/60">
-          Longest-waiting submissions first. Click to open the review workspace.
-        </p>
       </section>
       <ReviewQueue projects={queue} />
     </main>

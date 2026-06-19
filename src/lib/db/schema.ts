@@ -3,6 +3,7 @@ import {
   boolean,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   serial,
@@ -18,6 +19,7 @@ export const user = pgTable("user", {
   emailVerified: boolean("email_verified").notNull().default(false),
   admin: boolean("admin").notNull().default(false),
   image: text("image"),
+  slackId: text("slack_id"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -115,7 +117,7 @@ export const products = pgTable("products", {
     .defaultNow(),
 });
 
-export const userBalances = pgTable("user_balances", {
+export const userBread = pgTable("user_bread", {
   id: serial("id").primaryKey(),
   userId: text("user_id")
     .notNull()
@@ -236,13 +238,14 @@ export const projects = pgTable(
     birthday: text("birthday").notNull().default(""),
     firstName: text("first_name").notNull().default(""),
     lastName: text("last_name").notNull().default(""),
+    kitType: text("kit_type").notNull().default("arduino"),
     hoursSpent: integer("hours_spent").notNull().default(0),
     overrideHoursSpent: integer("override_hours_spent"),
     overrideHoursSpentJustification: text("override_hours_spent_justification")
       .notNull()
       .default(""),
     reviewNote: text("review_note").notNull().default(""),
-    creditedAmount: integer("credited_amount").notNull().default(0),
+    breadAmount: integer("bread_amount").notNull().default(0),
     editorData: text("editor_data").notNull().default(""),
     editorLastSavedAt: timestamp("editor_last_saved_at", {
       withTimezone: true,
@@ -283,6 +286,52 @@ export const projectEditorVersions = pgTable(
       table.versionNumber,
     ),
   ],
+);
+
+export const editorActivitySessions = pgTable(
+  "editor_activity_sessions",
+  {
+    id: serial("id").primaryKey(),
+    projectId: integer("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    activeSeconds: integer("active_seconds").notNull().default(0),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("activity_sessions_project_id_idx").on(table.projectId),
+    index("activity_sessions_user_id_idx").on(table.userId),
+  ],
+);
+
+export const editorTimelapseSnapshots = pgTable(
+  "editor_timelapse_snapshots",
+  {
+    id: serial("id").primaryKey(),
+    sessionId: integer("session_id")
+      .notNull()
+      .references(() => editorActivitySessions.id, { onDelete: "cascade" }),
+    capturedAt: timestamp("captured_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    stateData: text("state_data").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("timelapse_snapshots_session_id_idx").on(table.sessionId)],
 );
 
 export const userRelations = relations(user, ({ many }) => ({
@@ -371,6 +420,30 @@ export const productRelations = relations(products, ({ many }) => ({
   cartItems: many(cartItems),
   orderItems: many(orderItems),
 }));
+
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: serial("id").primaryKey(),
+    actorId: text("actor_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    actorName: text("actor_name").notNull(),
+    action: text("action").notNull(),
+    entityType: text("entity_type").notNull(),
+    entityId: text("entity_id"),
+    details: jsonb("details").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("audit_actor_idx").on(table.actorId),
+    index("audit_action_idx").on(table.action),
+    index("audit_entity_idx").on(table.entityType, table.entityId),
+    index("audit_created_idx").on(table.createdAt),
+  ],
+);
 
 export type EmailSignup = typeof emailSignups.$inferSelect;
 export type NewEmailSignup = typeof emailSignups.$inferInsert;

@@ -8,7 +8,7 @@
  * end where visual differences matter most.
  */
 
-:root {
+.editor-root {
   --space-0: 0;
   --space-1: 2px;
   --space-2: 4px;

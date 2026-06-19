@@ -249,11 +249,13 @@ const NodeRow: React.FC<NodeRowProps> = ({
 interface VirtualFileSystemProps {
   boardId: string;
   onFileSelect: (nodeId: string, content: string, filename: string) => void;
+  readOnly?: boolean;
 }
 
 export const VirtualFileSystem: React.FC<VirtualFileSystemProps> = ({
   boardId,
   onFileSelect,
+  readOnly = false,
 }) => {
   const {
     initBoardVfs,
@@ -319,12 +321,14 @@ export const VirtualFileSystem: React.FC<VirtualFileSystemProps> = ({
 
   const handleContext = useCallback(
     (e: React.MouseEvent, nodeId: string, isDir: boolean) => {
+      if (readOnly) return;
       setCtxMenu({ nodeId, x: e.clientX, y: e.clientY, isDir });
     },
-    [],
+    [readOnly],
   );
 
   const startRename = (nodeId: string) => {
+    if (readOnly) return;
     const node = getNode(boardId, nodeId);
     if (!node || node.parentId === null) return;
     setRenameValue(node.name);
@@ -333,12 +337,17 @@ export const VirtualFileSystem: React.FC<VirtualFileSystemProps> = ({
   };
 
   const commitRename = useCallback(() => {
+    if (readOnly) {
+      setRenamingId(null);
+      return;
+    }
     if (renamingId && renameValue.trim())
       renameNode(boardId, renamingId, renameValue.trim());
     setRenamingId(null);
-  }, [boardId, renamingId, renameValue, renameNode]);
+  }, [boardId, readOnly, renamingId, renameValue, renameNode]);
 
   const startCreate = (parentId: string, type: "file" | "directory") => {
+    if (readOnly) return;
     setCreatingIn(parentId);
     setNewNodeType(type);
     setNewNodeName("");
@@ -346,13 +355,19 @@ export const VirtualFileSystem: React.FC<VirtualFileSystemProps> = ({
   };
 
   const commitCreate = useCallback(() => {
+    if (readOnly) {
+      setCreatingIn(null);
+      setNewNodeName("");
+      return;
+    }
     const name = newNodeName.trim();
     if (name && creatingIn) createNode(boardId, creatingIn, name, newNodeType);
     setCreatingIn(null);
     setNewNodeName("");
-  }, [boardId, creatingIn, newNodeName, newNodeType, createNode]);
+  }, [boardId, readOnly, creatingIn, newNodeName, newNodeType, createNode]);
 
   const handleDelete = (nodeId: string) => {
+    if (readOnly) return;
     setCtxMenu(null);
     const node = getNode(boardId, nodeId);
     if (!node || node.parentId === null) return;
@@ -362,6 +377,7 @@ export const VirtualFileSystem: React.FC<VirtualFileSystemProps> = ({
   };
 
   const handleUpload = async () => {
+    if (readOnly) return;
     const bridge = getBoardBridge(boardId);
     if (!bridge || !bridge.connected) {
       alert("Pi is not connected. Start the simulation first.");
@@ -433,7 +449,7 @@ export const VirtualFileSystem: React.FC<VirtualFileSystemProps> = ({
               opacity: uploadStatus === "uploading" ? 0.7 : 1,
             }}
             onClick={handleUpload}
-            disabled={uploadStatus === "uploading"}
+            disabled={readOnly || uploadStatus === "uploading"}
             title="Upload all files to the running Pi via serial"
           >
             <IcoUpload />
@@ -474,7 +490,7 @@ export const VirtualFileSystem: React.FC<VirtualFileSystemProps> = ({
       </div>
 
       {/* Context menu */}
-      {ctxMenu && (
+      {ctxMenu && !readOnly && (
         <div
           style={{ ...styles.ctxMenu, top: ctxMenu.y, left: ctxMenu.x }}
           onClick={(e) => e.stopPropagation()}

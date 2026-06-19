@@ -3,7 +3,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Session } from "@/lib/auth/config";
 import { auth } from "@/lib/auth/config";
-import { db } from "@/lib/db/connection";
+import { db } from "@/lib/db/db";
 import { user } from "@/lib/db/schema";
 
 export async function getSession() {

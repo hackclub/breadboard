@@ -14,10 +14,6 @@ import {
 } from "@/services/velxio/services/romCompileService";
 import type { BoardKind } from "@/lib/velxio/types/board";
 import { boardDisplayName } from "@/lib/velxio/types/board";
-import {
-  importProjectFile,
-  PROJECT_FILE_ACCEPT,
-} from "@/lib/velxio/utils/importProject";
 import "@/components/velxio/components/editor/FileExplorer.css";
 
 // SVG icons — same style as EditorToolbar (stroke-based, 16x16)
@@ -73,23 +69,6 @@ const IcoNewFile = () => (
   </svg>
 );
 
-const IcoNewWorkspace = () => (
-  <svg
-    width="22"
-    height="22"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-    <line x1="12" y1="11" x2="12" y2="17" />
-    <line x1="9" y1="14" x2="15" y2="14" />
-  </svg>
-);
-
 const IcoSave = () => (
   <svg
     width="22"
@@ -104,25 +83,6 @@ const IcoSave = () => (
     <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
     <polyline points="17 21 17 13 7 13 7 21" />
     <polyline points="7 3 7 8 15 8" />
-  </svg>
-);
-
-const IcoOpen = () => (
-  // Folder with an "open / upload arrow" — matches Save visually (both
-  // are project-IO actions) but points the opposite way to signal load.
-  <svg
-    width="22"
-    height="22"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-    <polyline points="12 11 12 17" />
-    <polyline points="9 14 12 11 15 14" />
   </svg>
 );
 
@@ -242,74 +202,13 @@ interface ContextMenu {
 
 interface FileExplorerProps {
   onSaveClick: () => void;
-  onNewClick: () => void;
+  readOnly?: boolean;
 }
 
 export const FileExplorer: React.FC<FileExplorerProps> = ({
   onSaveClick,
-  onNewClick,
+  readOnly = false,
 }) => {
-  // Hidden <input type="file"> we trigger via ref when the user clicks
-  // the Open project button.  Accepts both .vlx (Velxio native) and .zip
-  // (Wokwi bundle); the dispatcher in utils/importProject.ts decides which
-  // loader to run based on the file extension.  Kept outside React state so
-  // the change event still fires when the user picks the same file twice.
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const handleOpenProjectClick = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
-  const handleProjectFilePicked = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      // Reset so picking the SAME file again later still fires onchange.
-      e.target.value = "";
-      if (!file) return;
-      const friendlyName = file.name.toLowerCase().endsWith(".zip")
-        ? "Wokwi .zip"
-        : ".vlx";
-      if (
-        !window.confirm(
-          `Load this ${friendlyName} project? Your current workspace will be replaced. ` +
-            `This cannot be undone.`,
-        )
-      ) {
-        return;
-      }
-      try {
-        const result = await importProjectFile(file);
-        // .zip needs the caller to apply the payload to the stores (we keep
-        // that asymmetry so the toolbar's import flow can also pop the
-        // install-libraries modal afterwards). Here in the file explorer we
-        // don't have that modal, so we apply the payload silently and just
-        // warn in the console if the project references uninstalled libs.
-        if (result.kind === "zip") {
-          const { loadFiles } = useEditorStore.getState();
-          const {
-            setComponents,
-            setWires,
-            setBoardType,
-            setBoardPosition,
-            stopSimulation,
-          } = useSimulatorStore.getState();
-          stopSimulation();
-          if (result.boardType) setBoardType(result.boardType);
-          setBoardPosition(result.boardPosition);
-          setComponents(result.components);
-          setWires(result.wires);
-          if (result.files.length > 0) loadFiles(result.files);
-          if (result.libraries.length > 0) {
-            console.warn(
-              "[FileExplorer] Imported Wokwi zip references libraries you may need to install:",
-              result.libraries,
-            );
-          }
-        }
-      } catch (err) {
-        window.alert((err as Error).message);
-      }
-    },
-    [],
-  );
 
   const { t } = useTranslation();
   const {
@@ -346,6 +245,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
   // no program yet, so seed a default program.c the user can edit and persist
   // programFile/programTarget onto the component so Compile/Run can build it.
   useEffect(() => {
+    if (readOnly) return;
     const ed = useEditorStore.getState();
     const updateComponent = useSimulatorStore.getState().updateComponent;
     for (const chip of programmableChips) {
@@ -376,7 +276,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [components]);
+  }, [components, readOnly]);
 
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -417,18 +317,20 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
 
   const startBoardRename = useCallback(
     (board: { id: string; name?: string; boardKind: BoardKind }) => {
+      if (readOnly) return;
       sectionRenameCancelledRef.current = false;
       setRenamingSection({ id: board.id, kind: "board" });
       setSectionRenameValue(boardDisplayName(board));
     },
-    [],
+    [readOnly],
   );
 
   const startChipRename = useCallback((chipId: string, currentName: string) => {
+    if (readOnly) return;
     sectionRenameCancelledRef.current = false;
     setRenamingSection({ id: chipId, kind: "chip" });
     setSectionRenameValue(currentName);
-  }, []);
+  }, [readOnly]);
 
   const cancelSectionRename = useCallback(() => {
     sectionRenameCancelledRef.current = true;
@@ -443,6 +345,10 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
     }
     const target = renamingSection;
     if (target) {
+      if (readOnly) {
+        setRenamingSection(null);
+        return;
+      }
       const value = sectionRenameValue.trim();
       if (target.kind === "board") {
         // Empty clears the custom name -> boardDisplayName falls back to kind.
@@ -462,7 +368,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
       }
     }
     setRenamingSection(null);
-  }, [renamingSection, sectionRenameValue, updateBoard, updateComponent]);
+  }, [readOnly, renamingSection, sectionRenameValue, updateBoard, updateComponent]);
 
   useEffect(() => {
     if (creatingInGroup && newFileInputRef.current) {
@@ -526,6 +432,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
   };
 
   const startRename = (fileId: string, groupId: string) => {
+    if (readOnly) return;
     const files = fileGroups[groupId] ?? [];
     const file = files.find((f) => f.id === fileId);
     if (!file) return;
@@ -536,12 +443,17 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
 
   const commitRename = useCallback(() => {
     if (renamingId && renameValue.trim()) {
+      if (readOnly) {
+        setRenamingId(null);
+        return;
+      }
       renameFile(renamingId, renameValue.trim());
     }
     setRenamingId(null);
-  }, [renamingId, renameValue, renameFile]);
+  }, [readOnly, renamingId, renameValue, renameFile]);
 
   const handleDelete = (fileId: string, groupId: string) => {
+    if (readOnly) return;
     setContextMenu(null);
     const files = fileGroups[groupId] ?? [];
     if (files.length <= 1) return;
@@ -550,6 +462,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
   };
 
   const startCreateFile = (boardId: string, groupId: string) => {
+    if (readOnly) return;
     // Switch to this board first so createFile targets the right group
     switchToBoard(boardId, groupId);
     setCreatingInGroup(groupId);
@@ -559,10 +472,15 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
 
   const commitCreateFile = useCallback(() => {
     const name = newFileName.trim();
+    if (readOnly) {
+      setCreatingInGroup(null);
+      setNewFileName("");
+      return;
+    }
     if (name) createFile(name);
     setCreatingInGroup(null);
     setNewFileName("");
-  }, [newFileName, createFile]);
+  }, [readOnly, newFileName, createFile]);
 
   const toggleCollapse = (boardId: string) => {
     setCollapsed((prev) => ({ ...prev, [boardId]: !prev[boardId] }));
@@ -576,30 +494,10 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
         </span>
         <div className="file-explorer-header-actions">
           <button
-            className="file-explorer-new-btn"
-            title={t("editor.fileExplorer.newWorkspace")}
-            onClick={onNewClick}
-          >
-            <IcoNewWorkspace />
-          </button>
-          <button
-            className="file-explorer-save-btn"
-            title="Open project (.vlx Velxio or .zip Wokwi)"
-            onClick={handleOpenProjectClick}
-          >
-            <IcoOpen />
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={PROJECT_FILE_ACCEPT}
-            onChange={handleProjectFilePicked}
-            style={{ display: "none" }}
-          />
-          <button
             className="file-explorer-save-btn"
             title={t("editor.fileExplorer.saveProject")}
             onClick={onSaveClick}
+            disabled={readOnly}
           >
             <IcoSave />
           </button>
@@ -691,26 +589,30 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
                 />
 
                 {/* Rename + new-file buttons — visible on hover */}
-                <button
-                  className="fe-board-new-btn"
-                  title="Rename board (or double-click the name)"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    startBoardRename(board);
-                  }}
-                >
-                  <IcoPencil />
-                </button>
-                <button
-                  className="fe-board-new-btn"
-                  title={t("editor.fileExplorer.newFileInBoard")}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    startCreateFile(board.id, groupId);
-                  }}
-                >
-                  <IcoNewFile />
-                </button>
+                {!readOnly ? (
+                  <button
+                    className="fe-board-new-btn"
+                    title="Rename board (or double-click the name)"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      startBoardRename(board);
+                    }}
+                  >
+                    <IcoPencil />
+                  </button>
+                ) : null}
+                {!readOnly ? (
+                  <button
+                    className="fe-board-new-btn"
+                    title={t("editor.fileExplorer.newFileInBoard")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      startCreateFile(board.id, groupId);
+                    }}
+                  >
+                    <IcoNewFile />
+                  </button>
+                ) : null}
               </div>
 
               {/* Files under this board */}
@@ -726,10 +628,11 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
                         onClick={() =>
                           handleFileClick(file.id, board.id, groupId)
                         }
-                        onContextMenu={(e) =>
-                          handleContextMenu(e, file.id, groupId)
-                        }
+                        onContextMenu={(e) => {
+                          if (!readOnly) handleContextMenu(e, file.id, groupId);
+                        }}
                         onDoubleClick={() => {
+                          if (readOnly) return;
                           switchToBoard(board.id, groupId);
                           startRename(file.id, groupId);
                         }}
@@ -868,7 +771,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
                   </span>
                 )}
 
-                {!(
+                {!readOnly && !(
                   renamingSection?.id === chip.id &&
                   renamingSection.kind === "chip"
                 ) && (

@@ -1,11 +1,11 @@
-import { desc, eq } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 import Link from "next/link";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { DocsFrame, PageHero } from "@/components/shared/platform-docs-frame";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
-import { db } from "@/lib/db/connection";
-import { account, orders, session, user, userBalances } from "@/lib/db/schema";
-import { AdminUsersTable } from "./_client";
+import { db } from "@/lib/db/db";
+import { account, orders, session, user, userBread } from "@/lib/db/schema";
+import { AdminUsersTable } from "@/components/platform/admin-users-table";
 
 export default async function AdminUsersPage() {
   const currentSession = await getSession();
@@ -34,7 +34,7 @@ export default async function AdminUsersPage() {
   const [allUsers, balances, allOrders, accounts, activeSessions] =
     await Promise.all([
       db.select().from(user).orderBy(desc(user.createdAt)),
-      db.select().from(userBalances),
+      db.select().from(userBread),
       db.select({ userId: orders.userId, status: orders.status }).from(orders),
       db
         .select({ userId: account.userId, providerId: account.providerId })
@@ -86,6 +86,7 @@ export default async function AdminUsersPage() {
       name: row.name,
       email: row.email,
       image: row.image,
+      slackId: row.slackId,
       emailVerified: row.emailVerified,
       admin: row.admin,
       createdAt: row.createdAt.toLocaleString(),
@@ -98,7 +99,7 @@ export default async function AdminUsersPage() {
     };
   });
 
-  const totalCredits = users.reduce((sum, row) => sum + row.balance, 0);
+  const totalBread = users.reduce((sum, row) => sum + row.balance, 0);
 
   return (
     <DocsFrame sidebar={false}>
@@ -126,8 +127,8 @@ export default async function AdminUsersPage() {
             <p className="text-sm font-bold text-black/55">Users</p>
           </div>
           <div className="rounded-[12px] border-[1.1px] border-black bg-green-50 p-6 text-center shadow-[4px_4px_0_#000]">
-            <p className="text-3xl font-black text-green-800">{totalCredits}</p>
-            <p className="text-sm font-bold text-green-700">Total credits</p>
+            <p className="text-3xl font-black text-green-800">{totalBread}</p>
+            <p className="text-sm font-bold text-green-700">Total bread</p>
           </div>
           <div className="rounded-[12px] border-[1.1px] border-black bg-blue-50 p-6 text-center shadow-[4px_4px_0_#000]">
             <p className="text-3xl font-black text-blue-800">

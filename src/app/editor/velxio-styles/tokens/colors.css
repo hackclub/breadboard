@@ -9,7 +9,7 @@
  *      components keep working. Remove after full migration.
  */
 
-:root {
+.editor-root {
   /* Primitives — gray scale */
   --gray-0: #ffffff;
   --gray-50: #fafafa;

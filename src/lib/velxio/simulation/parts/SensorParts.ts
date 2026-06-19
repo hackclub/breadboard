@@ -65,6 +65,50 @@ PartSimulationRegistry.register("tilt-switch", {
   },
 });
 
+// ─── HDX Vibration Switch ────────────────────────────────────────────────────
+
+PartSimulationRegistry.register("vibration-switch", {
+  attachEvents: (element, simulator, getArduinoPinHelper, componentId) => {
+    const pin = getArduinoPinHelper("OUT");
+    if (pin === null) return () => {};
+
+    let active = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const setActive = (value: boolean) => {
+      active = value;
+      (element as any).active = active;
+      const activeHigh = (element as any).activeHigh ?? true;
+      simulator.setPinState(pin, activeHigh ? active : !active);
+    };
+
+    const pulse = () => {
+      setActive(true);
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(
+        () => setActive(false),
+        Math.max(10, Number((element as any).pulseMs ?? 90)),
+      );
+    };
+
+    const toggle = () => setActive(!active);
+
+    simulator.setPinState(pin, false);
+    element.addEventListener("click", pulse);
+
+    registerSensorUpdate(componentId, (values) => {
+      if (values.pulse === true) pulse();
+      if (values.toggle === true) toggle();
+    });
+
+    return () => {
+      element.removeEventListener("click", pulse);
+      if (timer) clearTimeout(timer);
+      unregisterSensorUpdate(componentId);
+    };
+  },
+});
+
 // ─── NTC Temperature Sensor ──────────────────────────────────────────────────
 
 /**
@@ -83,6 +127,7 @@ PartSimulationRegistry.register("ntc-temperature-sensor", {
 
     // Room temperature default
     if (pin !== null) setAdcVoltage(simulator, pin, tempToVolts(25));
+    (_element as any).temperature = 25;
 
     const onInput = () => {
       const val = (element as any).value;
@@ -111,6 +156,54 @@ PartSimulationRegistry.register("ntc-temperature-sensor", {
       element.removeEventListener("input", onInput);
       unregisterSensorUpdate(componentId);
     };
+  },
+});
+
+// ─── LM35DZ Temperature Sensor ───────────────────────────────────────────────
+
+PartSimulationRegistry.register("lm35dz", {
+  attachEvents: (_element, simulator, getArduinoPinHelper, componentId) => {
+    const pin = getArduinoPinHelper("OUT");
+    const tempToVolts = (temp: number) =>
+      Math.max(0, Math.min(1.5, temp * 0.01));
+
+    if (pin !== null) setAdcVoltage(simulator, pin, tempToVolts(25));
+
+    registerSensorUpdate(componentId, (values) => {
+      if ("temperature" in values) {
+        const temperature = values.temperature as number;
+        (_element as any).temperature = temperature;
+        if (pin !== null)
+          setAdcVoltage(simulator, pin, tempToVolts(temperature));
+        emitPropertyChange(componentId, "temperature", temperature);
+      }
+    });
+
+    return () => unregisterSensorUpdate(componentId);
+  },
+});
+
+// ─── Water Level Sensor ──────────────────────────────────────────────────────
+
+PartSimulationRegistry.register("water-level-sensor", {
+  attachEvents: (_element, simulator, getArduinoPinHelper, componentId) => {
+    const pin = getArduinoPinHelper("S") ?? getArduinoPinHelper("OUT");
+    const levelToVolts = (level: number) =>
+      Math.max(0, Math.min(5, (level / 100) * 5));
+
+    if (pin !== null) setAdcVoltage(simulator, pin, 0);
+    (_element as any).level = 0;
+
+    registerSensorUpdate(componentId, (values) => {
+      if ("level" in values) {
+        const level = values.level as number;
+        (_element as any).level = level;
+        if (pin !== null) setAdcVoltage(simulator, pin, levelToVolts(level));
+        emitPropertyChange(componentId, "level", level);
+      }
+    });
+
+    return () => unregisterSensorUpdate(componentId);
   },
 });
 
@@ -466,7 +559,45 @@ PartSimulationRegistry.register("stepper-motor", {
       );
     }
 
-    return () => unsubscribers.forEach((u) => u());
+    return () => {
+      for (const unsubscribe of unsubscribers) unsubscribe();
+    };
+  },
+});
+
+// ─── ULN2003 Stepper Driver Module ───────────────────────────────────────────
+
+PartSimulationRegistry.register("uln2003-driver", {
+  attachEvents: (element, simulator, getArduinoPinHelper) => {
+    const pinManager = (simulator as any).pinManager;
+    if (!pinManager) return () => {};
+
+    const pairs = [
+      ["IN1", "A"],
+      ["IN2", "B"],
+      ["IN3", "C"],
+      ["IN4", "D"],
+    ];
+
+    const unsubscribers: (() => void)[] = [];
+    const el = element as any;
+
+    for (const [inputName, outputName] of pairs) {
+      const inputPin = getArduinoPinHelper(inputName);
+      const outputPin = getArduinoPinHelper(outputName);
+      if (inputPin === null) continue;
+
+      unsubscribers.push(
+        pinManager.onPinChange(inputPin, (_: number, state: boolean) => {
+          el[inputName.toLowerCase()] = state;
+          if (outputPin !== null) simulator.setPinState(outputPin, state);
+        }),
+      );
+    }
+
+    return () => {
+      for (const unsubscribe of unsubscribers) unsubscribe();
+    };
   },
 });
 

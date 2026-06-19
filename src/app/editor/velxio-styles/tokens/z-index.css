@@ -3,7 +3,7 @@
  * Always use a token, never a magic number. Add a new layer here if needed.
  */
 
-:root {
+.editor-root {
   --z-base: 0;
   --z-dropdown: 10;
   --z-sticky: 20;

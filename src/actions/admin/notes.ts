@@ -3,7 +3,7 @@
 import { desc, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth/guards";
-import { db } from "@/lib/db/connection";
+import { db } from "@/lib/db/db";
 import { reviewNotes } from "@/lib/db/schema";
 import type { ReviewNote } from "@/types";
 
@@ -75,6 +75,7 @@ export async function deleteNote(noteId: number) {
 export async function getProjectNotes(
   projectId: number,
 ): Promise<ReviewNote[]> {
+  await requireAdminSession();
   return db
     .select()
     .from(reviewNotes)
@@ -85,6 +86,7 @@ export async function getProjectNotes(
 export async function getUserNotes(
   targetUserId: string,
 ): Promise<ReviewNote[]> {
+  await requireAdminSession();
   return db
     .select()
     .from(reviewNotes)

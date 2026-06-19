@@ -787,6 +787,92 @@ PartSimulationRegistry.register("dht22", {
   },
 });
 
+const dhtLogic = PartSimulationRegistry.get("dht22");
+if (dhtLogic) {
+  PartSimulationRegistry.register("dht11", dhtLogic);
+}
+
+// ─── RC522 RFID Module ───────────────────────────────────────────────────────
+
+PartSimulationRegistry.register("rc522-rfid", {
+  attachEvents: (element, simulator, _getPin, componentId) => {
+    const el = element as any;
+    el.cardPresent = el.cardPresent ?? true;
+    el.uid = el.uid ?? "DE AD BE EF";
+
+    const spi = (simulator as any).spi;
+    const registers = new Uint8Array(64);
+    const version = Number.parseInt(String(el.version ?? "0x92"), 16);
+    registers[0x37] = Number.isFinite(version) ? version : 0x92; // VersionReg: MFRC522 v2.0.
+    registers[0x04] = 0x20; // ComIrqReg: idle/complete.
+    registers[0x06] = 0x00; // ErrorReg: no error.
+    registers[0x0a] = 0x00; // FIFOLevelReg.
+
+    const prevOnTransmit = spi?.onTransmit as
+      | ((b: number) => void)
+      | null
+      | undefined;
+    let pendingRead: number | null = null;
+
+    if (spi) {
+      spi.onTransmit = (byte: number) => {
+        if (pendingRead !== null) {
+          const reply = registers[pendingRead] ?? 0x00;
+          pendingRead = null;
+          spi.completeTransmit(reply);
+          return;
+        }
+
+        const reg = (byte >> 1) & 0x3f;
+        const isRead = (byte & 0x80) !== 0;
+        if (isRead) {
+          pendingRead = reg;
+          spi.completeTransmit(0x00);
+          return;
+        }
+
+        spi.completeTransmit(0x00);
+      };
+    }
+
+    registerSensorUpdate(componentId, (values) => {
+      if ("cardPresent" in values) el.cardPresent = values.cardPresent;
+      if ("uid" in values) el.uid = values.uid;
+    });
+
+    return () => {
+      if (spi) spi.onTransmit = prevOnTransmit ?? null;
+      unregisterSensorUpdate(componentId);
+    };
+  },
+});
+
+// ─── DS1302 RTC Module ───────────────────────────────────────────────────────
+
+PartSimulationRegistry.register("ds1302", {
+  attachEvents: (element, simulator, getPin) => {
+    const rst = getPin("RST") ?? getPin("CE");
+    const dat = getPin("DAT") ?? getPin("IO");
+    const pinManager = (simulator as any).pinManager;
+    if (rst === null || dat === null || !pinManager) return () => {};
+
+    const el = element as any;
+    el.running = true;
+
+    // Keep DAT released HIGH when the chip is selected. This gives simple
+    // polling sketches a stable RTC presence signal without pretending DS1302
+    // is the incompatible I2C DS1307.
+    const unsubscribe = pinManager.onPinChange(
+      rst,
+      (_: number, selected: boolean) => {
+        if (selected) simulator.setPinState(dat, true);
+      },
+    );
+
+    return () => unsubscribe();
+  },
+});
+
 // ─── HX711 Load Cell Amplifier ────────────────────────────────────────────────
 
 /**

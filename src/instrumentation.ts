@@ -1,6 +1,10 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
-    const { runMigrations } = await import("@/lib/db/migrate");
-    await runMigrations();
+    try {
+      const { runMigrations } = await import("@/lib/db/migrate");
+      await runMigrations();
+    } catch {
+      console.log("[instrumentation] skipping migrations, continuing startup");
+    }
   }
 }

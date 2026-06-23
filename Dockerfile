@@ -29,7 +29,7 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/drizzle ./drizzle
 COPY --from=builder /app/scripts ./scripts
 
-RUN chmod +x scripts/docker-entrypoint.sh scripts/run-migrations.js \
+RUN chmod +x scripts/docker-entrypoint.sh scripts/run-migrations.mjs \
  && chown -R nextjs:nodejs /app
 
 USER nextjs

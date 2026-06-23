@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 /**
  * Runs Drizzle migrations before starting the Next.js server.
- * Standalone — does not depend on Next.js module resolution.
+ * ESM — drizzle-orm is ESM-only.
  */
-const { Pool } = require("pg");
-const { drizzle } = require("drizzle-orm/node-postgres");
-const { migrate } = require("drizzle-orm/node-postgres/migrator");
-const path = require("node:path");
+import { Pool } from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function main() {
   const connectionString = process.env.DATABASE_URL;
@@ -15,7 +18,7 @@ async function main() {
     return;
   }
 
-  const migrationsFolder = path.resolve(__dirname, "drizzle");
+  const migrationsFolder = path.resolve(__dirname, "../drizzle");
   console.log(`[migrate] running migrations from ${migrationsFolder}`);
 
   const pool = new Pool({ connectionString });
@@ -26,7 +29,6 @@ async function main() {
     console.log("[migrate] migrations applied");
   } catch (err) {
     console.error("[migrate] migration error:", err.message);
-    // Don't crash — the app may still work with existing schema
   } finally {
     await pool.end();
   }

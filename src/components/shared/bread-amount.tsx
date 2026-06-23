@@ -1,7 +1,7 @@
 import Image from "next/image";
 
 export function BreadIcon({ size = "sm" }: { size?: "sm" | "md" | "lg" }) {
-  const px = size === "lg" ? 24 : size === "md" ? 20 : 16;
+  const px = size === "lg" ? 48 : size === "md" ? 36 : 28;
   return (
     <Image
       src="/assets/bred.png"
@@ -28,7 +28,9 @@ export function BreadAmount({
 
   if (label) {
     return (
-      <span className={`inline-flex items-center gap-1 font-black ${textSize}`}>
+      <span
+        className={`inline-flex items-center gap-1.5 font-black ${textSize}`}
+      >
         <BreadIcon size={size} />
         {amount}
       </span>
@@ -36,7 +38,7 @@ export function BreadAmount({
   }
 
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex items-center gap-1.5">
       <BreadIcon size={size} />
       <span className={`font-black ${textSize}`}>{amount}</span>
     </span>

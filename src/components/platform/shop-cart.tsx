@@ -14,6 +14,7 @@ import {
   HiXMark,
 } from "react-icons/hi2";
 import { placeOrder } from "@/actions/shop";
+import { BreadAmount } from "@/components/shared/bread-amount";
 
 type CartItem = {
   productId: number;
@@ -271,7 +272,7 @@ export function ShopCart() {
         </span>
         {total > 0 ? (
           <span className="rounded-full bg-black px-2.5 py-1 text-xs font-semibold text-white">
-            {total} bread
+            <BreadAmount amount={total} />
           </span>
         ) : null}
       </button>
@@ -329,7 +330,7 @@ export function ShopCart() {
                   <div className="mt-6 rounded-[12px] bg-[#f4f4f4] p-4">
                     <p className="text-sm font-bold text-black/55">Total</p>
                     <p className="text-3xl font-black text-black">
-                      {placedOrder.totalCost} bread
+                      <BreadAmount amount={placedOrder.totalCost} size="lg" />
                     </p>
                     {placedOrder.merged ? (
                       <p className="mt-2 text-sm font-semibold text-black/60">
@@ -385,7 +386,7 @@ export function ShopCart() {
                           <div>
                             <p className="font-black text-black">{item.name}</p>
                             <p className="mt-1 text-sm text-black/60">
-                              {item.price} bread each
+                              <BreadAmount amount={item.price} /> each
                             </p>
                             {item.stock !== null ? (
                               <p className="mt-1 text-xs font-bold text-[#BD0F32]">
@@ -394,7 +395,7 @@ export function ShopCart() {
                             ) : null}
                           </div>
                           <p className="text-lg font-semibold text-black">
-                            {item.price * item.quantity} bread
+                            <BreadAmount amount={item.price * item.quantity} />
                           </p>
                         </div>
                         <div className="mt-4 flex items-center justify-between gap-3 border-t border-black/10 pt-4">
@@ -475,7 +476,7 @@ export function ShopCart() {
                             </p>
                           </div>
                           <p className="text-sm font-black text-black">
-                            {item.price * item.quantity} bread
+                            <BreadAmount amount={item.price * item.quantity} />
                           </p>
                         </div>
                       ))}
@@ -539,7 +540,7 @@ export function ShopCart() {
               <div className="mb-4 flex items-center justify-between text-sm">
                 <span className="font-semibold text-black/60">Order total</span>
                 <span className="text-3xl font-black text-black">
-                  {total} bread
+                  <BreadAmount amount={total} size="lg" />
                 </span>
               </div>
               {placedOrder ? null : checkout ? (

@@ -16,6 +16,7 @@ import {
 } from "react-icons/hi2";
 import { authClient } from "@/lib/auth/client";
 import { slackPfpUrl } from "@/lib/utils/slack-pfp";
+import { BreadAmount } from "@/components/shared/bread-amount";
 
 type SidebarUser = {
   name?: string | null;
@@ -188,9 +189,7 @@ export function PlatformSidebar({
               <p className="truncate text-sm font-medium text-zinc-950">
                 {user.name ?? "Signed in"}
               </p>
-              <p className="truncate text-xs font-semibold text-zinc-500">
-                {user.breadBalance ?? 0} Bread
-              </p>
+              <BreadAmount amount={user.breadBalance ?? 0} size="sm" />
             </div>
             <button
               type="button"

@@ -28,6 +28,7 @@ import {
   rejectProject,
   requestChanges,
 } from "@/actions/admin/review";
+import { BreadAmount, BreadIcon } from "@/components/shared/bread-amount";
 
 type ReviewProject = {
   id: number;
@@ -497,8 +498,8 @@ export function ReviewWorkspace({
                       className="rounded-xl border border-black bg-white px-4 py-3 text-xl font-black"
                     />
                     <span className="text-sm font-black text-[#BD0F32]">
-                      Awards {approvedBread} bread ({approvedHours || 0}h ×{" "}
-                      {breadPerHour})
+                      Awards <BreadAmount amount={approvedBread} /> (
+                      {approvedHours || 0}h × {breadPerHour})
                     </span>
                   </label>
                   <label className="grid gap-1.5">
@@ -540,9 +541,14 @@ export function ReviewWorkspace({
                     }
                     className="rounded-xl bg-[#BD0F32] py-4 text-sm font-black text-white hover:bg-black disabled:opacity-50"
                   >
-                    {initial.projectStatus === "demo_review"
-                      ? `Approve demo · ${approvedBread} bread`
-                      : "Approve materials · send kit"}
+                    {initial.projectStatus === "demo_review" ? (
+                      <span className="inline-flex items-center gap-0.5">
+                        Approve demo ·{" "}
+                        <BreadAmount amount={approvedBread} size="sm" />
+                      </span>
+                    ) : (
+                      "Approve materials · send kit"
+                    )}
                   </button>
                 </div>
               ) : (
@@ -629,7 +635,10 @@ export function ReviewWorkspace({
               </span>
             </div>
             <div className="flex justify-between">
-              <span>Bread possible</span>
+              <span className="inline-flex items-center gap-1">
+                <BreadIcon />
+                Bread possible
+              </span>
               <span className="font-black text-white">
                 {initial.hoursSpent * breadPerHour}
               </span>
@@ -646,7 +655,7 @@ export function ReviewWorkspace({
               <div className="flex justify-between">
                 <span>Credited</span>
                 <span className="font-black text-[#BD0F32]">
-                  {initial.breadAmount} bread
+                  <BreadAmount amount={initial.breadAmount} />
                 </span>
               </div>
             ) : null}
@@ -682,7 +691,7 @@ export function ReviewWorkspace({
             Currency
           </div>
           <p className="mt-3 text-3xl font-black text-black">
-            {approvedBread} bread
+            <BreadAmount amount={approvedBread} size="lg" />
           </p>
           <p className="mt-1 text-sm text-black/45">
             {approvedHours || 0}h × {breadPerHour}

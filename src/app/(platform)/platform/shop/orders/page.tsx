@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import Image from "next/image";
 import Link from "next/link";
+import { BreadAmount } from "@/components/shared/bread-amount";
 import { ShopCart } from "@/components/platform/shop-cart";
 import { ShopTabs } from "@/app/(platform)/platform/shop/_nav";
 import { CancelOrderButton } from "@/components/platform/cancel-order-button";
@@ -120,7 +121,9 @@ async function OrderCard({ orderId }: { orderId: number }) {
         </div>
         <div>
           <p className="text-xs font-semibold text-black/45">Total</p>
-          <p className="mt-1 font-black text-black">{o.totalCost} bread</p>
+          <p className="mt-1 font-black text-black">
+            <BreadAmount amount={o.totalCost} />
+          </p>
         </div>
         <div className="sm:text-right">
           <p className="text-xs font-semibold text-black/45">Order #{o.id}</p>
@@ -153,7 +156,7 @@ async function OrderCard({ orderId }: { orderId: number }) {
                 Quantity: {item.quantity}
               </p>
               <p className="mt-1 text-sm text-black/55">
-                {item.unitPrice} bread each
+                <BreadAmount amount={item.unitPrice} /> each
               </p>
               {o.trackingInfo ? (
                 <p className="mt-3 rounded-[8px] border border-black bg-[#f4f4f4] px-3 py-2 text-sm font-semibold text-black">
@@ -162,7 +165,7 @@ async function OrderCard({ orderId }: { orderId: number }) {
               ) : null}
             </div>
             <p className="font-black text-black sm:text-right">
-              {item.unitPrice * item.quantity} bread
+              <BreadAmount amount={item.unitPrice * item.quantity} />
             </p>
           </li>
         ))}

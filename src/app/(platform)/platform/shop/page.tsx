@@ -7,6 +7,7 @@ import { db } from "@/lib/db/db";
 import { products } from "@/lib/db/schema";
 import { AddToCartButton, ShopCart } from "@/components/platform/shop-cart";
 import { ShopTabs } from "./_nav";
+import { BreadAmount } from "@/components/shared/bread-amount";
 
 export default async function PlatformShopPage() {
   const session = await getSession();
@@ -97,10 +98,7 @@ export default async function PlatformShopPage() {
                 <div className="mt-4 border-t border-black/10 pt-4">
                   <div className="mb-3 flex items-end justify-between gap-3">
                     <p className="text-2xl font-black text-black">
-                      {product.price}
-                      <span className="ml-1 text-sm font-bold text-black/50">
-                        bread
-                      </span>
+                      <BreadAmount amount={product.price} size="md" />
                     </p>
                     <p
                       className={`text-sm font-black ${

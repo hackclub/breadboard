@@ -8,6 +8,7 @@ import {
   HiShoppingBag,
   HiUsers,
 } from "react-icons/hi2";
+import { BreadAmount } from "@/components/shared/bread-amount";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
@@ -222,7 +223,7 @@ export default async function PlatformAdminPage() {
                       #{order.id} {order.name || "No name"}
                     </p>
                     <p className="text-xs text-black/50">
-                      {order.totalCost} bread
+                      <BreadAmount amount={order.totalCost} />
                     </p>
                   </div>
                   <span className="text-xs font-semibold text-black/45">

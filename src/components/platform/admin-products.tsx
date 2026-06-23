@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useState } from "react";
+import { BreadAmount } from "@/components/shared/bread-amount";
 import {
   addProduct,
   deleteProduct,
@@ -263,7 +264,7 @@ export function ProductAdminCard({
                 {product.active ? "Live" : "Hidden"}
               </span>
               <span className="text-xs font-semibold text-black/55">
-                {product.price} bread
+                <BreadAmount amount={product.price} />
               </span>
               <span className="text-xs font-semibold text-black/55">
                 {product.stock === null

@@ -9,6 +9,7 @@ import {
   setUserBread,
   updateUserProfile,
 } from "@/actions/admin/users";
+import { BreadAmount } from "@/components/shared/bread-amount";
 import { Modal } from "@/components/shared/modal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -165,7 +166,7 @@ export function AdminUsersTable({
                   </TableCell>
                   <TableCell className="text-black/70">{user.email}</TableCell>
                   <TableCell className="font-black text-black">
-                    {user.balance}
+                    <BreadAmount amount={user.balance} />
                   </TableCell>
                   <TableCell className="text-black/70">
                     {user.orderCount} total / {user.pendingOrderCount} pending
@@ -404,7 +405,9 @@ function UserModal({
           <p className="text-xs font-black uppercase tracking-[0.16em] text-[#BD0F32]">
             Bread
           </p>
-          <p className="mt-1 text-5xl font-black text-black">{user.balance}</p>
+          <p className="mt-1 text-5xl font-black text-black">
+            <BreadAmount amount={user.balance} size="lg" />
+          </p>
           <input
             type="number"
             min={0}

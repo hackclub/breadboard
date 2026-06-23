@@ -1,5 +1,6 @@
 import { desc } from "drizzle-orm";
 import Link from "next/link";
+import { BreadAmount } from "@/components/shared/bread-amount";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { DocsFrame, PageHero } from "@/components/shared/platform-docs-frame";
 import { buttonClass } from "@/components/ui/button";
@@ -127,7 +128,11 @@ export default async function AdminUsersPage() {
         <div className="mb-8">
           <StatGrid>
             <StatCard label="Users" value={users.length} tone="cream" />
-            <StatCard label="Total bread" value={totalBread} tone="green" />
+            <StatCard
+              label="Total bread"
+              value={<BreadAmount amount={totalBread} />}
+              tone="green"
+            />
             <StatCard
               label="Active sessions"
               value={activeSessions.length}

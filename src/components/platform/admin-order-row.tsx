@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useActionState, useEffect, useState } from "react";
 import { updateOrderStatusFromForm } from "@/actions/shop";
+import { BreadAmount } from "@/components/shared/bread-amount";
 import { Button } from "@/components/ui/button";
 import { Card, CardSection } from "@/components/ui/card";
 import { Input, inputClass, Label } from "@/components/ui/input";
@@ -58,7 +59,9 @@ export function OrderRow({
           <p className="text-sm text-black/60">{userEmail}</p>
         </div>
         <div className="text-sm sm:text-right">
-          <p className="font-semibold text-black">{totalCost} bread</p>
+          <p className="font-semibold text-black">
+            <BreadAmount amount={totalCost} />
+          </p>
           <p className="text-black/50">{createdAt}</p>
         </div>
       </div>

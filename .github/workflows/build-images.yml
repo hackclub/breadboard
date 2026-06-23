@@ -104,21 +104,21 @@ jobs:
   deploy:
     runs-on: ubuntu-22.04
     needs: [editor-backend, nextjs]
-    if: vars.ORCHARD_WEBHOOK_NEXTJS != '' || vars.ORCHARD_WEBHOOK_BACKEND != ''
+    if: secrets.ORCHARD_WEBHOOK_NEXTJS != '' || secrets.ORCHARD_WEBHOOK_BACKEND != ''
     environment: production
     steps:
       - name: Trigger Next.js Orchard deploy
-        if: vars.ORCHARD_WEBHOOK_NEXTJS != ''
+        if: secrets.ORCHARD_WEBHOOK_NEXTJS != ''
         run: |
-          curl -sS -X POST "${{ vars.ORCHARD_WEBHOOK_NEXTJS }}" \
+          curl -sS -X POST "${{ secrets.ORCHARD_WEBHOOK_NEXTJS }}" \
             -H "Content-Type: application/json" \
             -d '{"tag":"${{ github.sha }}"}'
           echo "Next.js webhook dispatched"
 
       - name: Trigger editor-backend Orchard deploy
-        if: vars.ORCHARD_WEBHOOK_BACKEND != ''
+        if: secrets.ORCHARD_WEBHOOK_BACKEND != ''
         run: |
-          curl -sS -X POST "${{ vars.ORCHARD_WEBHOOK_BACKEND }}" \
+          curl -sS -X POST "${{ secrets.ORCHARD_WEBHOOK_BACKEND }}" \
             -H "Content-Type: application/json" \
             -d '{"tag":"${{ github.sha }}"}'
           echo "Editor backend webhook dispatched"

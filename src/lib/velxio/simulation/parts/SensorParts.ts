@@ -127,7 +127,7 @@ PartSimulationRegistry.register("ntc-temperature-sensor", {
 
     // Room temperature default
     if (pin !== null) setAdcVoltage(simulator, pin, tempToVolts(25));
-    (_element as any).temperature = 25;
+    (element as any).temperature = 25;
 
     const onInput = () => {
       const val = (element as any).value;

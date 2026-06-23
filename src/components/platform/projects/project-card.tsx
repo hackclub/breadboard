@@ -33,7 +33,8 @@ export function ProjectCard({
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [shipOpen, setShipOpen] = useState(false);
-  const [demoUrl, setDemoUrl] = useState(project.playableUrl ?? "");
+  const shareUrl = `/share/${project.id}`;
+  const [demoVideoUrl, setDemoVideoUrl] = useState("");
   const [demoUploading, setDemoUploading] = useState(false);
   const [demoMessage, setDemoMessage] = useState("");
   const [demoState, demoAction, demoPending] = useActionState(
@@ -73,8 +74,10 @@ export function ProjectCard({
         body: file,
       });
       if (!response.ok) throw new Error("Upload failed. Try again.");
-      setDemoUrl(publicUrl);
-      setDemoMessage("Demo uploaded. Submit it for review.");
+      setDemoVideoUrl(publicUrl);
+      setDemoMessage(
+        "Demo uploaded. Add this link to your README, then submit.",
+      );
     } catch (error) {
       setDemoMessage(error instanceof Error ? error.message : "Upload failed.");
     } finally {
@@ -155,7 +158,22 @@ export function ProjectCard({
           ) : project.status === "building" ? (
             <form action={demoAction} className="grid gap-2">
               <input type="hidden" name="projectId" value={project.id} />
-              <input type="hidden" name="playableUrl" value={demoUrl} />
+              <input type="hidden" name="codeUrl" value={project.codeUrl} />
+              <input type="hidden" name="demoVideoUrl" value={demoVideoUrl} />
+              <input type="hidden" name="playableUrl" value={shareUrl} />
+              <a
+                href={shareUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded border border-black bg-white px-3 py-2 text-sm font-black text-black shadow-[2px_2px_0_#000] no-underline"
+              >
+                Open read-only simulation demo
+              </a>
+              <div className="rounded-xl border border-black bg-[#fffaf1] p-3 text-xs font-bold text-black/65 shadow-[2px_2px_0_#000]">
+                Before demo review, your GitHub README must include the final
+                working photo/video, build journal, schematic, BOM, and
+                firmware.
+              </div>
               <input
                 type="file"
                 accept="video/mp4,video/webm,video/quicktime"
@@ -165,14 +183,19 @@ export function ProjectCard({
                 }
                 className="rounded border border-black px-3 py-2 text-sm"
               />
-              {demoUrl ? (
+              {demoVideoUrl ? (
                 <video
-                  src={demoUrl}
+                  src={demoVideoUrl}
                   controls
                   className="h-32 rounded border border-black bg-black"
                 >
                   <track kind="captions" />
                 </video>
+              ) : null}
+              {demoVideoUrl ? (
+                <p className="break-all rounded border border-black bg-white p-2 text-xs font-bold text-black/60">
+                  Video URL to add to README: {demoVideoUrl}
+                </p>
               ) : null}
               {demoMessage ? (
                 <p className="text-xs font-bold text-black/55">{demoMessage}</p>
@@ -180,9 +203,9 @@ export function ProjectCard({
               <Button
                 type="submit"
                 tone="primary"
-                disabled={demoPending || demoUploading || !demoUrl}
+                disabled={demoPending || demoUploading || !demoVideoUrl}
               >
-                {demoPending ? "Submitting..." : "Submit demo video"}
+                {demoPending ? "Submitting..." : "Submit final demo"}
               </Button>
               {demoState.message ? (
                 <p className="text-xs font-bold text-[#BD0F32]">

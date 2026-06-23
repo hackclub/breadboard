@@ -57,16 +57,18 @@ const resizeHandleStyle: React.CSSProperties = {
   borderBottom: "1px solid #3c3c3c",
 };
 
-export const EditorPage: React.FC<{ readOnly?: boolean }> = ({
+export const EditorPage: React.FC<{ readOnly?: boolean; shareMode?: boolean }> = ({
   readOnly = false,
+  shareMode = false,
 }) => {
   const { t } = useTranslation();
   useAutoSaveProject();
   const [editorWidthPct, setEditorWidthPct] = useState(45);
   // Desktop-only 3-way layout switch (code-only / circuit-only / both).
   // Lets users hide a pane to give the right-docked chat more room.
-  const viewMode = useEditorStore((s) => s.viewMode);
+  const storedViewMode = useEditorStore((s) => s.viewMode);
   const setViewMode = useEditorStore((s) => s.setViewMode);
+  const viewMode = shareMode ? "circuit" : storedViewMode;
   const containerRef = useRef<HTMLDivElement>(null);
   const resizingRef = useRef(false);
   const serialMonitorOpen = useSimulatorStore((s) => s.serialMonitorOpen);
@@ -263,7 +265,25 @@ export const EditorPage: React.FC<{ readOnly?: boolean }> = ({
   return (
     <div className="app">
       {/* ── Mobile tab bar (top, above panels) ── */}
-      {isMobile && (
+      {shareMode && (
+        <div
+          style={{
+            flexShrink: 0,
+            borderBottom: "1px solid #3c3c3c",
+            background: "#BD0F32",
+            color: "white",
+            padding: "10px 16px",
+            fontSize: 13,
+            fontWeight: 900,
+            letterSpacing: ".12em",
+            textAlign: "center",
+          }}
+        >
+          READ ONLY SIMULATION - run the project, but editing is disabled
+        </div>
+      )}
+
+      {isMobile && !shareMode && (
         <nav className="mobile-tab-bar">
           <button
             className={`mobile-tab-btn${mobileView === "code" ? " mobile-tab-btn--active" : ""}`}
@@ -315,104 +335,108 @@ export const EditorPage: React.FC<{ readOnly?: boolean }> = ({
           portaled into `canvasHeaderSlot` from inside SimulatorCanvas. */}
       {!isMobile && (
         <div className="unified-toolbar">
-          <button
-            className="explorer-toggle-btn unified-toolbar-explorer-toggle"
-            onClick={() => setExplorerOpen((v) => !v)}
-            title={explorerOpen ? "Hide file explorer" : "Show file explorer"}
-          >
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          {!shareMode && (
+            <button
+              className="explorer-toggle-btn unified-toolbar-explorer-toggle"
+              onClick={() => setExplorerOpen((v) => !v)}
+              title={explorerOpen ? "Hide file explorer" : "Show file explorer"}
             >
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-            </svg>
-          </button>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
+            </button>
+          )}
           {/* View-mode toggle: Code / Both / Circuit. Lets users hide a
               pane to give the right-docked AI chat more breathing room.
               Hidden on mobile — there's already a code/circuit toggle in
               the mobile bottom-nav. */}
-          <div
-            role="group"
-            aria-label={t("editor.shell.viewMode")}
-            className="view-mode-toggle"
-            style={{
-              display: "flex",
-              gap: 1,
-              background: "#252526",
-              border: "1px solid #3c3c3c",
-              borderRadius: 4,
-              overflow: "hidden",
-              alignSelf: "center",
-              margin: "0 6px",
-            }}
-          >
-            {(
-              [
-                {
-                  key: "code",
-                  label: t("editor.shell.code"),
-                  path: "M16 18l6-6-6-6M8 6l-6 6 6 6",
-                },
-                {
-                  key: "both",
-                  label: t("editor.shell.both"),
-                  path: "M3 3h7v18H3zM14 3h7v18h-7z",
-                },
-                {
-                  key: "circuit",
-                  label: t("editor.shell.circuit"),
-                  path: "M5 12h14M12 5v14",
-                },
-              ] as const
-            ).map((m) => (
-              <button
-                key={m.key}
-                onClick={() => setViewMode(m.key)}
-                aria-pressed={viewMode === m.key}
-                style={{
-                  background: viewMode === m.key ? "#0e639c" : "transparent",
-                  color: viewMode === m.key ? "white" : "#aaa",
-                  border: "none",
-                  height: 28,
-                  padding: "0 10px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  cursor: "pointer",
-                  fontSize: 12,
-                  fontFamily: "inherit",
-                }}
-              >
-                <svg
-                  width="13"
-                  height="13"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+          {!shareMode && (
+            <div
+              role="group"
+              aria-label={t("editor.shell.viewMode")}
+              className="view-mode-toggle"
+              style={{
+                display: "flex",
+                gap: 1,
+                background: "#252526",
+                border: "1px solid #3c3c3c",
+                borderRadius: 4,
+                overflow: "hidden",
+                alignSelf: "center",
+                margin: "0 6px",
+              }}
+            >
+              {(
+                [
+                  {
+                    key: "code",
+                    label: t("editor.shell.code"),
+                    path: "M16 18l6-6-6-6M8 6l-6 6 6 6",
+                  },
+                  {
+                    key: "both",
+                    label: t("editor.shell.both"),
+                    path: "M3 3h7v18H3zM14 3h7v18h-7z",
+                  },
+                  {
+                    key: "circuit",
+                    label: t("editor.shell.circuit"),
+                    path: "M5 12h14M12 5v14",
+                  },
+                ] as const
+              ).map((m) => (
+                <button
+                  key={m.key}
+                  onClick={() => setViewMode(m.key)}
+                  aria-pressed={viewMode === m.key}
+                  style={{
+                    background: viewMode === m.key ? "#0e639c" : "transparent",
+                    color: viewMode === m.key ? "white" : "#aaa",
+                    border: "none",
+                    height: 28,
+                    padding: "0 10px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    cursor: "pointer",
+                    fontSize: 12,
+                    fontFamily: "inherit",
+                  }}
                 >
-                  <path d={m.path} />
-                </svg>
-                <span>{m.label}</span>
-              </button>
-            ))}
-          </div>
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d={m.path} />
+                  </svg>
+                  <span>{m.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <div className="unified-toolbar-editor">
             <EditorToolbar
               consoleOpen={consoleOpen}
               setConsoleOpen={setConsoleOpen}
               compileLogs={compileLogs}
               setCompileLogs={setCompileLogs}
-              centerSlot={!isRaspberryPi3 ? <FileTabs /> : null}
-              readOnly={readOnly}
+              centerSlot={!isRaspberryPi3 && !shareMode ? <FileTabs /> : null}
+              readOnly={shareMode ? false : readOnly}
             />
           </div>
           <div className="unified-toolbar-canvas" ref={setCanvasHeaderSlot} />
@@ -440,7 +464,7 @@ export const EditorPage: React.FC<{ readOnly?: boolean }> = ({
           }}
         >
           {/* File explorer sidebar + resize handle */}
-          {explorerOpen && (
+          {explorerOpen && !shareMode && (
             <>
               <div
                 style={{
@@ -473,7 +497,7 @@ export const EditorPage: React.FC<{ readOnly?: boolean }> = ({
           >
             {/* Mobile-only: explorer toggle + editor toolbar inside the panel.
                 On desktop these are hoisted into the unified top toolbar. */}
-            {isMobile && (
+            {isMobile && !shareMode && (
               <div
                 style={{
                   display: "flex",
@@ -519,7 +543,7 @@ export const EditorPage: React.FC<{ readOnly?: boolean }> = ({
               className="editor-wrapper"
               style={{ flex: 1, overflow: "hidden", minHeight: 0 }}
             >
-              {isRaspberryPi3 && activeBoardId ? (
+              {shareMode ? null : isRaspberryPi3 && activeBoardId ? (
                 <Suspense
                   fallback={
                     <div style={{ color: "#666", padding: 16, fontSize: 12 }}>
@@ -584,6 +608,23 @@ export const EditorPage: React.FC<{ readOnly?: boolean }> = ({
             flexDirection: "column",
           }}
         >
+          {shareMode && isMobile && (
+            <div
+              style={{
+                flexShrink: 0,
+                background: "#1e1e1e",
+                borderBottom: "1px solid #3c3c3c",
+              }}
+            >
+              <EditorToolbar
+                consoleOpen={consoleOpen}
+                setConsoleOpen={setConsoleOpen}
+                compileLogs={compileLogs}
+                setCompileLogs={setCompileLogs}
+                readOnly={false}
+              />
+            </div>
+          )}
           <div
             style={{
               flex: 1,
@@ -595,6 +636,7 @@ export const EditorPage: React.FC<{ readOnly?: boolean }> = ({
             <SimulatorCanvas
               headerSlot={!isMobile ? canvasHeaderSlot : null}
               readOnly={readOnly}
+              shareMode={shareMode}
             />
           </div>
           {serialMonitorOpen && (

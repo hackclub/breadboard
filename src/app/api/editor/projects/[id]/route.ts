@@ -11,9 +11,19 @@ import { projectEditorVersions, projects } from "@/lib/db/schema";
 
 const VERSION_INTERVAL_MS = 10 * 60 * 1000;
 const MAX_VERSIONS_PER_PROJECT = 100;
+const VERSION_INSERT_ATTEMPTS = 3;
 
 function error(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
+}
+
+function isUniqueViolation(err: unknown) {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: string }).code === "23505"
+  );
 }
 
 export async function GET(
@@ -125,18 +135,29 @@ export async function PUT(
 
   let versionNumber: number | null = null;
   if (shouldVersion) {
-    const [current] = await db
-      .select({ versionNumber: max(projectEditorVersions.versionNumber) })
-      .from(projectEditorVersions)
-      .where(eq(projectEditorVersions.projectId, projectId));
-    versionNumber = (current.versionNumber ?? 0) + 1;
-    await db.insert(projectEditorVersions).values({
-      projectId,
-      userId: project.userId,
-      versionNumber,
-      editorData: serialized,
-      reason,
-    });
+    for (let attempt = 1; attempt <= VERSION_INSERT_ATTEMPTS; attempt += 1) {
+      const [current] = await db
+        .select({ versionNumber: max(projectEditorVersions.versionNumber) })
+        .from(projectEditorVersions)
+        .where(eq(projectEditorVersions.projectId, projectId));
+      const nextVersionNumber = (current.versionNumber ?? 0) + 1;
+
+      try {
+        await db.insert(projectEditorVersions).values({
+          projectId,
+          userId: project.userId,
+          versionNumber: nextVersionNumber,
+          editorData: serialized,
+          reason,
+        });
+        versionNumber = nextVersionNumber;
+        break;
+      } catch (err) {
+        if (!isUniqueViolation(err) || attempt === VERSION_INSERT_ATTEMPTS) {
+          throw err;
+        }
+      }
+    }
 
     const [countRow] = await db
       .select({ count: sql<number>`count(*)::int` })

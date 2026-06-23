@@ -148,7 +148,7 @@ export const SENSOR_CONTROLS: Record<string, SensorControlDef> = {
         key: "temperature",
         label: "Temperature",
         min: -40,
-        max: 80,
+        max: 100,
         step: 0.5,
         unit: "°C",
         defaultValue: 25,
@@ -326,6 +326,24 @@ export const SENSOR_CONTROLS: Record<string, SensorControlDef> = {
     defaultValues: { temperature: 25 },
   },
 
+  thermistor: {
+    title: "Thermistor",
+    controls: [
+      {
+        type: "slider",
+        key: "temperature",
+        label: "Temperature",
+        min: -40,
+        max: 125,
+        step: 1,
+        unit: "°C",
+        defaultValue: 25,
+        formatValue: oneDecimal,
+      },
+    ],
+    defaultValues: { temperature: 25 },
+  },
+
   "water-level-sensor": {
     title: "Water Level Sensor",
     controls: [
@@ -419,6 +437,40 @@ export const SENSOR_CONTROLS: Record<string, SensorControlDef> = {
       },
     ],
     defaultValues: { soundLevel: 512 },
+  },
+
+  "microphone-module": {
+    title: "Microphone Module",
+    controls: [
+      {
+        type: "slider",
+        key: "soundLevel",
+        label: "Sound Level",
+        min: 0,
+        max: 1023,
+        step: 1,
+        unit: "",
+        defaultValue: 512,
+      },
+    ],
+    defaultValues: { soundLevel: 512 },
+  },
+
+  "obstacle-avoidance-module": {
+    title: "Obstacle Avoidance Module",
+    controls: [
+      {
+        type: "slider",
+        key: "distance",
+        label: "Obstacle Distance",
+        min: 2,
+        max: 80,
+        step: 1,
+        unit: "cm",
+        defaultValue: 100,
+      },
+    ],
+    defaultValues: { distance: 100 },
   },
 
   // ── Tilt Switch ───────────────────────────────────────────────────────────

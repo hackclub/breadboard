@@ -1035,6 +1035,12 @@ PartSimulationRegistry.register("ir-receiver", {
       const el = element as any;
       const address = (el.irAddress ?? 0x00) & 0xff;
       const command = (el.irCommand ?? 0x45) & 0xff;
+      el.receiving = true;
+      element.style.filter = "drop-shadow(0 0 8px #ef4444)";
+      setTimeout(() => {
+        el.receiving = false;
+        element.style.filter = "";
+      }, 140);
       driveNECSequence(simulator, pin, address, command);
     };
 
@@ -1104,6 +1110,12 @@ PartSimulationRegistry.register("ir-remote", {
           detail: { address, command, key },
         }),
       );
+      (element as any).active = true;
+      element.style.filter = "drop-shadow(0 0 8px #ef4444)";
+      setTimeout(() => {
+        (element as any).active = false;
+        element.style.filter = "";
+      }, 140);
       if (pin !== null) driveNECSequence(simulator, pin, address, command);
     };
 
@@ -1116,6 +1128,12 @@ PartSimulationRegistry.register("ir-remote", {
           detail: { address, command, key: "power" },
         }),
       );
+      (element as any).active = true;
+      element.style.filter = "drop-shadow(0 0 8px #ef4444)";
+      setTimeout(() => {
+        (element as any).active = false;
+        element.style.filter = "";
+      }, 140);
       if (pin !== null) driveNECSequence(simulator, pin, address, command);
     };
 

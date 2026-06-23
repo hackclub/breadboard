@@ -7,7 +7,7 @@ import { pageGridClass } from "@/components/shared/styles";
 import { launched } from "@/flags";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
-import { user as userTable } from "@/lib/db/schema";
+import { user as userTable, userBread } from "@/lib/db/schema";
 
 export default async function PlatformLayout({
   children,
@@ -39,8 +39,9 @@ export default async function PlatformLayout({
   const isAdmin = await isAdminSession(session);
 
   const userRow = await db
-    .select({ slackId: userTable.slackId })
+    .select({ slackId: userTable.slackId, breadBalance: userBread.balance })
     .from(userTable)
+    .leftJoin(userBread, eq(userBread.userId, userTable.id))
     .where(eq(userTable.id, session.user.id))
     .limit(1);
 
@@ -54,6 +55,7 @@ export default async function PlatformLayout({
                 name: session.user.name,
                 email: session.user.email,
                 slackId: userRow[0]?.slackId ?? null,
+                breadBalance: userRow[0]?.breadBalance ?? 0,
               }
             : null
         }

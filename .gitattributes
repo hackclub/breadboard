@@ -1,0 +1,2 @@
+editor-backend/prebuilt/qemu/*.so filter=lfs diff=lfs merge=lfs -text
+editor-backend/prebuilt/qemu/*.bin filter=lfs diff=lfs merge=lfs -text

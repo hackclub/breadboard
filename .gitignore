@@ -44,15 +44,13 @@ yarn-error.log*
 # Env files
 .env*
 !.env.example
+!.env.production
 
 # Editor backend local/runtime artifacts
 /editor-backend/.venv/
 /editor-backend/**/__pycache__/
 /editor-backend/**/*.pyc
 /editor-backend/.pytest_cache/
-/editor-backend/prebuilt/qemu/*.so
-/editor-backend/prebuilt/qemu/*.bin
-/editor-backend/runtime/
 /editor-backend/tmp/
 /oldvelxio/
 

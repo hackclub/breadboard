@@ -37,6 +37,7 @@ import "@/components/velxio/components/velxio-components/Stm32BluePillElement"; 
 // HTMLUnknownElement (blank card preview).
 import "@wokwi/elements";
 import "../velxio-elements";
+import "@/components/velxio/components/velxio-components/KitElements";
 import "@/components/velxio/components/ComponentPickerModal.css";
 
 interface ComponentPickerModalProps {
@@ -126,7 +127,10 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
   >("all");
   const [registry] = useState(() => ComponentRegistry.getInstance());
   const [isLoading, setIsLoading] = useState(true);
-  const componentCounts = useMemo(() => countKitComponents(components), [components]);
+  const componentCounts = useMemo(
+    () => countKitComponents(components),
+    [components],
+  );
   const boardCounts = useMemo(() => countKitBoards(boards), [boards]);
 
   // Wait for registry to load
@@ -151,10 +155,9 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
     }
 
     return components.filter(
-      (component) =>
-        (componentCounts[component.id] ?? 0) < kitComponentLimit(component.id, kitType),
+      (component) => kitComponentLimit(component.id, kitType) > 0,
     );
-  }, [searchQuery, selectedCategory, registry, isLoading, componentCounts, kitType]);
+  }, [searchQuery, selectedCategory, registry, isLoading, kitType]);
 
   // Get available categories
   const categories = useMemo(() => {
@@ -177,15 +180,19 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="component-picker-overlay" onClick={onClose}>
-      <div
-        className="component-picker-modal"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="component-picker-overlay">
+      <button
+        type="button"
+        className="component-picker-backdrop"
+        aria-label={t("editor.componentPicker.close")}
+        onClick={onClose}
+      />
+      <div className="component-picker-modal" role="dialog" aria-modal="true">
         {/* Header */}
         <div className="modal-header">
           <h2>{t("editor.componentPicker.title")}</h2>
           <button
+            type="button"
             className="close-btn"
             onClick={onClose}
             aria-label={t("editor.componentPicker.close")}
@@ -207,6 +214,7 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
             />
             {searchQuery && (
               <button
+                type="button"
                 className="clear-search-btn"
                 onClick={() => setSearchQuery("")}
                 aria-label={t("editor.componentPicker.clearSearch")}
@@ -220,6 +228,7 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
         {/* Category Tabs */}
         <div className="category-tabs">
           <button
+            type="button"
             className={`category-tab ${selectedCategory === "all" ? "active" : ""}`}
             onClick={() => setSelectedCategory("all")}
           >
@@ -229,6 +238,7 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
             .filter((c) => c !== "boards")
             .map((category) => (
               <button
+                type="button"
                 key={category}
                 className={`category-tab ${selectedCategory === category ? "active" : ""}`}
                 onClick={() => setSelectedCategory(category)}
@@ -238,6 +248,7 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
             ))}
           {onSelectBoard && (
             <button
+              type="button"
               className={`category-tab ${selectedCategory === "boards" ? "active" : ""}`}
               onClick={() => setSelectedCategory("boards")}
             >
@@ -311,6 +322,7 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
                     <p>{t("editor.componentPicker.noResults")}</p>
                     {searchQuery && (
                       <button
+                        type="button"
                         className="clear-filters-btn"
                         onClick={() => {
                           setSearchQuery("");
@@ -326,7 +338,10 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
                     <ComponentCard
                       key={component.id}
                       component={component}
-                      remaining={kitComponentLimit(component.id, kitType) - (componentCounts[component.id] ?? 0)}
+                      remaining={
+                        kitComponentLimit(component.id, kitType) -
+                        (componentCounts[component.id] ?? 0)
+                      }
                       onSelect={() => {
                         // Pro overlays can intercept clicks on pro_only
                         // components by setting window.__velxio_pro_gate__.
@@ -339,7 +354,7 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
                               ) => boolean;
                             }
                           ).__velxio_pro_gate__;
-                          if (gate && gate(component)) return;
+                          if (gate?.(component)) return;
                         }
                         onSelectComponent(component);
                       }}
@@ -395,6 +410,7 @@ const ComponentCard: React.FC<ComponentCardProps> = ({
     PASSIVE_TAGS.has(component.tagName) &&
     typeof component.thumbnail === "string" &&
     component.thumbnail.trim().startsWith("<svg");
+  const noneLeft = remaining <= 0;
 
   // Render actual web component as thumbnail
   React.useEffect(() => {
@@ -455,15 +471,24 @@ const ComponentCard: React.FC<ComponentCardProps> = ({
   }, [component.tagName, component.defaultValues, usePresetSvg]);
 
   return (
-    <button className="component-card" onClick={onSelect}>
+    <button
+      type="button"
+      className={`component-card ${noneLeft ? "component-card--disabled" : ""}`}
+      disabled={noneLeft}
+      onClick={noneLeft ? undefined : onSelect}
+    >
       <div className="card-thumbnail">
         {usePresetSvg ? (
           <div
             className="component-preview"
+            // biome-ignore lint/security/noDangerouslySetInnerHtml: component thumbnails are local build-time SVG metadata.
             dangerouslySetInnerHTML={{ __html: component.thumbnail }}
           />
         ) : (
           <div ref={thumbnailRef} className="component-preview" />
+        )}
+        {noneLeft && (
+          <div className="kit-empty-overlay">None left in your kit</div>
         )}
       </div>
       <div className="card-content">
@@ -476,7 +501,7 @@ const ComponentCard: React.FC<ComponentCardProps> = ({
           {component.pinCount > 0 && (
             <span className="card-pins">{component.pinCount} pins</span>
           )}
-          <span className="card-pins">{remaining} left</span>
+          <span className="card-pins">{Math.max(0, remaining)} left</span>
         </div>
       </div>
     </button>
@@ -574,6 +599,7 @@ const BoardCard: React.FC<BoardCardProps> = ({ kind, onSelect }) => {
 
   return (
     <button
+      type="button"
       className="component-card"
       onClick={onSelect}
       style={{ position: "relative" }}

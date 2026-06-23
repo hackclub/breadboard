@@ -615,6 +615,7 @@ PartSimulationRegistry.register("buzzer", {
       oscillator.start();
       isSounding = true;
       if (el.playing !== undefined) el.playing = true;
+      el.active = true;
     }
 
     function stopTone() {
@@ -625,6 +626,7 @@ PartSimulationRegistry.register("buzzer", {
       }
       isSounding = false;
       if (el.playing !== undefined) el.playing = false;
+      el.active = false;
     }
 
     // Poll via PWM duty cycle on the buzzer pin

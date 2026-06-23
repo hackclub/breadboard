@@ -9,7 +9,7 @@ import {
   projects,
 } from "@/lib/db/schema";
 import { clean } from "@/lib/utils";
-import type { PlatformProject, ShipInput } from "@/types";
+import type { DemoInput, PlatformProject, ShipInput } from "@/types";
 
 type ProjectOwner = {
   userId: string;
@@ -44,12 +44,13 @@ export async function confirmKitReceivedForUser(
 export async function submitDemoForUser(
   owner: ProjectOwner,
   projectId: number,
-  playableUrl: string,
+  data: DemoInput,
 ) {
   await assertProjectOwned(owner.userId, projectId);
   const now = new Date();
-  const cleanPlayableUrl = clean(playableUrl);
-  if (!cleanPlayableUrl) throw new Error("Upload a demo video first");
+  const cleanPlayableUrl = clean(data.playableUrl);
+  const cleanDemoVideoUrl = clean(data.demoVideoUrl);
+  if (!cleanDemoVideoUrl) throw new Error("Upload a demo video first");
 
   await db.transaction(async (tx) => {
     const latest = await tx
@@ -71,9 +72,11 @@ export async function submitDemoForUser(
     await tx.insert(projectSubmissions).values({
       projectId,
       userId: owner.userId,
+      type: "demo",
       submissionNumber,
       email: project.email,
       playableUrl: cleanPlayableUrl,
+      demoVideoUrl: cleanDemoVideoUrl,
       codeUrl: project.codeUrl,
       screenshotUrl: project.screenshotUrl,
       addressLine1: project.addressLine1,
@@ -97,6 +100,7 @@ export async function submitDemoForUser(
       .set({
         status: "demo_review",
         playableUrl: cleanPlayableUrl,
+        demoVideoUrl: cleanDemoVideoUrl,
         demoSubmittedAt: now,
         updatedAt: now,
       })

@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // standalone output for Docker production builds.
+  // Set NEXT_OUTPUT_STANDALONE=1 or omit (defaults to standard output).
+  ...(process.env.NEXT_OUTPUT_STANDALONE === "1"
+    ? ({ output: "standalone" as const } as const)
+    : {}),
   async rewrites() {
     const backend = process.env.EDITOR_BACKEND_URL ?? "http://127.0.0.1:8001";
     return [

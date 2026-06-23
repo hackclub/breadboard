@@ -122,11 +122,13 @@ interface SimulatorCanvasProps {
    */
   headerSlot?: HTMLElement | null;
   readOnly?: boolean;
+  shareMode?: boolean;
 }
 
 export const SimulatorCanvas = ({
   headerSlot,
   readOnly = false,
+  shareMode = false,
 }: SimulatorCanvasProps = {}) => {
   const { t } = useTranslation();
   const isTouchDevice = useIsCoarsePointer();
@@ -2372,36 +2374,40 @@ export const SimulatorCanvas = ({
                 handler in EditorPage. Tooltip surfaces the description of
                 the command that would be applied. Disabled when the stack
                 is exhausted in that direction. */}
-                <button
-                  onClick={() => undo()}
-                  disabled={historyIndex < 0}
-                  className="canvas-icon-btn"
-                  title={
-                    historyIndex >= 0
-                      ? t("editor.canvas.undo.title", {
-                          description: history[historyIndex].description,
-                        })
-                      : t("editor.canvas.undo.empty")
-                  }
-                  aria-label={t("editor.canvas.undo.label")}
-                >
-                  <Undo2 size={16} strokeWidth={2} aria-hidden="true" />
-                </button>
-                <button
-                  onClick={() => redo()}
-                  disabled={historyIndex >= history.length - 1}
-                  className="canvas-icon-btn"
-                  title={
-                    historyIndex < history.length - 1
-                      ? t("editor.canvas.redo.title", {
-                          description: history[historyIndex + 1].description,
-                        })
-                      : t("editor.canvas.redo.empty")
-                  }
-                  aria-label={t("editor.canvas.redo.label")}
-                >
-                  <Redo2 size={16} strokeWidth={2} aria-hidden="true" />
-                </button>
+                {!shareMode && (
+                  <>
+                    <button
+                      onClick={() => undo()}
+                      disabled={historyIndex < 0}
+                      className="canvas-icon-btn"
+                      title={
+                        historyIndex >= 0
+                          ? t("editor.canvas.undo.title", {
+                              description: history[historyIndex].description,
+                            })
+                          : t("editor.canvas.undo.empty")
+                      }
+                      aria-label={t("editor.canvas.undo.label")}
+                    >
+                      <Undo2 size={16} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                    <button
+                      onClick={() => redo()}
+                      disabled={historyIndex >= history.length - 1}
+                      className="canvas-icon-btn"
+                      title={
+                        historyIndex < history.length - 1
+                          ? t("editor.canvas.redo.title", {
+                              description: history[historyIndex + 1].description,
+                            })
+                          : t("editor.canvas.redo.empty")
+                      }
+                      aria-label={t("editor.canvas.redo.label")}
+                    >
+                      <Redo2 size={16} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  </>
+                )}
 
                 {/* Serial Monitor toggle */}
                 <button
@@ -2628,29 +2634,31 @@ export const SimulatorCanvas = ({
                 </span>
 
                 {/* Add Component */}
-                <button
-                  className="add-component-btn"
-                  onClick={() => {
-                    if (!readOnly) setShowComponentPicker(true);
-                  }}
-                  title={t("editor.canvas.addComponentTitle")}
-                  disabled={readOnly || running}
-                >
-                  <svg
-                    width="22"
-                    height="22"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+                {!shareMode && (
+                  <button
+                    className="add-component-btn"
+                    onClick={() => {
+                      if (!readOnly) setShowComponentPicker(true);
+                    }}
+                    title={t("editor.canvas.addComponentTitle")}
+                    disabled={readOnly || running}
                   >
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
-                  {t("editor.canvas.add")}
-                </button>
+                    <svg
+                      width="22"
+                      height="22"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                    {t("editor.canvas.add")}
+                  </button>
+                )}
               </div>
             </div>
           );

@@ -10,12 +10,65 @@ import {
   orderItems,
   orders,
   products,
+  projectReviewChecks,
+  projectReviews,
   projectSubmissions,
   projects,
   userBread,
 } from "@/lib/db/schema";
 
 const REVIEW_TEXT_LIMIT = 2000;
+
+type ReviewCheckInput = {
+  key: string;
+  label: string;
+  passed: boolean;
+  note?: string;
+};
+
+const MATERIALS_CHECKS: ReviewCheckInput[] = [
+  {
+    key: "readme_scope",
+    label: "README explains what the project is and why it is interesting",
+    passed: false,
+  },
+  {
+    key: "readme_usage",
+    label: "README explains how it works and how to use it",
+    passed: false,
+  },
+  {
+    key: "schematic",
+    label: "Clear wiring diagram/schematic is present",
+    passed: false,
+  },
+  { key: "bom", label: "Bill of materials is present", passed: false },
+  { key: "firmware", label: "Firmware code file is present", passed: false },
+  {
+    key: "public_code",
+    label: "GitHub repo/code is public and original",
+    passed: false,
+  },
+];
+
+const DEMO_CHECKS: ReviewCheckInput[] = [
+  {
+    key: "video",
+    label: "Photo/video shows the physical project working",
+    passed: false,
+  },
+  {
+    key: "readme_video",
+    label: "README includes final photo/video evidence",
+    passed: false,
+  },
+  {
+    key: "journal",
+    label: "Build journaling shows incremental progress",
+    passed: false,
+  },
+  { key: "kit_build", label: "Built with the shipped kit", passed: false },
+];
 
 function requirePositiveProjectId(value: number) {
   const projectId = Math.floor(Number(value));
@@ -33,6 +86,64 @@ function normalizeReviewText(value: string, label: string) {
   const text = value.trim();
   if (text.length > REVIEW_TEXT_LIMIT) throw new Error(`${label} is too long`);
   return text;
+}
+
+function normalizeChecks(
+  checks: ReviewCheckInput[] | undefined,
+  phase: "materials" | "demo",
+) {
+  const defaults = phase === "demo" ? DEMO_CHECKS : MATERIALS_CHECKS;
+  const byKey = new Map((checks ?? []).map((check) => [check.key, check]));
+  return defaults.map((check) => ({
+    ...check,
+    passed: Boolean(byKey.get(check.key)?.passed),
+    note: normalizeReviewText(byKey.get(check.key)?.note ?? "", "Check note"),
+  }));
+}
+
+async function createReviewRecord(
+  tx: typeof db,
+  input: {
+    projectId: number;
+    submissionId: number;
+    reviewerId: string;
+    phase: "materials" | "demo";
+    decision: "approved" | "needs_changes" | "rejected";
+    approvedHours: number;
+    bread: number;
+    internalComment: string;
+    publicComment: string;
+    checks?: ReviewCheckInput[];
+  },
+) {
+  const checks = normalizeChecks(input.checks, input.phase);
+  const [review] = await tx
+    .insert(projectReviews)
+    .values({
+      projectId: input.projectId,
+      submissionId: input.submissionId,
+      reviewerId: input.reviewerId,
+      decision:
+        input.decision === "needs_changes"
+          ? "changes_requested"
+          : input.decision,
+      approvedSeconds: input.approvedHours * 3600,
+      breadAmount: input.bread,
+      publicComment: input.publicComment,
+      internalComment: input.internalComment,
+      decidedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .returning({ id: projectReviews.id });
+  await tx.insert(projectReviewChecks).values(
+    checks.map((check) => ({
+      reviewId: review.id,
+      key: check.key,
+      label: check.label,
+      passed: check.passed,
+      note: check.note ?? "",
+    })),
+  );
 }
 
 async function getProjectOrThrow(projectId: number) {
@@ -162,8 +273,9 @@ export async function approveProject(
   approvedHours: number,
   justification: string,
   userComment: string,
+  checks?: ReviewCheckInput[],
 ) {
-  await requireAdminSession();
+  const session = await requireAdminSession();
   const id = requirePositiveProjectId(projectId);
   const hours = normalizeHours(approvedHours);
   const bread = hours * BREAD_PER_HOUR;
@@ -177,6 +289,18 @@ export async function approveProject(
   if (project.status === "demo_review") {
     const submission = await getPendingSubmissionOrThrow(id, "demo");
     const creditedUser = await db.transaction(async (tx) => {
+      await createReviewRecord(tx, {
+        projectId: id,
+        submissionId: submission.id,
+        reviewerId: session.user.id,
+        phase: "demo",
+        decision: "approved",
+        approvedHours: hours,
+        bread,
+        internalComment: reviewJustification,
+        publicComment: reviewComment,
+        checks,
+      });
       const [updatedSubmission] = await tx
         .update(projectSubmissions)
         .set({
@@ -235,6 +359,18 @@ export async function approveProject(
 
   const submission = await getPendingSubmissionOrThrow(id, "materials");
   const creditedUser = await db.transaction(async (tx) => {
+    await createReviewRecord(tx, {
+      projectId: id,
+      submissionId: submission.id,
+      reviewerId: session.user.id,
+      phase: "materials",
+      decision: "approved",
+      approvedHours: hours,
+      bread: 0,
+      internalComment: reviewJustification,
+      publicComment: reviewComment,
+      checks,
+    });
     const [updatedSubmission] = await tx
       .update(projectSubmissions)
       .set({
@@ -368,8 +504,12 @@ export async function fulfillProject(projectId: number) {
   revalidateReviewViews(id);
 }
 
-export async function requestChanges(projectId: number, note: string) {
-  await requireAdminSession();
+export async function requestChanges(
+  projectId: number,
+  note: string,
+  checks?: ReviewCheckInput[],
+) {
+  const session = await requireAdminSession();
   const id = requirePositiveProjectId(projectId);
   const project = await getProjectOrThrow(id);
   const submission = await getPendingSubmissionOrThrow(
@@ -378,6 +518,18 @@ export async function requestChanges(projectId: number, note: string) {
   );
   const reviewNote = normalizeReviewText(note, "Note");
   await db.transaction(async (tx) => {
+    await createReviewRecord(tx, {
+      projectId: id,
+      submissionId: submission.id,
+      reviewerId: session.user.id,
+      phase: project.status === "demo_review" ? "demo" : "materials",
+      decision: "needs_changes",
+      approvedHours: 0,
+      bread: 0,
+      internalComment: "",
+      publicComment: reviewNote,
+      checks,
+    });
     const [updatedSubmission] = await tx
       .update(projectSubmissions)
       .set({
@@ -406,8 +558,12 @@ export async function requestChanges(projectId: number, note: string) {
   revalidateReviewViews(id);
 }
 
-export async function rejectProject(projectId: number, note: string) {
-  await requireAdminSession();
+export async function rejectProject(
+  projectId: number,
+  note: string,
+  checks?: ReviewCheckInput[],
+) {
+  const session = await requireAdminSession();
   const id = requirePositiveProjectId(projectId);
   const project = await getProjectOrThrow(id);
   const submission = await getPendingSubmissionOrThrow(
@@ -416,6 +572,18 @@ export async function rejectProject(projectId: number, note: string) {
   );
   const reviewNote = normalizeReviewText(note, "Note");
   await db.transaction(async (tx) => {
+    await createReviewRecord(tx, {
+      projectId: id,
+      submissionId: submission.id,
+      reviewerId: session.user.id,
+      phase: project.status === "demo_review" ? "demo" : "materials",
+      decision: "rejected",
+      approvedHours: 0,
+      bread: 0,
+      internalComment: "",
+      publicComment: reviewNote,
+      checks,
+    });
     const [updatedSubmission] = await tx
       .update(projectSubmissions)
       .set({

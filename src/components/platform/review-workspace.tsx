@@ -77,14 +77,27 @@ type Journal = {
   createdAt: Date;
 };
 
-const checklistItems = [
-  "README exists",
-  "Playable URL works without building from source",
-  "Code is public",
-  "Code is original",
-  "Incremental progress is shown",
-  "Screenshot accurately shows the project",
-];
+const materialsChecklistItems = [
+  {
+    key: "readme_scope",
+    label: "README explains what the project is and why it is interesting",
+  },
+  {
+    key: "readme_usage",
+    label: "README explains how it works and how to use it",
+  },
+  { key: "schematic", label: "Clear wiring diagram/schematic is present" },
+  { key: "bom", label: "Bill of materials is present" },
+  { key: "firmware", label: "Firmware code file is present" },
+  { key: "public_code", label: "GitHub repo/code is public and original" },
+] as const;
+
+const demoChecklistItems = [
+  { key: "video", label: "Photo/video shows the physical project working" },
+  { key: "readme_video", label: "README includes final photo/video evidence" },
+  { key: "journal", label: "Build journaling shows incremental progress" },
+  { key: "kit_build", label: "Built with the shipped kit" },
+] as const;
 
 const verdictOptions = [
   { value: "approve", icon: HiCheckCircle, label: "Approve" },
@@ -319,6 +332,15 @@ export function ReviewWorkspace({
   const [userNotesState, setUserNotesState] = useState(initialUserNotes);
   const [newProjectNote, setNewProjectNote] = useState("");
   const [newUserNote, setNewUserNote] = useState("");
+  const activeChecklist =
+    initial.projectStatus === "demo_review"
+      ? demoChecklistItems
+      : materialsChecklistItems;
+  const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
+  const reviewChecks = activeChecklist.map((item) => ({
+    ...item,
+    passed: Boolean(checkedItems[item.key]),
+  }));
   const screenshot = safeUrl(initial.screenshotUrl);
   const playable = safeUrl(initial.playableUrl);
   const demoVideo = safeUrl(initial.demoVideoUrl);
@@ -512,6 +534,7 @@ export function ReviewWorkspace({
                           approvedHours,
                           internalJustification,
                           userComment,
+                          reviewChecks,
                         ),
                       )
                     }
@@ -543,8 +566,12 @@ export function ReviewWorkspace({
                     onClick={() =>
                       run(() =>
                         verdict === "reject"
-                          ? rejectProject(initial.id, userComment)
-                          : requestChanges(initial.id, userComment),
+                          ? rejectProject(initial.id, userComment, reviewChecks)
+                          : requestChanges(
+                              initial.id,
+                              userComment,
+                              reviewChecks,
+                            ),
                       )
                     }
                     className="rounded-xl border border-black bg-white py-3.5 text-sm font-black text-black hover:bg-black hover:text-white disabled:opacity-50"
@@ -663,18 +690,29 @@ export function ReviewWorkspace({
         </section>
 
         <section className="rounded-[16px] border border-black bg-white p-4 shadow-[4px_4px_0_#000]">
-          <h3 className="text-sm font-black text-black">Checklist</h3>
+          <h3 className="text-sm font-black text-black">Evidence</h3>
+          <p className="mt-1 text-xs font-bold text-black/45">
+            Optional notes for reviewers. Approval is based on your judgment and
+            the hours awarded.
+          </p>
           <div className="mt-2 space-y-1.5">
-            {checklistItems.map((item) => (
+            {activeChecklist.map((item) => (
               <label
-                key={item}
+                key={item.key}
                 className="flex items-start gap-2 rounded-lg bg-zinc-50 p-2.5 text-xs font-bold text-black/65"
               >
                 <input
                   type="checkbox"
+                  checked={Boolean(checkedItems[item.key])}
+                  onChange={(event) =>
+                    setCheckedItems((prev) => ({
+                      ...prev,
+                      [item.key]: event.target.checked,
+                    }))
+                  }
                   className="mt-0.5 rounded border-black"
                 />
-                <span>{item}</span>
+                <span>{item.label}</span>
               </label>
             ))}
           </div>

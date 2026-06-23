@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Save } from "lucide-react";
+import { ChevronLeft, Github, Save, X } from "lucide-react";
+import { authClient } from "@/lib/auth/client";
 import {
   type EditorSaveState,
   subscribeEditorSaveState,
@@ -77,6 +78,10 @@ export function EditorHeader({
     errorMessage: null,
   });
   const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishUrl, setPublishUrl] = useState<string | null>(null);
+  const [publishModalOpen, setPublishModalOpen] = useState(false);
+  const [publishError, setPublishError] = useState("");
 
   useEffect(() => subscribeEditorSaveState((s) => setState({ ...s })), []);
 
@@ -102,6 +107,53 @@ export function EditorHeader({
     await triggerManualSave().catch(() => {});
     setSaving(false);
   }, [readOnly, saving, state.status]);
+
+  const handlePublish = useCallback(async () => {
+    if (readOnly || publishing) return;
+    setPublishing(true);
+    setPublishError("");
+    try {
+      await triggerManualSave().catch(() => {});
+
+      const res = await fetch(`/api/projects/${projectId}/github/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ overwrite: true }),
+      });
+
+      if (res.status === 409) {
+        const payload = (await res.json().catch(() => null)) as {
+          needsGitHubAuth?: boolean;
+        } | null;
+        if (payload?.needsGitHubAuth) {
+          await authClient.signIn.oauth2({
+            providerId: "github",
+            callbackURL: window.location.href,
+          });
+          return;
+        }
+      }
+
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(payload?.error ?? "GitHub publish failed");
+      }
+
+      const payload = (await res.json()) as { repoUrl: string };
+      setPublishUrl(payload.repoUrl);
+      setPublishModalOpen(false);
+      window.open(payload.repoUrl, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      setPublishError(
+        err instanceof Error ? err.message : "GitHub publish failed",
+      );
+    } finally {
+      setPublishing(false);
+    }
+  }, [projectId, publishing, readOnly]);
 
   const showStatus = state.status !== "idle";
   const trackingBlocked = [
@@ -173,6 +225,19 @@ export function EditorHeader({
         {!readOnly ? (
           <button
             type="button"
+            onClick={() => setPublishModalOpen(true)}
+            disabled={publishing || state.status === "saving"}
+            className="flex items-center gap-1 rounded bg-[#BD0F32] px-2 py-1 text-xs font-black text-white hover:bg-[#d71943] disabled:opacity-40 transition-colors"
+            title={
+              publishUrl ?? "Publish schematic, code, and README to GitHub"
+            }
+          >
+            {publishing ? "Publishing..." : "Publish"}
+          </button>
+        ) : null}
+        {!readOnly ? (
+          <button
+            type="button"
             onClick={handleManualSave}
             disabled={saving || state.status === "saving"}
             className="flex items-center gap-1 rounded bg-[#2a2a2a] px-2 py-1 text-xs text-[#aaa] hover:bg-[#3a3a3a] hover:text-white disabled:opacity-40 transition-colors"
@@ -182,6 +247,105 @@ export function EditorHeader({
           </button>
         ) : null}
       </div>
+      {publishModalOpen ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1000,
+            display: "grid",
+            placeItems: "center",
+            background: "rgba(0,0,0,.72)",
+            padding: 16,
+            color: "#fff",
+            fontFamily:
+              'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+          }}
+        >
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 560,
+              overflow: "hidden",
+              borderRadius: 22,
+              border: "1px solid #3a3a3a",
+              background: "#1f1f1f",
+              boxShadow: "0 24px 80px rgba(0,0,0,.45)",
+            }}
+          >
+            <div className="flex items-center justify-between border-b border-[#333] px-5 py-4">
+              <div className="flex items-center gap-3">
+                <div className="grid size-9 place-items-center rounded-full bg-[#BD0F32] text-white">
+                  <Github className="size-5" />
+                </div>
+                <div>
+                  <h2 className="font-black text-white text-sm">
+                    Publish to GitHub
+                  </h2>
+                  <p className="text-[#888] text-xs">
+                    Repo, README, firmware, BOM, and schematic snapshot
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPublishModalOpen(false)}
+                className="rounded p-1 text-[#888] transition hover:bg-[#333] hover:text-white"
+                aria-label="Close publish dialog"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="grid gap-4 px-5 py-4">
+              <div className="rounded-xl border border-[#3a3a3a] bg-[#171717] p-3 text-[#aaa] text-xs leading-5">
+                Publishing is safe to run again. Breadboard will overwrite the
+                generated files it owns:{" "}
+                <span className="text-white">README.md</span>,{" "}
+                <span className="text-white">breadboard-project.json</span>, and{" "}
+                <span className="text-white">firmware/*</span>. Other files in
+                the repo are left alone.
+              </div>
+              <div className="rounded-xl border border-[#3a3a3a] bg-[#111] p-3 text-[#aaa] text-xs leading-5">
+                Publish also creates a read-only simulation link for reviewers.
+                It has no editor controls, no component picker, no store, and no
+                time tracking. Users can only run the simulation.
+              </div>
+              {publishUrl ? (
+                <a
+                  href={publishUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[#ff6b86] text-xs font-bold hover:text-white"
+                >
+                  Last published repo: {publishUrl}
+                </a>
+              ) : null}
+              {publishError ? (
+                <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-red-200 text-xs font-bold">
+                  {publishError}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-[#333] px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setPublishModalOpen(false)}
+                className="rounded-lg px-3 py-2 text-[#aaa] text-xs font-bold transition hover:bg-[#333] hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handlePublish}
+                disabled={publishing || state.status === "saving"}
+                className="rounded-lg bg-[#BD0F32] px-4 py-2 text-white text-xs font-black transition hover:bg-[#d71943] disabled:opacity-40"
+              >
+                {publishing ? "Publishing..." : "Publish and overwrite"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </header>
   );
 }

@@ -21,6 +21,7 @@ type SidebarUser = {
   name?: string | null;
   email?: string | null;
   slackId?: string | null;
+  breadBalance?: number | null;
 };
 
 type SidebarLink = {
@@ -187,7 +188,9 @@ export function PlatformSidebar({
               <p className="truncate text-sm font-medium text-zinc-950">
                 {user.name ?? "Signed in"}
               </p>
-              <p className="truncate text-xs text-zinc-500">{user.email}</p>
+              <p className="truncate text-xs font-semibold text-zinc-500">
+                {user.breadBalance ?? 0} Bread
+              </p>
             </div>
             <button
               type="button"

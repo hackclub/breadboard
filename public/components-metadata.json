@@ -341,56 +341,6 @@
       "category": "displays"
     },
     {
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\">\n      <rect width=\"64\" height=\"64\" fill=\"#e0e0e0\" rx=\"4\"/>\n      <text x=\"50%\" y=\"50%\" text-anchor=\"middle\" dy=\".3em\" font-size=\"10\" fill=\"#666\">\n        RELAY\n      </text>\n    </svg>",
-      "tags": [
-        "relay",
-        "electromechanical",
-        "switch",
-        "spdt",
-        "coil",
-        "contact"
-      ],
-      "properties": [
-        {
-          "name": "coil_voltage",
-          "type": "number",
-          "defaultValue": 5,
-          "control": "select",
-          "options": [
-            "5",
-            "12",
-            "24"
-          ],
-          "description": "Nominal coil voltage (V)"
-        },
-        {
-          "name": "coil_resistance",
-          "type": "number",
-          "defaultValue": 70,
-          "control": "text",
-          "description": "Coil resistance (Ω)"
-        },
-        {
-          "name": "include_flyback",
-          "type": "boolean",
-          "defaultValue": true,
-          "control": "boolean",
-          "description": "Integrated flyback diode across coil"
-        }
-      ],
-      "defaultValues": {
-        "coil_voltage": 5,
-        "coil_resistance": 70,
-        "include_flyback": true
-      },
-      "pinCount": 5,
-      "id": "relay",
-      "tagName": "velxio-relay",
-      "name": "Relay (SPDT)",
-      "category": "electromech",
-      "description": "5-pin single-pole double-throw electromechanical relay. Coil drives SPDT contacts with native switch hysteresis. Optional integrated flyback diode."
-    },
-    {
       "id": "membrane-keypad",
       "tagName": "wokwi-membrane-keypad",
       "name": "Membrane Keypad",
@@ -952,95 +902,6 @@
       ]
     },
     {
-      "id": "buzzer",
-      "tagName": "wokwi-buzzer",
-      "name": "Buzzer",
-      "category": "output",
-      "description": "Whether the buzzer is currently emitting a signal",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\">\n      <rect width=\"64\" height=\"64\" fill=\"#e0e0e0\" rx=\"4\"/>\n      <text x=\"50%\" y=\"50%\" text-anchor=\"middle\" dy=\".3em\" font-size=\"10\" fill=\"#666\">\n        BUZZER\n      </text>\n    </svg>",
-      "properties": [
-        {
-          "name": "hasSignal",
-          "type": "string",
-          "defaultValue": false,
-          "control": "text"
-        }
-      ],
-      "defaultValues": {
-        "hasSignal": false
-      },
-      "pinCount": 0,
-      "tags": [
-        "buzzer"
-      ]
-    },
-    {
-      "id": "led",
-      "tagName": "wokwi-led",
-      "name": "LED",
-      "category": "output",
-      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\">\n      <rect width=\"64\" height=\"64\" fill=\"#e0e0e0\" rx=\"4\"/>\n      <text x=\"50%\" y=\"50%\" text-anchor=\"middle\" dy=\".3em\" font-size=\"10\" fill=\"#666\">\n        LED\n      </text>\n    </svg>",
-      "properties": [
-        {
-          "name": "value",
-          "type": "string",
-          "defaultValue": false,
-          "control": "text"
-        },
-        {
-          "name": "brightness",
-          "type": "string",
-          "defaultValue": 1,
-          "control": "text"
-        },
-        {
-          "name": "color",
-          "type": "string",
-          "defaultValue": "red",
-          "control": "select",
-          "options": [
-            "red",
-            "green",
-            "blue",
-            "yellow",
-            "orange",
-            "white",
-            "purple"
-          ]
-        },
-        {
-          "name": "lightColor",
-          "type": "string",
-          "defaultValue": null,
-          "control": "text"
-        },
-        {
-          "name": "label",
-          "type": "string",
-          "defaultValue": "",
-          "control": "text"
-        },
-        {
-          "name": "flip",
-          "type": "string",
-          "defaultValue": false,
-          "control": "text"
-        }
-      ],
-      "defaultValues": {
-        "value": false,
-        "brightness": 1,
-        "color": "red",
-        "lightColor": null,
-        "label": "",
-        "flip": false
-      },
-      "pinCount": 2,
-      "tags": [
-        "led"
-      ]
-    },
-    {
       "id": "rgb-led",
       "tagName": "wokwi-rgb-led",
       "name": "RGB Led",
@@ -1392,6 +1253,322 @@
         "pir",
         "motion",
         "sensor"
+      ]
+    },
+    {
+      "id": "led-red",
+      "tagName": "wokwi-led",
+      "name": "LED Red F5",
+      "category": "output",
+      "description": "5mm red LED from the physical kit.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" rx=\"6\" fill=\"#111827\"/><text x=\"32\" y=\"35\" text-anchor=\"middle\" font-family=\"Arial\" font-size=\"9\" font-weight=\"bold\" fill=\"#fff\">RED</text></svg>",
+      "properties": [
+        {
+          "name": "color",
+          "type": "string",
+          "defaultValue": "red",
+          "control": "text"
+        }
+      ],
+      "defaultValues": {
+        "color": "red"
+      },
+      "pinCount": 2,
+      "tags": [
+        "led",
+        "red",
+        "f5"
+      ]
+    },
+    {
+      "id": "led-yellow",
+      "tagName": "wokwi-led",
+      "name": "LED Yellow F5",
+      "category": "output",
+      "description": "5mm yellow LED from the physical kit.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" rx=\"6\" fill=\"#111827\"/><text x=\"32\" y=\"35\" text-anchor=\"middle\" font-family=\"Arial\" font-size=\"9\" font-weight=\"bold\" fill=\"#fff\">YELLOW</text></svg>",
+      "properties": [
+        {
+          "name": "color",
+          "type": "string",
+          "defaultValue": "yellow",
+          "control": "text"
+        }
+      ],
+      "defaultValues": {
+        "color": "yellow"
+      },
+      "pinCount": 2,
+      "tags": [
+        "led",
+        "yellow",
+        "f5"
+      ]
+    },
+    {
+      "id": "led-blue",
+      "tagName": "wokwi-led",
+      "name": "LED Blue F5",
+      "category": "output",
+      "description": "5mm blue LED from the physical kit.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" rx=\"6\" fill=\"#111827\"/><text x=\"32\" y=\"35\" text-anchor=\"middle\" font-family=\"Arial\" font-size=\"9\" font-weight=\"bold\" fill=\"#fff\">BLUE</text></svg>",
+      "properties": [
+        {
+          "name": "color",
+          "type": "string",
+          "defaultValue": "blue",
+          "control": "text"
+        }
+      ],
+      "defaultValues": {
+        "color": "blue"
+      },
+      "pinCount": 2,
+      "tags": [
+        "led",
+        "blue",
+        "f5"
+      ]
+    },
+    {
+      "id": "led-green",
+      "tagName": "wokwi-led",
+      "name": "LED Green F5",
+      "category": "output",
+      "description": "5mm green LED from the physical kit.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" rx=\"6\" fill=\"#111827\"/><text x=\"32\" y=\"35\" text-anchor=\"middle\" font-family=\"Arial\" font-size=\"9\" font-weight=\"bold\" fill=\"#fff\">GREEN</text></svg>",
+      "properties": [
+        {
+          "name": "color",
+          "type": "string",
+          "defaultValue": "green",
+          "control": "text"
+        }
+      ],
+      "defaultValues": {
+        "color": "green"
+      },
+      "pinCount": 2,
+      "tags": [
+        "led",
+        "green",
+        "f5"
+      ]
+    },
+    {
+      "id": "ir-transmitter",
+      "tagName": "velxio-ir-transmitter",
+      "name": "Infrared Transmitter",
+      "category": "output",
+      "description": "IR emitter LED for sending remote-control style infrared signals.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" rx=\"6\" fill=\"#111111\"/><text x=\"32\" y=\"35\" text-anchor=\"middle\" font-family=\"Arial\" font-size=\"9\" font-weight=\"bold\" fill=\"#fff\">IR TX</text></svg>",
+      "properties": [],
+      "defaultValues": {},
+      "pinCount": 2,
+      "tags": [
+        "infrared",
+        "ir",
+        "transmitter",
+        "emitter",
+        "led"
+      ]
+    },
+    {
+      "id": "thermistor",
+      "tagName": "velxio-thermistor",
+      "name": "Thermistor",
+      "category": "sensors",
+      "description": "NTC thermistor temperature sensor. Use sensor controls to change temperature.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" rx=\"6\" fill=\"#29401f\"/><text x=\"32\" y=\"35\" text-anchor=\"middle\" font-family=\"Arial\" font-size=\"9\" font-weight=\"bold\" fill=\"#fff\">NTC</text></svg>",
+      "properties": [
+        {
+          "name": "temperature",
+          "type": "number",
+          "defaultValue": 25,
+          "control": "range"
+        }
+      ],
+      "defaultValues": {
+        "temperature": 25
+      },
+      "pinCount": 2,
+      "tags": [
+        "thermistor",
+        "ntc",
+        "temperature"
+      ]
+    },
+    {
+      "id": "buzzer-passive",
+      "tagName": "velxio-kit-buzzer",
+      "name": "Passive Buzzer",
+      "category": "output",
+      "description": "Passive piezo buzzer for tone/PWM output.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" rx=\"6\" fill=\"#0f0f0f\"/><text x=\"32\" y=\"35\" text-anchor=\"middle\" font-family=\"Arial\" font-size=\"9\" font-weight=\"bold\" fill=\"#fff\">PASSIVE BUZZ</text></svg>",
+      "properties": [],
+      "defaultValues": {
+        "active": false
+      },
+      "pinCount": 2,
+      "tags": [
+        "buzzer",
+        "passive",
+        "piezo",
+        "tone"
+      ]
+    },
+    {
+      "id": "buzzer-active",
+      "tagName": "velxio-kit-buzzer",
+      "name": "5V Active Buzzer",
+      "category": "output",
+      "description": "Active 5V buzzer for simple on/off sound output.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" rx=\"6\" fill=\"#0f0f0f\"/><text x=\"32\" y=\"35\" text-anchor=\"middle\" font-family=\"Arial\" font-size=\"9\" font-weight=\"bold\" fill=\"#fff\">ACTIVE BUZZ</text></svg>",
+      "properties": [],
+      "defaultValues": {
+        "active": false
+      },
+      "pinCount": 2,
+      "tags": [
+        "buzzer",
+        "active",
+        "5v"
+      ]
+    },
+    {
+      "id": "74hc595",
+      "tagName": "velxio-74hc595",
+      "name": "74HC595N Shift Register",
+      "category": "logic",
+      "description": "8-bit serial-in parallel-out shift register in DIP-16 package.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" rx=\"6\" fill=\"#1a1a2e\"/><text x=\"32\" y=\"35\" text-anchor=\"middle\" font-family=\"Arial\" font-size=\"9\" font-weight=\"bold\" fill=\"#fff\">74HC595</text></svg>",
+      "properties": [],
+      "defaultValues": {
+        "values": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "pinCount": 16,
+      "tags": [
+        "74hc595",
+        "shift register",
+        "logic",
+        "dip"
+      ]
+    },
+    {
+      "id": "dot-matrix-8x8",
+      "tagName": "velxio-dot-matrix-8x8",
+      "name": "Dot Matrix Module 8x8",
+      "category": "displays",
+      "description": "8 by 8 LED dot matrix module for display experiments.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" rx=\"6\" fill=\"#151515\"/><text x=\"32\" y=\"35\" text-anchor=\"middle\" font-family=\"Arial\" font-size=\"9\" font-weight=\"bold\" fill=\"#fff\">8x8 MATRIX</text></svg>",
+      "properties": [],
+      "defaultValues": {},
+      "pinCount": 16,
+      "tags": [
+        "dot matrix",
+        "8x8",
+        "display",
+        "led matrix"
+      ]
+    },
+    {
+      "id": "microphone-module",
+      "tagName": "velxio-microphone-module",
+      "name": "Microphone Module",
+      "category": "sensors",
+      "description": "KY-038 style microphone sound sensor with analog and digital outputs.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" rx=\"6\" fill=\"#174b9a\"/><text x=\"32\" y=\"35\" text-anchor=\"middle\" font-family=\"Arial\" font-size=\"9\" font-weight=\"bold\" fill=\"#fff\">MIC</text></svg>",
+      "properties": [
+        {
+          "name": "soundLevel",
+          "type": "number",
+          "defaultValue": 512,
+          "control": "range"
+        }
+      ],
+      "defaultValues": {
+        "soundLevel": 512
+      },
+      "pinCount": 4,
+      "tags": [
+        "microphone",
+        "sound",
+        "sensor"
+      ]
+    },
+    {
+      "id": "obstacle-avoidance-module",
+      "tagName": "velxio-obstacle-avoidance",
+      "name": "Obstacle Avoidance Module",
+      "category": "sensors",
+      "description": "IR obstacle avoidance module with digital OUT signal controlled by distance.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" rx=\"6\" fill=\"#1e8f3a\"/><text x=\"32\" y=\"35\" text-anchor=\"middle\" font-family=\"Arial\" font-size=\"9\" font-weight=\"bold\" fill=\"#fff\">OBSTACLE</text></svg>",
+      "properties": [
+        {
+          "name": "distance",
+          "type": "number",
+          "defaultValue": 100,
+          "control": "range"
+        }
+      ],
+      "defaultValues": {
+        "distance": 100
+      },
+      "pinCount": 4,
+      "tags": [
+        "obstacle",
+        "avoidance",
+        "infrared",
+        "sensor"
+      ]
+    },
+    {
+      "id": "relay-1ch",
+      "tagName": "velxio-single-relay-module",
+      "name": "5V 1-Channel Relay Module",
+      "category": "electromech",
+      "description": "Single-channel 5V relay module with IN, VCC, GND and screw terminals.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" rx=\"6\" fill=\"#1467b0\"/><text x=\"32\" y=\"35\" text-anchor=\"middle\" font-family=\"Arial\" font-size=\"9\" font-weight=\"bold\" fill=\"#fff\">1CH RELAY</text></svg>",
+      "properties": [],
+      "defaultValues": {
+        "relay": false
+      },
+      "pinCount": 6,
+      "tags": [
+        "relay",
+        "5v",
+        "1 channel",
+        "module"
+      ]
+    },
+    {
+      "id": "relay-2ch",
+      "tagName": "velxio-dual-relay-module",
+      "name": "5V Dual-Channel Relay Module",
+      "category": "electromech",
+      "description": "Dual-channel 5V relay module with IN1 and IN2 controls.",
+      "thumbnail": "<svg width=\"64\" height=\"64\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"64\" height=\"64\" rx=\"6\" fill=\"#1467b0\"/><text x=\"32\" y=\"35\" text-anchor=\"middle\" font-family=\"Arial\" font-size=\"9\" font-weight=\"bold\" fill=\"#fff\">2CH RELAY</text></svg>",
+      "properties": [],
+      "defaultValues": {
+        "relay1": false,
+        "relay2": false
+      },
+      "pinCount": 10,
+      "tags": [
+        "relay",
+        "5v",
+        "2 channel",
+        "dual",
+        "module"
       ]
     }
   ]

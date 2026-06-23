@@ -34,8 +34,12 @@ function loadModules() {
     import("@/components/velxio/components/velxio-components/Bmp280Element"),
     import("@/components/velxio/components/velxio-components/EPaperElement"),
     import("@/components/velxio/components/velxio-components/BreadboardElements"),
+    import("@/components/velxio/components/velxio-components/KitElements"),
   ]).then(([_, editorMod, simMod, projectMod, compileLogsMod, oscilloscopeMod, electricalMod, vfsMod, pageMod]) => {
-    const EditorPage = (pageMod as any).EditorPage as FC<{ readOnly?: boolean }>;
+    const EditorPage = (pageMod as any).EditorPage as FC<{
+      readOnly?: boolean;
+      shareMode?: boolean;
+    }>;
     const editorStore = (editorMod as any).useEditorStore;
     const simStore = (simMod as any).useSimulatorStore;
     const projectStore = (projectMod as any).useProjectStore;
@@ -137,11 +141,15 @@ function injectState(
 
 export function VelxioSnapshotViewer({
   snapshot,
+  interactive = false,
+  shareMode = false,
 }: {
   snapshot: EditorSnapshotState;
+  interactive?: boolean;
+  shareMode?: boolean;
 }) {
   const [ready, setReady] = useState(false);
-  const editorPageRef = useRef<FC<{ readOnly?: boolean }> | null>(null);
+  const editorPageRef = useRef<FC<{ readOnly?: boolean; shareMode?: boolean }> | null>(null);
   const storesRef = useRef<any>(null);
 
   useEffect(() => {
@@ -166,15 +174,17 @@ export function VelxioSnapshotViewer({
 
   return (
     <div className="relative h-full">
-      <div
-        className="absolute inset-0 z-50"
-        style={{ pointerEvents: "all" }}
-        onMouseDown={(e) => e.stopPropagation()}
-        onMouseUp={(e) => e.stopPropagation()}
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-      />
-      <EP readOnly />
+      {!interactive ? (
+        <div
+          className="absolute inset-0 z-50"
+          style={{ pointerEvents: "all" }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseUp={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+        />
+      ) : null}
+      <EP readOnly shareMode={shareMode} />
     </div>
   );
 }

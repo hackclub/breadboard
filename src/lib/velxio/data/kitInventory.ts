@@ -6,14 +6,20 @@ export type KitType = "arduino" | "esp32";
 
 export const KIT_A_COMPONENT_LIMITS: Record<string, number> = {
   "breadboard-full": 1,
-  led: 15,
+  "led-yellow": 5,
+  "led-red": 5,
+  "led-blue": 5,
+  "ir-transmitter": 1,
   "resistor-220": 8,
   "resistor-1k": 5,
   "resistor-10k": 6,
   "ir-receiver": 1,
   "ir-remote": 1,
   "vibration-switch": 2,
-  buzzer: 2,
+  thermistor: 3,
+  "buzzer-passive": 1,
+  "buzzer-active": 1,
+  "74hc595": 1,
   lm35dz: 1,
   pushbutton: 4,
   potentiometer: 1,
@@ -27,9 +33,11 @@ export const KIT_A_COMPONENT_LIMITS: Record<string, number> = {
   "7segment": 1,
   "7segment-4digit": 1,
   "analog-joystick": 1,
-  relay: 1,
+  "relay-1ch": 1,
+  "microphone-module": 1,
   servo: 1,
   "stepper-motor": 1,
+  "dot-matrix-8x8": 1,
   ds1302: 1,
 };
 
@@ -41,11 +49,15 @@ export const KIT_B_COMPONENT_LIMITS: Record<string, number> = {
   "pir-motion-sensor": 1,
   potentiometer: 1,
   resistor: 30,
-  buzzer: 2,
-  relay: 1,
+  "buzzer-passive": 1,
+  "buzzer-active": 1,
+  "relay-2ch": 1,
   pushbutton: 6,
-  led: 15,
+  "led-red": 5,
+  "led-yellow": 5,
+  "led-green": 5,
   "rgb-led": 2,
+  "obstacle-avoidance-module": 1,
 };
 
 export const KIT_COMPONENT_LIMITS: Record<KitType, Record<string, number>> = {
@@ -69,22 +81,28 @@ export const ALL_KIT_BOARD_LIMITS: Partial<Record<BoardKind, number>> = {
 };
 
 export const MISSING_KIT_A_PARTS = [
-  "Infrared transmitter",
-  "Thermistor",
-  "5V buzzer distinct from passive buzzer",
-  "74HC595N metadata entry",
   "Tact switch 12x12 distinct from generic pushbutton",
   "Remote control supporting LED module",
-  "Dot matrix module 8x8",
-  "Microphone module",
   "Dupont/battery/USB/bread pan wires as placeable parts",
 ];
 
 export const MISSING_KIT_B_PARTS = [
-  "Obstacle avoidance module",
-  "Active buzzer distinct from passive buzzer",
   "DuPont cables as placeable parts",
 ];
+
+const KIT_DEFAULT_PROPERTIES: Record<string, Record<string, unknown>> = {
+  "led-red": { color: "red" },
+  "led-yellow": { color: "yellow" },
+  "led-blue": { color: "blue" },
+  "led-green": { color: "green" },
+  thermistor: { temperature: 25 },
+  lm35dz: { temperature: 25 },
+  dht11: { temperature: 25, humidity: 50 },
+  "water-level-sensor": { level: 0 },
+  "microphone-module": { soundLevel: 512 },
+  "obstacle-avoidance-module": { distance: 100 },
+  "74hc595": { values: [0, 0, 0, 0, 0, 0, 0, 0] },
+};
 
 export function normalizeKitType(kitType?: string | null): KitType {
   return kitType === "esp32" ? "esp32" : "arduino";
@@ -153,7 +171,7 @@ function createKitComponent(metadataId: string, index: number, x: number, y: num
     metadataId,
     x,
     y,
-    properties: {},
+    properties: { ...(KIT_DEFAULT_PROPERTIES[metadataId] ?? {}) },
   };
 }
 
@@ -166,9 +184,14 @@ export function createInitialKitPayload(kitType?: string | null) {
 
   for (const [metadataId, quantity] of Object.entries(KIT_COMPONENT_LIMITS[kit])) {
     for (let i = 0; i < quantity; i += 1) {
+      if (metadataId === "breadboard-full") {
+        components.push(createKitComponent(metadataId, i + 1, 520, 80));
+        continue;
+      }
+
       const col = slot % 8;
       const row = Math.floor(slot / 8);
-      components.push(createKitComponent(metadataId, i + 1, 80 + col * 170, 360 + row * 150));
+      components.push(createKitComponent(metadataId, i + 1, 80 + col * 170, 620 + row * 150));
       slot += 1;
     }
   }

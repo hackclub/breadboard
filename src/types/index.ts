@@ -54,6 +54,11 @@ export type ShipInput = {
   lastName: string;
 };
 
+export type DemoInput = {
+  playableUrl: string;
+  demoVideoUrl: string;
+};
+
 export type ProjectFormState = {
   success: boolean;
   message?: string;

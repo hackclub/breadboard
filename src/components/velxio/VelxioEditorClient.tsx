@@ -32,9 +32,7 @@ const NON_TRACKING_PROJECT_STATUSES = new Set([
 
 loader.config({ paths: { vs: "/monaco/vs" } });
 
-import {
-  captureEditorState,
-} from "@/lib/editor/captureState";
+import { captureEditorState } from "@/lib/editor/captureState";
 
 type EditorProjectMeta = {
   id: number;
@@ -70,7 +68,7 @@ async function loadVelxioModules(
   onLabel?: (label: string, done: boolean) => void,
 ): Promise<VelxioModules> {
   let done = 0;
-  const total = 27;
+  const total = 28;
   const step = (label: string) => {
     onProgress?.(Math.round((++done / total) * 100));
     onLabel?.(label, true);
@@ -78,43 +76,104 @@ async function loadVelxioModules(
   const loading = (label: string) => onLabel?.(label, false);
 
   loading("i18n");
-  await import("@/lib/velxio/i18n"); step("i18n");
+  await import("@/lib/velxio/i18n");
+  step("i18n");
   loading("Custom elements");
-  await import("@/components/velxio/components/velxio-components/IC74HC595"); step("74HC595");
-  await import("@/components/velxio/components/velxio-components/LogicGateElements"); step("Logic gates");
-  await import("@/components/velxio/components/velxio-components/TransistorElements"); step("Transistors");
-  await import("@/components/velxio/components/velxio-components/OpAmpElements"); step("Op-amps");
-  await import("@/components/velxio/components/velxio-components/PowerElements"); step("Power");
-  await import("@/components/velxio/components/velxio-components/DiodeElements"); step("Diodes");
-  await import("@/components/velxio/components/velxio-components/RelayElements"); step("Relays");
-  await import("@/components/velxio/components/velxio-components/LogicICElements"); step("Logic ICs");
-  await import("@/components/velxio/components/velxio-components/MotorDriverElements"); step("Motor drivers");
-  await import("@/components/velxio/components/velxio-components/FlipFlopElements"); step("Flip-flops");
-  await import("@/components/velxio/components/velxio-components/RaspberryPi3Element"); step("Raspberry Pi");
-  await import("@/components/velxio/components/velxio-components/Bmp280Element"); step("BMP280");
-  await import("@/components/velxio/components/velxio-components/EPaperElement"); step("e-Paper");
-  await import("@/components/velxio/components/velxio-components/BreadboardElements"); step("Breadboard");
+  await import("@/components/velxio/components/velxio-components/IC74HC595");
+  step("74HC595");
+  await import(
+    "@/components/velxio/components/velxio-components/LogicGateElements"
+  );
+  step("Logic gates");
+  await import(
+    "@/components/velxio/components/velxio-components/TransistorElements"
+  );
+  step("Transistors");
+  await import(
+    "@/components/velxio/components/velxio-components/OpAmpElements"
+  );
+  step("Op-amps");
+  await import(
+    "@/components/velxio/components/velxio-components/PowerElements"
+  );
+  step("Power");
+  await import(
+    "@/components/velxio/components/velxio-components/DiodeElements"
+  );
+  step("Diodes");
+  await import(
+    "@/components/velxio/components/velxio-components/RelayElements"
+  );
+  step("Relays");
+  await import(
+    "@/components/velxio/components/velxio-components/LogicICElements"
+  );
+  step("Logic ICs");
+  await import(
+    "@/components/velxio/components/velxio-components/MotorDriverElements"
+  );
+  step("Motor drivers");
+  await import(
+    "@/components/velxio/components/velxio-components/FlipFlopElements"
+  );
+  step("Flip-flops");
+  await import(
+    "@/components/velxio/components/velxio-components/RaspberryPi3Element"
+  );
+  step("Raspberry Pi");
+  await import(
+    "@/components/velxio/components/velxio-components/Bmp280Element"
+  );
+  step("BMP280");
+  await import(
+    "@/components/velxio/components/velxio-components/EPaperElement"
+  );
+  step("e-Paper");
+  await import(
+    "@/components/velxio/components/velxio-components/BreadboardElements"
+  );
+  step("Breadboard");
+  await import("@/components/velxio/components/velxio-components/KitElements");
+  step("Kit parts");
 
   loading("Editor page");
-  const page = await import("@/components/velxio/pages/EditorPage"); step("Editor page");
+  const page = await import("@/components/velxio/pages/EditorPage");
+  step("Editor page");
   loading("Autosave");
-  const autosave = await import("@/services/velxio/hooks/useAutoSaveProject"); step("Autosave");
+  const autosave = await import("@/services/velxio/hooks/useAutoSaveProject");
+  step("Autosave");
   loading("Project store");
-  const projectStore = await import("@/services/velxio/store/useProjectStore"); step("Project store");
+  const projectStore = await import("@/services/velxio/store/useProjectStore");
+  step("Project store");
   loading("Simulator store");
-  const simulatorStore = await import("@/services/velxio/store/useSimulatorStore"); step("Simulator store");
+  const simulatorStore = await import(
+    "@/services/velxio/store/useSimulatorStore"
+  );
+  step("Simulator store");
   loading("Editor store");
-  const editorStore = await import("@/services/velxio/store/useEditorStore"); step("Editor store");
+  const editorStore = await import("@/services/velxio/store/useEditorStore");
+  step("Editor store");
   loading("Compile log store");
-  const compileLogsStore = await import("@/services/velxio/store/useCompileLogsStore"); step("Compile log store");
+  const compileLogsStore = await import(
+    "@/services/velxio/store/useCompileLogsStore"
+  );
+  step("Compile log store");
   loading("Oscilloscope store");
-  const oscilloscopeStore = await import("@/services/velxio/store/useOscilloscopeStore"); step("Oscilloscope store");
+  const oscilloscopeStore = await import(
+    "@/services/velxio/store/useOscilloscopeStore"
+  );
+  step("Oscilloscope store");
   loading("Electrical store");
-  const electricalStore = await import("@/services/velxio/store/useElectricalStore"); step("Electrical store");
+  const electricalStore = await import(
+    "@/services/velxio/store/useElectricalStore"
+  );
+  step("Electrical store");
   loading("VFS store");
-  const vfsStore = await import("@/services/velxio/store/useVfsStore"); step("VFS store");
+  const vfsStore = await import("@/services/velxio/store/useVfsStore");
+  step("VFS store");
   loading("VLX file utils");
-  const vlx = await import("@/lib/velxio/utils/vlxFile"); step("VLX file utils");
+  const vlx = await import("@/lib/velxio/utils/vlxFile");
+  step("VLX file utils");
 
   return {
     EditorPage: page.EditorPage,
@@ -141,15 +200,14 @@ function installBreadboardAutosave(
     let rebaselineAfter = false;
     let stopped = false;
 
-    const report = (state: { status: string; lastSavedAt: number | null; errorMessage: string | null }) => {
+    const report = (state: {
+      status: string;
+      lastSavedAt: number | null;
+      errorMessage: string | null;
+    }) => {
       emit(state);
       emitEditorSaveState({
-        status: state.status as
-          | "idle"
-          | "dirty"
-          | "saving"
-          | "saved"
-          | "error",
+        status: state.status as "idle" | "dirty" | "saving" | "saved" | "error",
         lastSavedAt: state.lastSavedAt,
         errorMessage: state.errorMessage,
       });
@@ -174,8 +232,7 @@ function installBreadboardAutosave(
           credentials: "include",
           body: JSON.stringify({ editorData, reason }),
         });
-        if (!res.ok)
-          throw new Error((await res.json()).error ?? "Save failed");
+        if (!res.ok) throw new Error((await res.json()).error ?? "Save failed");
         lastSerialized = serialized;
         rebaselineAfter = false;
         report({
@@ -243,7 +300,9 @@ export function VelxioNextEditor({
   const [progress, setProgress] = useState(0);
   const [loadedLabels, setLoadedLabels] = useState<string[]>([]);
   const [currentLabel, setCurrentLabel] = useState("");
-  const [EditorPage, setEditorPage] = useState<React.ComponentType<{ readOnly?: boolean }> | null>(null);
+  const [EditorPage, setEditorPage] = useState<React.ComponentType<{
+    readOnly?: boolean;
+  }> | null>(null);
   const [readOnly, setReadOnly] = useState(true);
   const logRef = useRef<HTMLDivElement>(null);
   const versionQuery = useMemo(
@@ -262,17 +321,16 @@ export function VelxioNextEditor({
 
     async function load() {
       try {
-        const modules = await loadVelxioModules(
-          setProgress,
-          (label, done) => {
-            if (done) {
-              setLoadedLabels((prev) => [...prev, label]);
-              setCurrentLabel("");
-            } else {
-              setCurrentLabel(label);
-            }
-          },
-        );
+        const modules = await loadVelxioModules(setProgress, (label, done) => {
+          if (done) {
+            setLoadedLabels((prev) =>
+              prev.includes(label) ? prev : [...prev, label],
+            );
+            setCurrentLabel("");
+          } else {
+            setCurrentLabel(label);
+          }
+        });
         const res = await fetch(
           `/api/editor/projects/${projectId}${versionQuery}`,
           {
@@ -290,15 +348,18 @@ export function VelxioNextEditor({
           isPublic: false,
           visibility: "private",
           editable: data.project.editable,
-          readOnly: serverReadOnly || !data.project.editable || data.version !== null,
+          readOnly:
+            serverReadOnly || !data.project.editable || data.version !== null,
           platformStatus: data.project.status,
           platformVersion: data.version,
           platformProjectId: data.project.id,
         });
-        const locked = serverReadOnly || !data.project.editable || data.version !== null;
+        const locked =
+          serverReadOnly || !data.project.editable || data.version !== null;
         setReadOnly(locked);
 
-        const editorData = data.editorData ?? createInitialKitPayload(data.project.kitType);
+        const editorData =
+          data.editorData ?? createInitialKitPayload(data.project.kitType);
         if (editorData) {
           modules.useSimulatorStore.getState().loadProjectState({
             boards: editorData.boards,
@@ -310,11 +371,7 @@ export function VelxioNextEditor({
           });
         }
 
-        installBreadboardAutosave(
-          projectId,
-          !locked,
-          modules,
-        );
+        installBreadboardAutosave(projectId, !locked, modules);
 
         const trackTime =
           !locked && !NON_TRACKING_PROJECT_STATUSES.has(data.project.status);
@@ -391,10 +448,16 @@ export function VelxioNextEditor({
             />
           </div>
         </div>
-        <div ref={logRef} className="h-48 w-80 overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-[#333]">
+        <div
+          ref={logRef}
+          className="h-48 w-80 overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-[#333]"
+        >
           <div className="space-y-0.5 text-xs">
-            {loadedLabels.map((label) => (
-              <div key={label} className="flex items-center gap-2 text-[#666]">
+            {loadedLabels.map((label, index) => (
+              <div
+                key={`${label}-${index}`}
+                className="flex items-center gap-2 text-[#666]"
+              >
                 <span className="text-green-500">✓</span>
                 {label}
               </div>

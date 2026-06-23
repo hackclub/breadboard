@@ -23,7 +23,7 @@ const initialProjectFormState: ProjectFormState = { success: false };
 
 const shipFields = [
   ["email", "Email"],
-  ["codeUrl", "Code / README URL"],
+  ["codeUrl", "Published GitHub repo / README URL"],
   ["firstName", "First Name"],
   ["lastName", "Last Name"],
   ["birthday", "Birthday"],
@@ -406,7 +406,8 @@ export function ShipProjectModal({
           value={project.screenshotUrl}
         />
         <div className="rounded-xl border border-black bg-[#f4f4f4] p-3 text-sm font-black text-black md:col-span-2 xl:col-span-3">
-          {project.hoursSpent}h tracked
+          {project.hoursSpent}h tracked. Use Publish in the editor to create a
+          GitHub repo with your README, schematic snapshot, BOM, and firmware.
         </div>
         {shipFields.map(([key, label]) => (
           <FormField

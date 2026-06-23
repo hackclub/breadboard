@@ -11,8 +11,10 @@ import { createProjectDemoVideoUpload } from "@/actions/uploads";
 import {
   canEditProjectCard,
   canShipProjectCard,
+  projectFlowSteps,
   projectStatusCopy,
   projectStatusLabel,
+  projectStepMeta,
 } from "./project-status";
 import { EditProjectModal, ShipProjectModal } from "./project-modals";
 import { ProjectPreview } from "./project-preview";
@@ -43,6 +45,7 @@ export function ProjectCard({
   );
   const editable = canEditProjectCard(project.status);
   const shippable = canShipProjectCard(project.status);
+  const stepMeta = projectStepMeta(project.status);
   const statusTone =
     project.status === "materials_review" ||
     project.status === "demo_review" ||
@@ -103,6 +106,33 @@ export function ProjectCard({
           </div>
           <span className="rounded-full border border-black bg-[#f4f4f4] px-2.5 py-1 text-xs font-black text-black shadow-[1px_1px_0_#000]">
             {project.hoursSpent}h
+          </span>
+        </div>
+
+        <div className="mt-3 flex items-center gap-1">
+          {projectFlowSteps.map((label, index) => (
+            <div key={label} className="flex items-center gap-1">
+              <div
+                className={`size-2 rounded-full ${
+                  index + 1 === stepMeta.step
+                    ? "bg-[#BD0F32]"
+                    : index + 1 < stepMeta.step
+                      ? "bg-black"
+                      : "bg-black/15"
+                }`}
+                title={label}
+              />
+              {index < projectFlowSteps.length - 1 && (
+                <div
+                  className={`h-[2px] w-2 ${
+                    index + 1 < stepMeta.step ? "bg-black" : "bg-black/15"
+                  }`}
+                />
+              )}
+            </div>
+          ))}
+          <span className="ml-2 text-[10px] font-black text-black/40">
+            Step {stepMeta.step} of {projectFlowSteps.length}
           </span>
         </div>
 

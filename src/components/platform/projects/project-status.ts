@@ -1,24 +1,26 @@
 export function projectStatusCopy(status: string) {
   if (status === "draft")
-    return "Keep building. Submit your design when your schematic, code, README, journals, and time are ready.";
+    return "Step 1 of 8 — Build your schematic, write code, and journal. Submit your design when ready.";
   if (status === "materials_review")
-    return "Submitted and under review. A reviewer is checking your schematic, code, README, timelapse, time, and journals.";
+    return "Step 3 of 8 — A reviewer is checking your design. You'll hear back soon.";
   if (status === "kit_fulfillment")
-    return "Approved. Your kit is in fulfillment and time no longer counts.";
+    return "Step 4 of 8 — Your kit is being prepared and shipped. Track it in fulfillment.";
   if (status === "kit_sent")
-    return "Kit sent. Confirm receipt, build it, then submit a working demo video.";
+    return "Step 4 of 8 — Kit is on the way. Confirm receipt, then build the physical project.";
   if (status === "building")
-    return "Build the kit, then submit a working demo video.";
-  if (status === "demo_review") return "Demo submitted for final review.";
-  if (status === "done") return "Done. Currency awarded and ready for Unified.";
+    return "Step 5 of 8 — Build your kit. Take photos and video of it working, then submit your demo.";
+  if (status === "demo_review")
+    return "Step 7 of 8 — Demo submitted for final review. Almost done!";
+  if (status === "done")
+    return "Step 8 of 8 — Done. Currency awarded. Spend it in the shop!";
   if (status === "shipped")
     return "Snapshot in review. Keep editing, ship again after a decision.";
   if (status === "needs_changes")
-    return "Revise the live project, then ship a new snapshot.";
+    return "Step 2 of 8 — Reviewer requested changes. Fix your design and submit again.";
   if (status === "reviewed")
     return "Approved. Keep building and ship more hours anytime.";
   if (status === "paid_out")
-    return "Bread sent. Ship again when you add new work.";
+    return "Step 8 of 8 — Currency awarded. Spend it in the shop!";
   if (status === "fulfilled")
     return "Kit sent. Future progress can still be shipped.";
   if (status === "approved")
@@ -29,38 +31,40 @@ export function projectStatusCopy(status: string) {
 }
 
 export const projectFlowSteps = [
-  "Build",
+  "Make project",
+  "Submit design",
   "Design review",
-  "Kit fulfillment",
+  "Kit sent",
   "Build kit",
+  "Submit demo",
   "Demo review",
-  "Done",
+  "Get currency",
 ] as const;
 
 export function projectStepMeta(status: string) {
   if (status === "materials_review" || status === "shipped") {
     return {
-      step: 2,
-      headline: "Under review",
+      step: 3,
+      headline: "Design review",
       detail:
-        "Reviewers are checking the schematic, code, README, journals, timelapse, and time.",
+        "A reviewer is checking your schematic, code, README, and journals.",
       tone: "red" as const,
     };
   }
   if (status === "needs_changes" || status === "rejected") {
     return {
-      step: 1,
+      step: 2,
       headline: "Changes requested",
       detail:
-        "Update the project based on the review note, then submit your design again.",
+        "Update your project based on the review note, then submit again.",
       tone: "yellow" as const,
     };
   }
   if (status === "kit_fulfillment" || status === "kit_approved") {
     return {
-      step: 3,
-      headline: "Kit in fulfillment",
-      detail: "Your project was approved. The kit is being prepared.",
+      step: 4,
+      headline: "Kit sent",
+      detail: "Your design was approved. The kit is being shipped to you.",
       tone: "green" as const,
     };
   }
@@ -68,38 +72,39 @@ export function projectStepMeta(status: string) {
     return {
       step: 4,
       headline: "Kit sent",
-      detail: "Shipment is on the way.",
+      detail: "Your kit is on the way. Confirm receipt when it arrives.",
       tone: "green" as const,
     };
   }
   if (status === "building") {
     return {
-      step: 4,
-      headline: "Building kit",
-      detail: "Build the physical project. Extra editor time is not tracked.",
+      step: 5,
+      headline: "Build your kit",
+      detail:
+        "Build the physical project, take photos and video of it working.",
       tone: "ink" as const,
     };
   }
   if (status === "demo_review") {
     return {
-      step: 5,
-      headline: "Demo under review",
-      detail: "Your working demo video is submitted for final review.",
+      step: 7,
+      headline: "Demo review",
+      detail: "A reviewer is checking your final demo video and build journal.",
       tone: "red" as const,
     };
   }
   if (status === "done" || status === "paid_out") {
     return {
-      step: 6,
-      headline: "Done",
-      detail: "Final demo approved. Currency awarded and ready for Unified.",
+      step: 8,
+      headline: "Done — currency awarded",
+      detail: "Currency awarded. Spend it in the shop!",
       tone: "green" as const,
     };
   }
   return {
     step: 1,
-    headline: "Building",
-    detail: "Keep working and journaling.",
+    headline: "Make your project",
+    detail: "Build your schematic, write code, and journal your progress.",
     tone: "muted" as const,
   };
 }

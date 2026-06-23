@@ -99,16 +99,25 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  # ── Deploy (sends webhook to Orchard if URL configured) ─────────
+  # ── Deploy (triggers Orchard webhooks for both services) ────────
   deploy:
     runs-on: ubuntu-22.04
     needs: [editor-backend, nextjs]
-    if: vars.ORCHARD_DEPLOY_WEBHOOK != ''
+    if: vars.ORCHARD_WEBHOOK_NEXTJS != '' || vars.ORCHARD_WEBHOOK_BACKEND != ''
     environment: production
     steps:
-      - name: Trigger Orchard redeploy
+      - name: Trigger Next.js Orchard deploy
+        if: vars.ORCHARD_WEBHOOK_NEXTJS != ''
         run: |
-          curl -sS -X POST "${{ vars.ORCHARD_DEPLOY_WEBHOOK }}" \
+          curl -sS -X POST "${{ vars.ORCHARD_WEBHOOK_NEXTJS }}" \
             -H "Content-Type: application/json" \
-            -d '{"ref":"${{ github.sha }}","repository":"${{ github.repository }}"}'
-          echo "Orchard webhook dispatched"
+            -d '{"tag":"${{ github.sha }}"}'
+          echo "Next.js webhook dispatched"
+
+      - name: Trigger editor-backend Orchard deploy
+        if: vars.ORCHARD_WEBHOOK_BACKEND != ''
+        run: |
+          curl -sS -X POST "${{ vars.ORCHARD_WEBHOOK_BACKEND }}" \
+            -H "Content-Type: application/json" \
+            -d '{"tag":"${{ github.sha }}"}'
+          echo "Editor backend webhook dispatched"

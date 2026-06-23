@@ -10,6 +10,8 @@ import { Steps } from "@/components/marketing/steps";
 import { db } from "@/lib/db/db";
 import { projectSubmissions, projects, user } from "@/lib/db/schema";
 
+export const dynamic = "force-dynamic";
+
 type GalleryProject = {
   projectId: number;
   title: string;

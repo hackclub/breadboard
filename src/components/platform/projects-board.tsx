@@ -30,9 +30,9 @@ export function ProjectsBoard({ projects }: { projects: Project[] }) {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Workshop"
+        eyebrow="projects"
         title="Your projects"
-        description="Build, journal, ship, and review everything from one project-bound workspace."
+        description="Make project -> Submit schematic and code (a reviewer checks here) -> Kit sent out -> make -> send demo -> (demo reviewed here)-> Get currency"
         action={
           <Button
             tone="primary"

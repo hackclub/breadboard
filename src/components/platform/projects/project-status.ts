@@ -124,6 +124,18 @@ export function canEditProjectCard(status: string) {
   return Boolean(status);
 }
 
+export function isAfterKitApproved(status: string) {
+  return [
+    "kit_fulfillment",
+    "kit_sent",
+    "building",
+    "demo_review",
+    "done",
+    "paid_out",
+    "fulfilled",
+  ].includes(status);
+}
+
 export function canShipProjectCard(status: string) {
   return [
     "draft",

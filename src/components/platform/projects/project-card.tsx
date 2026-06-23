@@ -11,6 +11,7 @@ import { createProjectDemoVideoUpload } from "@/actions/uploads";
 import {
   canEditProjectCard,
   canShipProjectCard,
+  isAfterKitApproved,
   projectFlowSteps,
   projectStatusCopy,
   projectStatusLabel,
@@ -162,9 +163,15 @@ export function ProjectCard({
           {editable ? (
             <Link
               href={`/editor/${project.id}`}
-              className={buttonClass({ tone: "ink" })}
+              className={
+                isAfterKitApproved(project.status)
+                  ? "text-center text-[11px] font-semibold text-black/40 underline transition hover:text-black/60"
+                  : buttonClass({ tone: "ink" })
+              }
             >
-              Open editor
+              {isAfterKitApproved(project.status)
+                ? "View project"
+                : "Open editor"}
             </Link>
           ) : null}
           {editable ? (

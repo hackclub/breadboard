@@ -10,8 +10,6 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_OUTPUT_STANDALONE=1
 ENV DATABASE_URL=postgresql://build:build@localhost:5432/build
-ENV DATABASE_SSL=false
-ENV BETTER_AUTH_SECRET=build-secret-not-used
 RUN bun run build
 
 # ---- Stage 2: Runtime ----
@@ -29,7 +27,7 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/drizzle ./drizzle
 COPY --from=builder /app/scripts ./scripts
 
-RUN chmod +x scripts/docker-entrypoint.sh scripts/run-migrations.mjs \
+RUN chmod +x scripts/docker-entrypoint.sh \
  && chown -R nextjs:nodejs /app
 
 USER nextjs

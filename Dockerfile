@@ -9,6 +9,9 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NEXT_OUTPUT_STANDALONE=1
+ENV DATABASE_URL=postgresql://build:build@localhost:5432/build
+ENV DATABASE_SSL=false
+ENV BETTER_AUTH_SECRET=build-secret-not-used
 RUN bun run build
 
 # ---- Stage 2: Runtime ----

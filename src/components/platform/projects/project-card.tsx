@@ -146,7 +146,7 @@ export function ProjectCard({
             <Button tone="primary" onClick={() => setShipOpen(true)}>
               {project.status === "needs_changes"
                 ? "Submit again"
-                : "Submit materials"}
+                : "Submit design"}
             </Button>
           ) : project.status === "kit_sent" ? (
             <form action={confirmKitReceivedFromForm}>

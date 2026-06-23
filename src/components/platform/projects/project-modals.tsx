@@ -351,7 +351,7 @@ export function ShipProjectModal({
       <Modal
         open
         onClose={onClose}
-        eyebrow="Submit materials"
+        eyebrow="Submit design"
         title={project.title}
         maxWidth="lg"
         tone="red"
@@ -381,7 +381,7 @@ export function ShipProjectModal({
     <Modal
       open
       onClose={onClose}
-      eyebrow="Submit materials"
+      eyebrow="Submit design"
       title={project.title}
       maxWidth="2xl"
       footer={
@@ -389,7 +389,7 @@ export function ShipProjectModal({
           formId={formId}
           pending={pending}
           pendingLabel="Submitting"
-          submitLabel="Submit materials for review"
+          submitLabel="Submit design for review"
           onClose={onClose}
         />
       }

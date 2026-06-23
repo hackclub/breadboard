@@ -1,6 +1,6 @@
 export function projectStatusCopy(status: string) {
   if (status === "draft")
-    return "Keep building. Submit materials when your schematic, code, README, journals, and time are ready.";
+    return "Keep building. Submit your design when your schematic, code, README, journals, and time are ready.";
   if (status === "materials_review")
     return "Submitted and under review. A reviewer is checking your schematic, code, README, timelapse, time, and journals.";
   if (status === "kit_fulfillment")
@@ -30,7 +30,7 @@ export function projectStatusCopy(status: string) {
 
 export const projectFlowSteps = [
   "Build",
-  "Materials review",
+  "Design review",
   "Kit fulfillment",
   "Build kit",
   "Demo review",
@@ -43,7 +43,7 @@ export function projectStepMeta(status: string) {
       step: 2,
       headline: "Under review",
       detail:
-        "Reviewers are checking materials, journals, timelapse, and time.",
+        "Reviewers are checking the schematic, code, README, journals, timelapse, and time.",
       tone: "red" as const,
     };
   }
@@ -52,7 +52,7 @@ export function projectStepMeta(status: string) {
       step: 1,
       headline: "Changes requested",
       detail:
-        "Update the project based on the review note, then submit materials again.",
+        "Update the project based on the review note, then submit your design again.",
       tone: "yellow" as const,
     };
   }
@@ -106,7 +106,7 @@ export function projectStepMeta(status: string) {
 
 export function projectStatusLabel(status: string) {
   if (status === "needs_changes") return "Needs changes";
-  if (status === "materials_review") return "Materials review";
+  if (status === "materials_review") return "Design review";
   if (status === "kit_fulfillment") return "Kit fulfillment";
   if (status === "kit_sent") return "Kit sent";
   if (status === "demo_review") return "Demo review";

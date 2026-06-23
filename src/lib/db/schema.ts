@@ -620,6 +620,8 @@ export const projects = pgTable(
     demoSubmittedAt: timestamp("demo_submitted_at", { withTimezone: true }),
     doneAt: timestamp("done_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    archived: boolean("archived").notNull().default(false),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -284,3 +284,27 @@ async function assertProjectCanShip(userId: string, projectId: number) {
     );
   }
 }
+
+export async function archiveProjectForUser(
+  owner: { userId: string; email: string | null | undefined },
+  projectId: number,
+) {
+  return await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ id: projects.id, userId: projects.userId })
+      .from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.userId, owner.userId)))
+      .limit(1);
+
+    if (!existing) throw new Error("Project not found.");
+
+    await tx
+      .update(projects)
+      .set({
+        archived: true,
+        archivedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(projects.id, projectId));
+  });
+}

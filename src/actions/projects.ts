@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth/guards";
 import {
+  archiveProjectForUser,
   confirmKitReceivedForUser,
   createProjectForUser,
   shipProjectForUser,
@@ -291,4 +292,15 @@ export async function submitDemoFromForm(
   } catch (error) {
     return projectFormError(error);
   }
+}
+
+export async function archiveProjectFromForm(formData: FormData) {
+  const projectId = Number(formData.get("projectId"));
+  if (!Number.isInteger(projectId)) throw new Error("Invalid project.");
+  const session = await requireSession();
+  await archiveProjectForUser(
+    { userId: session.user.id, email: session.user.email },
+    projectId,
+  );
+  revalidatePath("/platform/projects");
 }

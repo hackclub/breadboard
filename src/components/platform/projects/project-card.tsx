@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useActionState, useEffect, useState } from "react";
 import { HiLockClosed } from "react-icons/hi2";
 import {
+  archiveProjectFromForm,
   confirmKitReceivedFromForm,
   submitDemoFromForm,
 } from "@/actions/projects";
@@ -178,6 +179,25 @@ export function ProjectCard({
             <Button tone="paper" onClick={() => setEditOpen(true)}>
               Edit details
             </Button>
+          ) : null}
+          {editable ? (
+            <form action={archiveProjectFromForm}>
+              <input type="hidden" name="projectId" value={project.id} />
+              <button
+                type="submit"
+                className="text-[11px] font-semibold text-black/30 underline transition hover:text-red-600"
+                onClick={(e) => {
+                  if (
+                    !confirm(
+                      "Archive this project? It will be hidden from active views but still exists internally. Reviews and submissions will stop.",
+                    )
+                  )
+                    e.preventDefault();
+                }}
+              >
+                Archive project
+              </button>
+            </form>
           ) : null}
           {shippable ? (
             <Button tone="primary" onClick={() => setShipOpen(true)}>

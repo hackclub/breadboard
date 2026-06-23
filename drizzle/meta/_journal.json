@@ -5,22 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1781131735756,
-      "tag": "0000_initial_schema",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1781144657061,
-      "tag": "0001_add_kit_type",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1781847950000,
-      "tag": "0002_project_submissions",
+      "when": 1782253671981,
+      "tag": "0000_shocking_iron_man",
       "breakpoints": true
     }
   ]

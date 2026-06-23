@@ -10,7 +10,6 @@ node_modules
 .venv-*
 editor-backend
 oldvelxio
-drizzle
 *.md
 !AGENTS.md
 .env

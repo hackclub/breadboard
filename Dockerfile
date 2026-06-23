@@ -23,10 +23,13 @@ RUN groupadd --system --gid 1001 nodejs \
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/drizzle ./drizzle
+COPY --from=builder /app/scripts ./scripts
 
-RUN chown -R nextjs:nodejs /app
+RUN chmod +x scripts/docker-entrypoint.sh scripts/run-migrations.js \
+ && chown -R nextjs:nodejs /app
 
 USER nextjs
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]

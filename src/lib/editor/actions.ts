@@ -1,6 +1,6 @@
 "use server";
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { canWriteEditorProject, getEditorProject } from "@/lib/editor/access";
 import { db } from "@/lib/db/db";
 import {
@@ -123,12 +123,27 @@ export async function sendHeartbeat(projectId: number) {
         lastActivityAt: now,
         activeSeconds: sql`${editorActivitySessions.activeSeconds} + ${activeSecondsAdded}`,
       })
-      .where(eq(editorActivitySessions.id, existing[0].id))
+      .where(
+        and(
+          eq(editorActivitySessions.id, existing[0].id),
+          eq(editorActivitySessions.lastActivityAt, existing[0].lastActivityAt),
+          isNull(editorActivitySessions.endedAt),
+        ),
+      )
       .returning({
         id: editorActivitySessions.id,
         activeSeconds: editorActivitySessions.activeSeconds,
         startedAt: editorActivitySessions.startedAt,
       });
+    if (!updated) {
+      return {
+        sessionId: existing[0].id,
+        activeSeconds: existing[0].activeSeconds,
+        needsJournal: unjournaledSeconds >= JOURNAL_REMINDER_SECONDS,
+        unjournaledSeconds,
+        startedAt: existing[0].startedAt,
+      };
+    }
     activeSession = updated;
   } else {
     if (existing[0] && !existing[0].endedAt) {

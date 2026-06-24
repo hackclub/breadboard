@@ -418,8 +418,15 @@ export async function submitDemoFromForm(
       demoVideoUrl: formData.get("demoVideoUrl"),
     });
     const session = await requireSession();
-    const codeUrl = String(formData.get("codeUrl") ?? "");
-    await assertDemoRepoReady(codeUrl, data.demoVideoUrl);
+    const [project] = await db
+      .select({ codeUrl: projects.codeUrl })
+      .from(projects)
+      .where(
+        and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
+      )
+      .limit(1);
+    if (!project) throw new Error("Project not found.");
+    await assertDemoRepoReady(project.codeUrl, data.demoVideoUrl);
     await submitDemoForUser(
       { userId: session.user.id, email: session.user.email },
       projectId,

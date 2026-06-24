@@ -106,6 +106,19 @@ function normalizeOrderStatus(status: unknown): OrderStatus {
   throw new Error("Invalid order status");
 }
 
+function normalizeTrackingInfo(value: string | undefined) {
+  const text = value?.trim() ?? "";
+  if (!text) return "";
+  if (text.length > 2048) throw new Error("Tracking URL is too long");
+  try {
+    const url = new URL(text);
+    if (url.protocol === "http:" || url.protocol === "https:") return text;
+  } catch {
+    // Fall through to the generic validation error.
+  }
+  throw new Error("Tracking URL must start with http:// or https://");
+}
+
 function normalizeAddress(address: ShippingAddress): ShippingAddress {
   return {
     name: requiredText(address.name, "Name"),
@@ -312,7 +325,7 @@ export async function placeOrder(
     await tx
       .update(orders)
       .set({
-        totalCost: pendingOrder.totalCost + totalCost,
+        totalCost: sql`${orders.totalCost} + ${totalCost}`,
         shippingName: shippingAddress.name,
         shippingLine1: shippingAddress.line1,
         shippingLine2: shippingAddress.line2,
@@ -339,7 +352,7 @@ export async function placeOrder(
       if (existingOrderItem[0]) {
         await tx
           .update(orderItems)
-          .set({ quantity: existingOrderItem[0].quantity + item.quantity })
+          .set({ quantity: sql`${orderItems.quantity} + ${item.quantity}` })
           .where(eq(orderItems.id, existingOrderItem[0].id));
       } else {
         await tx.insert(orderItems).values({
@@ -418,7 +431,7 @@ export async function updateOrderStatus(
           ? { acceptedAt: new Date() }
           : {}),
         ...(trackingInfo !== undefined
-          ? { trackingInfo: trackingInfo.trim() }
+          ? { trackingInfo: normalizeTrackingInfo(trackingInfo) }
           : {}),
         ...(adminNotes !== undefined ? { adminNotes: adminNotes.trim() } : {}),
         updatedAt: new Date(),
@@ -499,30 +512,54 @@ export async function cancelOrder(orderId: number) {
     throw new Error("Only pending orders can be cancelled");
 
   await db.transaction(async (tx) => {
-    await tx
+    const [cancelledOrder] = await tx
       .update(orders)
       .set({ status: "cancelled", updatedAt: new Date() })
-      .where(and(eq(orders.id, id), eq(orders.userId, session.user.id)));
+      .where(
+        and(
+          eq(orders.id, id),
+          eq(orders.userId, session.user.id),
+          eq(orders.status, "pending"),
+        ),
+      )
+      .returning({ id: orders.id, totalCost: orders.totalCost });
+    if (!cancelledOrder)
+      throw new Error("Only pending orders can be cancelled");
 
-    const balance = await tx
-      .select()
-      .from(userBread)
-      .where(eq(userBread.userId, session.user.id))
-      .limit(1);
+    const items = await tx
+      .select({
+        productId: orderItems.productId,
+        quantity: orderItems.quantity,
+      })
+      .from(orderItems)
+      .where(eq(orderItems.orderId, id));
 
-    if (balance[0]) {
+    for (const item of items) {
       await tx
-        .update(userBread)
-        .set({
-          balance: balance[0].balance + order.totalCost,
-          updatedAt: new Date(),
-        })
-        .where(eq(userBread.id, balance[0].id));
-    } else {
-      await tx
-        .insert(userBread)
-        .values({ userId: session.user.id, balance: order.totalCost });
+        .update(products)
+        .set({ stock: sql`${products.stock} + ${item.quantity}` })
+        .where(
+          and(
+            eq(products.id, item.productId),
+            sql`${products.stock} IS NOT NULL`,
+          ),
+        );
     }
+
+    await tx
+      .insert(userBread)
+      .values({
+        userId: session.user.id,
+        balance: cancelledOrder.totalCost,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: userBread.userId,
+        set: {
+          balance: sql`${userBread.balance} + ${cancelledOrder.totalCost}`,
+          updatedAt: new Date(),
+        },
+      });
   });
 
   revalidatePath("/platform/shop/orders");

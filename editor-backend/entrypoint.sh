@@ -2,15 +2,18 @@
 set -e
 
 if [ ! -f /root/.arduino15/package_index.json ]; then
-  echo "[entrypoint] initializing Arduino CLI indexes..."
-  arduino-cli core update-index
-fi
+  echo "[entrypoint] configuring arduino-cli additional URLs..."
+  arduino-cli config init
+  arduino-cli config set board_manager.additional_urls \
+    "http://drazzy.com/package_drazzy.com_index.json"
 
-if [ ! -f /root/.arduino15/package_index.json.bundled ]; then
+  echo "[entrypoint] updating core indexes..."
+  arduino-cli core update-index
+
   echo "[entrypoint] installing Arduino AVR core..."
   arduino-cli core install arduino:avr
-  echo "[entrypoint] copying package index..."
-  cp /root/.arduino15/package_index.json /root/.arduino15/package_index.json.bundled 2>/dev/null || true
+
+  echo "[entrypoint] Arduino CLI ready."
 fi
 
 echo "[entrypoint] starting editor backend on port ${PORT:-8001}"

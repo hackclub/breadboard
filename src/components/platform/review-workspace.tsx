@@ -521,7 +521,6 @@ export function ReviewWorkspace({
             ) : null}
           </div>
         </section>
-
       </aside>
     </article>
   );

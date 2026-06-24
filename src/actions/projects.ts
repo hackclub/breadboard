@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
-import { account, projects } from "@/lib/db/schema";
-import { and, eq } from "drizzle-orm";
+import { account, projectJournals, projects } from "@/lib/db/schema";
+import { and, count, eq } from "drizzle-orm";
 import {
   archiveProjectForUser,
   confirmKitReceivedForUser,
@@ -352,6 +352,13 @@ export async function shipProjectFromForm(
       .limit(1);
     if (!project?.codeUrl) {
       throw new Error("Publish to GitHub before submitting your design.");
+    }
+    const [journalCount] = await db
+      .select({ count: count() })
+      .from(projectJournals)
+      .where(eq(projectJournals.projectId, projectId));
+    if (!journalCount?.count) {
+      throw new Error("Write at least one journal entry before submitting.");
     }
     data.codeUrl = project.codeUrl;
     await assertMaterialsRepoReady(data.codeUrl);

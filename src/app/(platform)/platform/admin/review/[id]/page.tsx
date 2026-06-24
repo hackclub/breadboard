@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { HiArrowLeft } from "react-icons/hi2";
 import { LoginButton } from "@/components/shared/auth-buttons";
@@ -9,7 +9,6 @@ import {
   projectSubmissions,
   projectJournals,
   projects,
-  reviewNotes,
   user,
 } from "@/lib/db/schema";
 import { ReviewWorkspace } from "@/components/platform/review-workspace";
@@ -107,23 +106,11 @@ export default async function AdminReviewProjectPage({
     );
   }
 
-  const [projectNotes, userNotes, journals] = await Promise.all([
-    db
-      .select()
-      .from(reviewNotes)
-      .where(eq(reviewNotes.projectId, projectId))
-      .orderBy(desc(reviewNotes.createdAt)),
-    db
-      .select()
-      .from(reviewNotes)
-      .where(eq(reviewNotes.targetUserId, project.userId))
-      .orderBy(desc(reviewNotes.createdAt)),
-    db
-      .select()
-      .from(projectJournals)
-      .where(eq(projectJournals.projectId, projectId))
-      .orderBy(desc(projectJournals.createdAt)),
-  ]);
+  const journals = await db
+    .select()
+    .from(projectJournals)
+    .where(eq(projectJournals.projectId, projectId))
+    .orderBy(asc(projectJournals.createdAt));
 
   return (
     <main className="space-y-4">
@@ -136,11 +123,7 @@ export default async function AdminReviewProjectPage({
       </Link>
       <ReviewWorkspace
         project={project}
-        projectNotes={projectNotes}
-        userNotes={userNotes}
         journals={journals}
-        currentUserId={session.user.id}
-        targetUserId={project.userId}
         breadPerHour={BREAD_PER_HOUR}
       />
     </main>

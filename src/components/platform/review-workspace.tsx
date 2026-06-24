@@ -52,17 +52,6 @@ type ReviewProject = {
   kitType: string;
 };
 
-type Note = {
-  id: number;
-  projectId: number | null;
-  targetUserId: string | null;
-  authorId: string;
-  authorName: string;
-  content: string;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
 type Journal = {
   id: number;
   content: string;
@@ -178,19 +167,11 @@ function EvidenceButton({
 
 export function ReviewWorkspace({
   project: initial,
-  projectNotes: _initialProjectNotes,
-  userNotes: _initialUserNotes,
   journals,
-  currentUserId: _currentUserId,
-  targetUserId: _targetUserId,
   breadPerHour,
 }: {
   project: ReviewProject;
-  projectNotes: Note[];
-  userNotes: Note[];
   journals: Journal[];
-  currentUserId: string;
-  targetUserId: string;
   breadPerHour: number;
 }) {
   const [verdict, setVerdict] = useState<"approve" | "changes" | "reject">(
@@ -507,35 +488,6 @@ export function ReviewWorkspace({
         </section>
 
         <section className="rounded-[16px] border border-black bg-white p-4 shadow-[4px_4px_0_#000]">
-          <h3 className="text-sm font-black text-black">Evidence</h3>
-          <p className="mt-1 text-xs font-bold text-black/45">
-            Optional notes for reviewers. Approval is based on your judgment and
-            the hours awarded.
-          </p>
-          <div className="mt-2 space-y-1.5">
-            {activeChecklist.map((item) => (
-              <label
-                key={item.key}
-                className="flex items-start gap-2 rounded-lg bg-zinc-50 p-2.5 text-xs font-bold text-black/65"
-              >
-                <input
-                  type="checkbox"
-                  checked={Boolean(checkedItems[item.key])}
-                  onChange={(event) =>
-                    setCheckedItems((prev) => ({
-                      ...prev,
-                      [item.key]: event.target.checked,
-                    }))
-                  }
-                  className="mt-0.5 rounded border-black"
-                />
-                <span>{item.label}</span>
-              </label>
-            ))}
-          </div>
-        </section>
-
-        <section className="rounded-[16px] border border-black bg-white p-4 shadow-[4px_4px_0_#000]">
           <h3 className="text-sm font-black text-black">Review history</h3>
           <div className="mt-2 space-y-1.5 text-xs text-black/50">
             <p>Created · {new Date(initial.createdAt).toLocaleDateString()}</p>
@@ -570,113 +522,6 @@ export function ReviewWorkspace({
           </div>
         </section>
 
-        <section className="rounded-[16px] border border-black bg-white p-4 shadow-[4px_4px_0_#000]">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-black text-black">Project notes</h3>
-            <span className="text-xs text-black/35">{projectNotes.length}</span>
-          </div>
-          <div className="mt-2 space-y-2">
-            {projectNotes.slice(0, 5).map((note) => (
-              <SideNote
-                key={note.id}
-                note={note}
-                currentUserId={currentUserId}
-                onEdit={(id, content) =>
-                  startTransition(() => editNote(id, content))
-                }
-                onDelete={(id) =>
-                  startTransition(async () => {
-                    await deleteNote(id);
-                    setProjectNotes((prev) => prev.filter((n) => n.id !== id));
-                  })
-                }
-              />
-            ))}
-            {projectNotes.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-black/10 bg-zinc-50 p-2.5 text-xs text-black/35">
-                None yet.
-              </p>
-            ) : null}
-          </div>
-          <div className="mt-2 grid gap-1.5">
-            <textarea
-              value={newProjectNote}
-              onChange={(e) => setNewProjectNote(e.target.value)}
-              rows={2}
-              placeholder="Project note..."
-              className="rounded-lg border border-black bg-white px-2.5 py-2 text-xs"
-            />
-            <button
-              type="button"
-              disabled={!newProjectNote.trim()}
-              onClick={() =>
-                run(async () => {
-                  await addProjectNote(initial.id, newProjectNote);
-                  setNewProjectNote("");
-                })
-              }
-              className="rounded-lg bg-black py-1.5 text-xs font-black text-white hover:bg-[#BD0F32] disabled:opacity-40"
-            >
-              Add
-            </button>
-          </div>
-        </section>
-
-        <section className="rounded-[16px] border border-black bg-white p-4 shadow-[4px_4px_0_#000]">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-black text-black">User notes</h3>
-            <span className="text-xs text-black/35">
-              {userNotesState.length}
-            </span>
-          </div>
-          <div className="mt-2 space-y-2">
-            {userNotesState.slice(0, 5).map((note) => (
-              <SideNote
-                key={note.id}
-                note={note}
-                currentUserId={currentUserId}
-                onEdit={(id, content) =>
-                  startTransition(() => editNote(id, content))
-                }
-                onDelete={(id) =>
-                  startTransition(async () => {
-                    await deleteNote(id);
-                    setUserNotesState((prev) =>
-                      prev.filter((n) => n.id !== id),
-                    );
-                  })
-                }
-              />
-            ))}
-            {userNotesState.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-black/10 bg-zinc-50 p-2.5 text-xs text-black/35">
-                None yet.
-              </p>
-            ) : null}
-          </div>
-          <div className="mt-2 grid gap-1.5">
-            <textarea
-              value={newUserNote}
-              onChange={(e) => setNewUserNote(e.target.value)}
-              rows={2}
-              placeholder={`Note about ${initial.userName}...`}
-              className="rounded-lg border border-black bg-white px-2.5 py-2 text-xs"
-            />
-            <button
-              type="button"
-              disabled={!newUserNote.trim()}
-              onClick={() =>
-                run(async () => {
-                  await addUserNote(targetUserId, newUserNote);
-                  setNewUserNote("");
-                })
-              }
-              className="rounded-lg bg-black py-1.5 text-xs font-black text-white hover:bg-[#BD0F32] disabled:opacity-40"
-            >
-              Add
-            </button>
-          </div>
-        </section>
       </aside>
     </article>
   );

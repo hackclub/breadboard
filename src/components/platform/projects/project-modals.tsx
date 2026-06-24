@@ -440,6 +440,10 @@ export function ShipProjectModal({
             label={`Demo share link: /share/${project.id}`}
           />
           <SubmitRequirement done label="Hack Club Auth address is valid" />
+          <SubmitRequirement
+            done
+            label="Write at least one journal entry in the editor"
+          />
         </div>
         <ProjectActionMessage message={state.message} />
       </form>

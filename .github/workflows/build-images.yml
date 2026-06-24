@@ -4,17 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - ".github/workflows/**"
-      - "editor-backend/**"
-      - "Dockerfile"
-      - "package.json"
-      - "bun.lock"
-      - "src/**"
-      - "public/**"
-      - "next.config.ts"
-      - ".gitattributes"
-      - "scripts/docker-entrypoint.sh"
-      - "drizzle/**"
+      - "**"
   workflow_dispatch:
 
 env:
@@ -23,22 +13,31 @@ env:
   NEXTJS_IMAGE: ghcr.io/${{ github.repository_owner }}/breadboard
 
 jobs:
-  # ── Quick gates before heavy builds ──────────────────────────────
-  gate:
+  changes:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: dorny/paths-filter@v3
+        id: filter
         with:
-          bun-version: "1.3.6"
-      - run: bun install --frozen-lockfile
-      - run: bun run lint
-      - run: bunx tsc --noEmit
+          filters: |
+            backend:
+              - 'editor-backend/**'
+            frontend:
+              - '**'
+              - '!editor-backend/**'
 
   # ── Editor backend (heavy: ESP-IDF + QEMU + arduino-cli) ────────
   editor-backend:
     runs-on: ubuntu-latest
-    needs: gate
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     permissions:
       contents: read
       packages: write
@@ -72,7 +71,8 @@ jobs:
   # ── Next.js app ─────────────────────────────────────────────────
   nextjs:
     runs-on: ubuntu-latest
-    needs: gate
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     permissions:
       contents: read
       packages: write
@@ -104,14 +104,15 @@ jobs:
   # ── Deploy (triggers Orchard webhooks for both services) ────────
   deploy:
     runs-on: ubuntu-22.04
-    needs: [editor-backend, nextjs]
+    needs: [changes, editor-backend, nextjs]
+    if: always() && (needs.editor-backend.result == 'success' || needs.nextjs.result == 'success')
     environment: production
     env:
       ORCHARD_WEBHOOK_NEXTJS: ${{ secrets.ORCHARD_WEBHOOK_NEXTJS }}
       ORCHARD_WEBHOOK_BACKEND: ${{ secrets.ORCHARD_WEBHOOK_BACKEND }}
     steps:
       - name: Trigger Next.js Orchard deploy
-        if: env.ORCHARD_WEBHOOK_NEXTJS != ''
+        if: needs.nextjs.result == 'success' && env.ORCHARD_WEBHOOK_NEXTJS != ''
         run: |
           curl -sS -X POST "$ORCHARD_WEBHOOK_NEXTJS" \
             -H "Content-Type: application/json" \
@@ -119,7 +120,7 @@ jobs:
           echo "Next.js webhook dispatched"
 
       - name: Trigger editor-backend Orchard deploy
-        if: env.ORCHARD_WEBHOOK_BACKEND != ''
+        if: needs.editor-backend.result == 'success' && env.ORCHARD_WEBHOOK_BACKEND != ''
         run: |
           curl -sS -X POST "$ORCHARD_WEBHOOK_BACKEND" \
             -H "Content-Type: application/json" \

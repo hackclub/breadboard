@@ -66,7 +66,7 @@ export default async function ProjectsPage() {
   const projectRows = await db
     .select(projectColumns)
     .from(projects)
-    .where(eq(projects.userId, session.user.id))
+    .where(and(eq(projects.userId, session.user.id), eq(projects.archived, false)))
     .orderBy(desc(projects.updatedAt));
   const userProjects = projectRows.map(normalizeProjectRow);
 

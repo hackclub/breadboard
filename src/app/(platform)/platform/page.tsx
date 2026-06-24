@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import Image from "next/image";
 import Link from "next/link";
 import { FaHandPeace } from "react-icons/fa6";

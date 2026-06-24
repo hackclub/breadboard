@@ -41,7 +41,7 @@ export default async function PlatformOrdersPage() {
 
   return (
     <>
-      <PageHero title="Breadboard Store">
+      <PageHero title="The Store">
         <div className="mt-3 grid gap-5 lg:grid-cols-[1fr_auto] lg:items-end">
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <ShopTabs active="orders" />

@@ -92,6 +92,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
 COPY sdk/ ./sdk/
+COPY entrypoint.sh /entrypoint.sh
 
 RUN mkdir -p /app/lib /app/data /root/Arduino /var/cache/ccache /var/lib/velxio-build
 COPY --from=qemu-provider /qemu/ /app/lib/
@@ -125,4 +126,4 @@ EXPOSE 8001
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=90s \
   CMD curl -f "http://localhost:${PORT:-8001}/health" || exit 1
 
-CMD ["sh", "-c", "echo \"[entrypoint] starting editor backend on port ${PORT:-8001}\" && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8001}"]
+CMD ["/entrypoint.sh"]

@@ -90,20 +90,6 @@ export const MISSING_KIT_B_PARTS = [
   "DuPont cables as placeable parts",
 ];
 
-const KIT_DEFAULT_PROPERTIES: Record<string, Record<string, unknown>> = {
-  "led-red": { color: "red" },
-  "led-yellow": { color: "yellow" },
-  "led-blue": { color: "blue" },
-  "led-green": { color: "green" },
-  thermistor: { temperature: 25 },
-  lm35dz: { temperature: 25 },
-  dht11: { temperature: 25, humidity: 50 },
-  "water-level-sensor": { level: 0 },
-  "microphone-module": { soundLevel: 512 },
-  "obstacle-avoidance-module": { distance: 100 },
-  "74hc595": { values: [0, 0, 0, 0, 0, 0, 0, 0] },
-};
-
 export function normalizeKitType(kitType?: string | null): KitType {
   return kitType === "esp32" ? "esp32" : "arduino";
 }
@@ -165,36 +151,10 @@ export function countKitBoards(boards: { boardKind?: BoardKind }[]) {
   return counts;
 }
 
-function createKitComponent(metadataId: string, index: number, x: number, y: number) {
-  return {
-    id: `${metadataId.replace(/-/g, "_")}_kit_${index}`,
-    metadataId,
-    x,
-    y,
-    properties: { ...(KIT_DEFAULT_PROPERTIES[metadataId] ?? {}) },
-  };
-}
-
 export function createInitialKitPayload(kitType?: string | null) {
   const kit = normalizeKitType(kitType);
   const boardKind: BoardKind = kit === "esp32" ? "esp32" : "arduino-uno";
   const boardId = boardKind;
-  const components = [];
-  let slot = 0;
-
-  for (const [metadataId, quantity] of Object.entries(KIT_COMPONENT_LIMITS[kit])) {
-    for (let i = 0; i < quantity; i += 1) {
-      if (metadataId === "breadboard-full") {
-        components.push(createKitComponent(metadataId, i + 1, 520, 80));
-        continue;
-      }
-
-      const col = slot % 8;
-      const row = Math.floor(slot / 8);
-      components.push(createKitComponent(metadataId, i + 1, 80 + col * 170, 620 + row * 150));
-      slot += 1;
-    }
-  }
 
   return {
     boards: [
@@ -215,7 +175,7 @@ export function createInitialKitPayload(kitType?: string | null) {
     fileGroups: {
       [`group-${boardId}`]: [{ name: "sketch.ino", content: "" }],
     },
-    components,
+    components: [],
     wires: [],
     activeBoardId: boardId,
   };

@@ -398,10 +398,22 @@ export const EditorToolbar = ({
     setCompiling(true);
     setMessage(null);
     setConsoleOpen(true);
-    // Wipe the previous build's output before we append anything new.
-    // Issue #209: lingering logs from prior compiles made it impossible
-    // to tell the latest errors / warnings apart from stale ones.
-    setCompileLogs([]);
+    // Wipe the previous build's output and immediately show a placeholder
+    // so the console is never blank when it opens.
+    setCompileLogs([
+      {
+        timestamp: new Date(),
+        type: "info",
+        message: "Compiling...",
+        target: activeBoardId
+          ? {
+              id: activeBoardId,
+              label: activeBoard ? boardDisplayName(activeBoard) : "Unknown",
+              kind: "board" as const,
+            }
+          : undefined,
+      },
+    ]);
     trackCompileCode();
 
     // ── Custom-chip preparation ─────────────────────────────────────────

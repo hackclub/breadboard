@@ -97,14 +97,36 @@ class ArduinoCLIService:
                         capture_output=True, text=True
                     )
 
-            # Refresh index so new cores are discoverable
-            print("[arduino-cli] Updating core index...")
-            subprocess.run(
+            # Always refresh the full index so missing/corrupt index files
+            # are re-downloaded.  Log stderr so warnings (like unreachable
+            # third-party servers) are visible in the container logs.
+            print("[arduino-cli] Refreshing core indexes...")
+            result = subprocess.run(
                 [self.cli_path, "core", "update-index"],
                 capture_output=True, text=True
             )
+            if result.returncode != 0:
+                print(f"[arduino-cli] core update-index exited {result.returncode}")
+                if result.stderr:
+                    print(f"[arduino-cli] stderr: {result.stderr.strip()}")
+
+            # Fallback: if the Drazzy index file is still missing, download it
+            # directly.  Some environments have transient DNS / network issues
+            # and arduino-cli silently skips unavailable indexes.
+            drazzy_path = Path("/root/.arduino15/package_drazzy.com_index.json")
+            if not drazzy_path.exists():
+                print("[arduino-cli] Drazzy index missing — fetching directly...")
+                import urllib.request
+                try:
+                    urllib.request.urlretrieve(
+                        "http://drazzy.com/package_drazzy.com_index.json",
+                        str(drazzy_path),
+                    )
+                    print("[arduino-cli] Drazzy index downloaded.")
+                except Exception as fetch_err:
+                    print(f"[arduino-cli] Direct fetch failed: {fetch_err}")
         except Exception as e:
-            print(f"Warning: Could not configure board URLs: {e}")
+            print(f"[arduino-cli] Warning: Could not configure board URLs: {e}")
 
     def _ensure_core_installed(self):
         """

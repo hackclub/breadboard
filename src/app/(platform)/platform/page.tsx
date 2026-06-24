@@ -58,7 +58,9 @@ export default async function PlatformDashboardPage() {
       reviewNote: projects.reviewNote,
     })
     .from(projects)
-    .where(eq(projects.userId, session.user.id))
+    .where(
+      and(eq(projects.userId, session.user.id), eq(projects.archived, false)),
+    )
     .orderBy(desc(projects.updatedAt))
     .limit(6);
 

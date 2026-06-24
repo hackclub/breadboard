@@ -32,17 +32,6 @@ export const CodeEditor = ({ readOnly = false }: { readOnly?: boolean }) => {
         theme={theme}
         value={activeFile?.content ?? ""}
         beforeMount={(monaco) => {
-          (window as any).MonacoEnvironment = {
-            getWorker() {
-              return new Worker(
-                URL.createObjectURL(
-                  new Blob(["self.onmessage = function(){}"], {
-                    type: "text/javascript",
-                  }),
-                ),
-              );
-            },
-          };
           registerRetroAsm(monaco);
         }}
         onChange={(value) => {

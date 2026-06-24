@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   description:
     "Design a complete breadboard project. We send you the kit to build it.",
   icons: {
-    icon: "/favicon.svg",
+    icon: "/favicon.png",
   },
 };
 

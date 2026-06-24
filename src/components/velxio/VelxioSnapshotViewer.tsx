@@ -6,7 +6,13 @@ import "@/app/editor/velxio-styles/index.css";
 import { loader } from "@monaco-editor/react";
 import { type FC, useEffect, useRef, useState } from "react";
 
-loader.config({ paths: { vs: "/monaco/vs" } });
+loader.config({
+  paths: {
+    vs: process.env.NODE_ENV === "production"
+      ? "https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs"
+      : "/monaco/vs",
+  },
+});
 import type { EditorSnapshotState } from "@/lib/editor/captureState";
 
 type SnapshotLike = EditorSnapshotState | Record<string, any>;

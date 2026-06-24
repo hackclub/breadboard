@@ -273,6 +273,7 @@ function buildBom(editorData: Record<string, unknown> | null) {
 function buildReadme({
   title,
   description,
+  howToUse,
   demoUrl,
   videoUrl,
   screenshotUrl,
@@ -282,6 +283,7 @@ function buildReadme({
 }: {
   title: string;
   description: string;
+  howToUse: string;
   demoUrl: string;
   videoUrl: string;
   screenshotUrl: string;
@@ -315,6 +317,7 @@ function buildReadme({
     desc,
     `\n> Built in [Breadboard](https://breadboard.hackclub.com), a Hack Club program. This project took ~${hours} hours of work.`,
     "",
+    section("How To Use It", howToUse),
     section(
       "Demo",
       [
@@ -340,6 +343,10 @@ function buildReadme({
   ]
     .join("\n\n")
     .trim();
+}
+
+function wordCount(value: string) {
+  return value.trim().split(/\s+/).filter(Boolean).length;
 }
 
 export async function POST(
@@ -394,6 +401,15 @@ export async function POST(
     unknown
   >;
   const origin = new URL(request.url).origin;
+  const requestedHowToUse =
+    typeof body.howToUse === "string" ? body.howToUse.trim() : "";
+  const howToUse = requestedHowToUse || project.howToUse;
+  if (wordCount(howToUse) < 3) {
+    return error(
+      "Add step-by-step instructions for how to use your project. Minimum 3 words.",
+      400,
+    );
+  }
   let videoUrl = "";
   try {
     videoUrl = optionalPublicUrl(body.videoUrl, origin);
@@ -473,6 +489,7 @@ export async function POST(
   const readme = buildReadme({
     title: project.title,
     description: project.description,
+    howToUse,
     demoUrl,
     videoUrl,
     screenshotUrl: project.screenshotUrl,
@@ -516,6 +533,7 @@ export async function POST(
     .update(projects)
     .set({
       codeUrl: repo.html_url,
+      howToUse,
       playableUrl: demoUrl,
       demoVideoUrl:
         typeof body.videoUrl === "string" && body.videoUrl.trim()

@@ -586,6 +586,7 @@ export const projects = pgTable(
     codeUrl: text("code_url").notNull().default(""),
     screenshotUrl: text("screenshot_url").notNull().default(""),
     description: text("description").notNull().default(""),
+    howToUse: text("how_to_use").notNull().default(""),
     addressLine1: text("address_line1").notNull().default(""),
     addressLine2: text("address_line2").notNull().default(""),
     city: text("city").notNull().default(""),

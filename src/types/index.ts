@@ -69,6 +69,7 @@ export type PlatformProject = ShipInput & {
   id: number;
   title: string;
   description: string;
+  howToUse: string;
   playableUrl: string;
   status: ProjectStatus;
   reviewNote: string;
@@ -108,4 +109,5 @@ export type SignupState = {
   success?: boolean;
   message?: string;
   email?: string;
+  existingUser?: boolean;
 };

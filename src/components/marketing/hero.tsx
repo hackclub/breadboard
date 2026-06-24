@@ -11,6 +11,7 @@ import {
 } from "react";
 import { subscribe } from "@/actions/email";
 import { BreadboardCanvas } from "@/components/shared/breadboard-canvas";
+import { authClient } from "@/lib/auth/client";
 import type { SignupState } from "@/types";
 
 function ModelPreview() {
@@ -110,6 +111,26 @@ function SignupForm() {
     subscribe,
     {},
   );
+  const [loginError, setLoginError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!state.existingUser) return;
+
+    let cancelled = false;
+    setLoginError(null);
+    authClient.signIn
+      .oauth2({ providerId: "hackclub", callbackURL: "/platform" })
+      .catch(() => {
+        if (!cancelled) {
+          setLoginError("Login is unavailable right now. Please try again.");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [state.existingUser]);
+
   return (
     <div className="w-full max-w-120 rounded-md border border-black bg-[#BD0F32] p-5 shadow-[4px_4px_0_#000] lg:justify-self-center">
       <p className="mb-3 text-[20px] leading-none text-white">
@@ -145,11 +166,11 @@ function SignupForm() {
           className="pointer-events-auto absolute right-[-10rem] bottom-[-16rem] z-20 h-auto w-[min(36vw,280px)] rotate-[-25deg] drop-shadow-[0_18px_16px_rgba(0,0,0,0.44)] transition-transform hover:-translate-y-2.5 hover:scale-103 max-sm:right-[-.5rem] max-sm:bottom-[-6.5rem] max-sm:w-[min(46vw,170px)]"
         />
       </div>
-      {state.message ? (
+      {state.message || loginError ? (
         <p
           className={`mt-3 text-sm ${state.success ? "text-white" : "text-[#ffe0e0]"}`}
         >
-          {state.message}
+          {loginError ?? state.message}
         </p>
       ) : null}
     </div>

@@ -75,6 +75,7 @@ export default async function ProjectEditorPage({
         projectId={project.id}
         projectStatus={project.status}
         initialPublishUrl={project.codeUrl || null}
+        initialHowToUse={project.howToUse || null}
         version={version}
         readOnly={readOnly}
         reviewLabel={reviewLabel}

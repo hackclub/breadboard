@@ -58,6 +58,7 @@ export function EditorHeader({
   projectId,
   projectStatus,
   initialPublishUrl,
+  initialHowToUse,
   version,
   readOnly,
   reviewLabel,
@@ -68,6 +69,7 @@ export function EditorHeader({
   projectId: number;
   projectStatus: string;
   initialPublishUrl?: string | null;
+  initialHowToUse?: string | null;
   version?: number;
   readOnly?: boolean;
   reviewLabel?: string;
@@ -86,6 +88,7 @@ export function EditorHeader({
   const [publishModalOpen, setPublishModalOpen] = useState(false);
   const [publishError, setPublishError] = useState("");
   const [publishStatus, setPublishStatus] = useState("");
+  const [howToUse, setHowToUse] = useState(initialHowToUse ?? "");
   const autoPublishStarted = useRef(false);
 
   useEffect(() => subscribeEditorSaveState((s) => setState({ ...s })), []);
@@ -115,6 +118,14 @@ export function EditorHeader({
 
   const handlePublish = useCallback(async () => {
     if (readOnly || publishing) return;
+    const cleanedHowToUse = howToUse.trim();
+    if (cleanedHowToUse.split(/\s+/).filter(Boolean).length < 3) {
+      setPublishError(
+        "Write at least 3 words explaining how to use your project.",
+      );
+      setPublishModalOpen(true);
+      return;
+    }
     setPublishing(true);
     setPublishError("");
     setPublishStatus("Saving your latest project state...");
@@ -128,7 +139,7 @@ export function EditorHeader({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ overwrite: true }),
+        body: JSON.stringify({ overwrite: true, howToUse: cleanedHowToUse }),
       });
 
       if (res.status === 409) {
@@ -173,7 +184,7 @@ export function EditorHeader({
     } finally {
       setPublishing(false);
     }
-  }, [projectId, publishUrl, publishing, readOnly]);
+  }, [howToUse, projectId, publishUrl, publishing, readOnly]);
 
   useEffect(() => {
     if (readOnly || autoPublishStarted.current) return;
@@ -360,6 +371,23 @@ export function EditorHeader({
                 component picker, no store, and no time tracking. Users can only
                 run the simulation.
               </div>
+              <label className="grid gap-2">
+                <span className="text-[#ddd] text-xs font-black">
+                  How to use your project
+                </span>
+                <textarea
+                  value={howToUse}
+                  onChange={(event) => setHowToUse(event.target.value)}
+                  rows={5}
+                  required
+                  placeholder="Write step by step how someone should use your project."
+                  className="min-h-28 resize-y rounded-xl border border-[#3a3a3a] bg-[#111] px-3 py-2 text-sm text-white outline-none transition focus:border-[#BD0F32]"
+                />
+                <span className="text-[#888] text-[11px] font-bold">
+                  Required. Minimum 3 words. This is saved and reused until you
+                  edit it during a future publish/update.
+                </span>
+              </label>
               {publishUrl ? (
                 <a
                   href={publishUrl}

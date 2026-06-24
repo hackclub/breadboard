@@ -334,6 +334,8 @@ export function ShipProjectModal({
   const hasGitHubRepo = project.codeUrl.length > 0;
   const hasTitle = project.title.trim().length > 0;
   const hasDescription = project.description.trim().length > 0;
+  const hasHowToUse =
+    project.howToUse.trim().split(/\s+/).filter(Boolean).length >= 3;
   const hasJournal = (project.journalCount ?? 0) > 0;
 
   if (!hasScreenshot) {
@@ -367,7 +369,7 @@ export function ShipProjectModal({
     );
   }
 
-  if (!hasGitHubRepo || !hasTitle || !hasDescription) {
+  if (!hasGitHubRepo || !hasTitle || !hasDescription || !hasHowToUse) {
     return (
       <Modal
         open
@@ -389,6 +391,10 @@ export function ShipProjectModal({
           <SubmitRequirement
             done={hasGitHubRepo}
             label="GitHub repo is published from the editor"
+          />
+          <SubmitRequirement
+            done={hasHowToUse}
+            label="How-to-use instructions are published"
           />
           <SubmitRequirement
             done
@@ -434,6 +440,10 @@ export function ShipProjectModal({
         <div className="grid gap-3 rounded-xl border border-black bg-[#f4f4f4] p-4 text-sm font-bold text-black">
           <SubmitRequirement done label="Project name is saved" />
           <SubmitRequirement done label="Project description is saved" />
+          <SubmitRequirement
+            done
+            label="How-to-use instructions are published"
+          />
           <SubmitRequirement done label="Screenshot is uploaded" />
           <SubmitRequirement done label="GitHub repo is published" />
           <SubmitRequirement

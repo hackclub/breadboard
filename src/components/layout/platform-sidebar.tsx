@@ -42,7 +42,11 @@ const mainNavigation: SidebarSection[] = [
     links: [
       { name: "Home", href: "/platform", icon: HiHome },
       { name: "My Projects", href: "/platform/projects", icon: HiCube },
-      { name: "Docs", href: "/get-started", icon: HiClipboardDocumentCheck },
+      {
+        name: "Docs",
+        href: "https://breadboard.hackclub.com/get-started",
+        icon: HiClipboardDocumentCheck,
+      },
     ],
   },
   {

@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "how_to_use" text DEFAULT '' NOT NULL;

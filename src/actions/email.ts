@@ -1,9 +1,10 @@
 "use server";
 
 import { db } from "@/lib/db/db";
-import { emailSignups } from "@/lib/db/schema";
+import { emailSignups, user } from "@/lib/db/schema";
 import { isValidEmail } from "@/lib/utils";
 import type { SignupState } from "@/types";
+import { eq } from "drizzle-orm";
 
 export async function subscribe(
   _previousState: SignupState,
@@ -22,10 +23,24 @@ export async function subscribe(
   }
 
   try {
+    const existingUser = await db.query.user.findFirst({
+      columns: { id: true },
+      where: eq(user.email, email),
+    });
+
+    if (existingUser) {
+      return {
+        success: true,
+        message: "You already have an account. Taking you to login...",
+        email: "",
+        existingUser: true,
+      };
+    }
+
     await db.insert(emailSignups).values({ email }).onConflictDoNothing();
     return {
       success: true,
-      message: "Thanks! I'll email you with more details soon.",
+      message: "Thanks! We'll email you with more details soon.",
       email: "",
     };
   } catch (error) {

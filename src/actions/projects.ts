@@ -34,6 +34,10 @@ const shipProjectSchema = z.object({
     .max(2048),
 });
 
+function hasMinimumWords(value: string, minimum: number) {
+  return value.trim().split(/\s+/).filter(Boolean).length >= minimum;
+}
+
 type HackClubClaims = {
   given_name?: string;
   family_name?: string;
@@ -270,6 +274,7 @@ export async function createProjectFromForm(
         id,
         title: title || "Untitled project",
         description,
+        howToUse: "",
         email: "",
         playableUrl: "",
         codeUrl: "",
@@ -344,7 +349,7 @@ export async function shipProjectFromForm(
     const data = shippingFromClaims(session, claims);
     data.screenshotUrl = parsed.screenshotUrl;
     const [project] = await db
-      .select({ codeUrl: projects.codeUrl })
+      .select({ codeUrl: projects.codeUrl, howToUse: projects.howToUse })
       .from(projects)
       .where(
         and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
@@ -352,6 +357,11 @@ export async function shipProjectFromForm(
       .limit(1);
     if (!project?.codeUrl) {
       throw new Error("Publish to GitHub before submitting your design.");
+    }
+    if (!hasMinimumWords(project.howToUse, 3)) {
+      throw new Error(
+        "Publish step-by-step instructions for how to use your project before submitting.",
+      );
     }
     const [journalCount] = await db
       .select({ count: count() })

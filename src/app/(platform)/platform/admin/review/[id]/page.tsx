@@ -55,6 +55,7 @@ export default async function AdminReviewProjectPage({
       codeUrl: projectSubmissions.codeUrl,
       screenshotUrl: projectSubmissions.screenshotUrl,
       description: projects.description,
+      howToUse: projects.howToUse,
       firstName: projectSubmissions.firstName,
       lastName: projectSubmissions.lastName,
       hoursSpent: projectSubmissions.hoursSpent,

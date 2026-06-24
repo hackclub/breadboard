@@ -35,6 +35,7 @@ type ReviewProject = {
   codeUrl: string;
   screenshotUrl: string;
   description: string;
+  howToUse: string;
   firstName: string;
   lastName: string;
   hoursSpent: number;
@@ -185,6 +186,13 @@ export function DemoReviewWorkspace({
             <span>{initial.userName}</span>
             <span className="text-black/25">{initial.userEmail}</span>
           </div>
+        </div>
+
+        <div className="border-t border-black/10 p-5">
+          <h3 className="text-lg font-black text-black">How to use</h3>
+          <p className="mt-2 whitespace-pre-wrap rounded-xl border border-black bg-[#fffaf1] p-4 text-sm font-semibold leading-relaxed text-black/75 shadow-[2px_2px_0_#000]">
+            {initial.howToUse || "No instructions provided."}
+          </p>
         </div>
 
         {demoVideo ? (

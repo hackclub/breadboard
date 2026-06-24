@@ -17,6 +17,7 @@ const projectColumns = {
   codeUrl: projects.codeUrl,
   screenshotUrl: projects.screenshotUrl,
   description: projects.description,
+  howToUse: projects.howToUse,
   addressLine1: projects.addressLine1,
   addressLine2: projects.addressLine2,
   city: projects.city,

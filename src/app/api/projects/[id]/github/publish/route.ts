@@ -279,7 +279,6 @@ function buildReadme({
   screenshotUrl,
   editorData,
   hours,
-  journals,
 }: {
   title: string;
   description: string;
@@ -289,25 +288,10 @@ function buildReadme({
   screenshotUrl: string;
   editorData: Record<string, unknown> | null;
   hours: number;
-  journals: Array<{ content: string; createdAt: Date }>;
 }) {
   const desc = description || title;
   const section = (heading: string, body: string) =>
     body.trim() ? `## ${heading}\n\n${body.trim()}\n` : "";
-
-  const journalSection = journals.length
-    ? `## Build Journal\n\n${journals
-        .map(
-          (j) =>
-            `> ${new Date(j.createdAt).toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-              hour: "numeric",
-              minute: "2-digit",
-            })}\n\n${j.content}`,
-        )
-        .join("\n\n---\n\n")}\n`
-    : "";
 
   const bom = buildBom(editorData);
 
@@ -334,7 +318,10 @@ function buildReadme({
     ),
     section("Bill of Materials", bom),
     section("Firmware", "Firmware files are in the `firmware/` folder."),
-    journalSection,
+    section(
+      "Build Journal",
+      "Build journal entries are kept in [`journals.md`](journals.md).",
+    ),
     "---",
     "",
     `*Made in [Breadboard](https://breadboard.hackclub.com) — ${hours}h of work*`,
@@ -342,6 +329,34 @@ function buildReadme({
     '<p align="center"><img src="https://cdn.hackclub.com/019efae7-6857-75a2-8bc1-2618087b4eae/a%20bred%20tanuki%20(3).png" width="64" alt="Breadboard mascot" /></p>',
   ]
     .join("\n\n")
+    .trim();
+}
+
+function buildJournalsMarkdown(
+  title: string,
+  journals: Array<{ content: string; createdAt: Date }>,
+) {
+  if (!journals.length) {
+    return `# ${title} Build Journal\n\nNo journal entries yet.\n`;
+  }
+
+  return [
+    `# ${title} Build Journal`,
+    "",
+    journals
+      .map(
+        (journal) =>
+          `## ${new Date(journal.createdAt).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          })}\n\n${journal.content.trim()}`,
+      )
+      .join("\n\n---\n\n"),
+  ]
+    .join("\n")
     .trim();
 }
 
@@ -495,8 +510,8 @@ export async function POST(
     screenshotUrl: project.screenshotUrl,
     editorData,
     hours,
-    journals,
   });
+  const journalsMarkdown = buildJournalsMarkdown(project.title, journals);
   const repoOwner = repo.full_name.split("/")[0] ?? "";
   await putFile({
     token: githubAccount.accessToken,
@@ -505,6 +520,14 @@ export async function POST(
     path: "README.md",
     content: readme,
     message: "Publish Breadboard README",
+  });
+  await putFile({
+    token: githubAccount.accessToken,
+    owner: repoOwner,
+    repo: repoName,
+    path: "journals.md",
+    content: journalsMarkdown,
+    message: "Publish Breadboard journals",
   });
 
   if (editorData) {

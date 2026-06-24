@@ -228,9 +228,9 @@ async function assertDemoRepoReady(codeUrl: string, demoVideoUrl: string) {
   await assertMaterialsRepoReady(codeUrl);
   const { owner, repo } = parseGitHubRepoUrl(codeUrl);
   const readme = await fetchGitHubText(owner, repo, "README.md");
-  const lower = readme.toLowerCase();
-  if (!lower.includes("build journal")) {
-    throw new Error("README needs build journal evidence before demo review.");
+  const journals = await fetchGitHubText(owner, repo, "journals.md");
+  if (!journals.trim()) {
+    throw new Error("GitHub repo needs journals.md before demo review.");
   }
   const demoMatch =
     readme.includes(demoVideoUrl) ||

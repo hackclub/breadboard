@@ -1,0 +1,10 @@
+__pycache__
+.pytest_cache
+.venv
+.venv-*
+*.pyc
+*.pyo
+.DS_Store
+tests
+scripts
+prebuilt/qemu/README.md

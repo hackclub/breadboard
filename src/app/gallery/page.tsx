@@ -133,9 +133,13 @@ function GalleryCard({ project }: { project: GalleryProject }) {
             className="object-cover transition duration-300 group-hover:scale-[1.04]"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center bg-white text-sm font-black tracking-[0.16em] text-black/35 uppercase">
-            Add image here
-          </div>
+          <Image
+            src="/assets/design.png"
+            alt="Breadboard project placeholder"
+            fill
+            sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"
+            className="object-cover opacity-85 transition duration-300 group-hover:scale-[1.04]"
+          />
         )}
         <div className="absolute top-3 left-3 rounded-full border border-black bg-white px-3 py-1 text-xs font-black text-black shadow-[2px_2px_0_#000]">
           {project.kitType === "esp32" ? "ESP32" : "Arduino"}

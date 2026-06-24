@@ -17,7 +17,7 @@ const helpCards = [
   {
     title: "Plan the circuit",
     href: "/get-started",
-    image: null,
+    image: "/assets/design.png",
   },
   { title: "Use the guides", href: "/guides", image: "/assets/Build.png" },
   {
@@ -205,19 +205,13 @@ export default async function PlatformDashboardPage() {
                 className="grid grid-cols-[92px_1fr] text-black no-underline"
               >
                 <div className="relative min-h-24 bg-[#f4f4f4]">
-                  {card.image ? (
-                    <Image
-                      src={card.image}
-                      alt=""
-                      fill
-                      sizes="92px"
-                      className="object-cover transition group-hover:scale-105"
-                    />
-                  ) : (
-                    <div className="flex h-full min-h-24 w-full items-center justify-center bg-white px-2 text-center text-[10px] font-black tracking-[0.12em] text-black/35 uppercase">
-                      Add image here
-                    </div>
-                  )}
+                  <Image
+                    src={card.image}
+                    alt=""
+                    fill
+                    sizes="92px"
+                    className="object-cover transition group-hover:scale-105"
+                  />
                 </div>
                 <div className="flex items-center p-4">
                   <p className="text-lg font-black leading-tight">

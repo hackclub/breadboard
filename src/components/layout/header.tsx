@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { LoginButton, LogoutButton } from "@/components/shared/auth-buttons";
-import { badgeLinkClass, linkUnderlineClass } from "@/components/shared/styles";
+import { linkUnderlineClass } from "@/components/shared/styles";
 import { launched } from "@/flags";
 import { getSession } from "@/lib/auth/guards";
 
@@ -48,21 +48,6 @@ export async function Header({ isSticky = false }: { isSticky?: boolean }) {
           </nav>
           <div className="flex items-center gap-3">
             {isLaunched ? session ? <LogoutButton /> : <LoginButton /> : null}
-            <a
-              href="https://hackclub.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Hack Club"
-              className={`${badgeLinkClass} hidden px-3 py-3 sm:inline-block sm:px-4`}
-            >
-              <Image
-                src="/assets/Hack_Club_Flag.svg"
-                alt="Hack Club"
-                width={80}
-                height={48}
-                className="h-11 w-auto md:h-12"
-              />
-            </a>
           </div>
         </div>
       </div>

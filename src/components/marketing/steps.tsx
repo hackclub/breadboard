@@ -10,7 +10,7 @@ const steps = [
   {
     title: "Design Your Project",
     href: "/get-started",
-    img: null,
+    img: "/assets/design.png",
     alt: "Design project",
   },
   {
@@ -44,19 +44,13 @@ export function Steps() {
             </div>
             <div className={stepImageShellClass}>
               <div className="relative h-[161px] w-full overflow-hidden">
-                {step.img ? (
-                  <Image
-                    src={step.img}
-                    alt={step.alt}
-                    fill
-                    sizes="(min-width:768px) 33vw, 100vw"
-                    className={stepImageClass}
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center bg-white text-sm font-black tracking-[0.16em] text-black/35 uppercase">
-                    Add image here
-                  </div>
-                )}
+                <Image
+                  src={step.img}
+                  alt={step.alt}
+                  fill
+                  sizes="(min-width:768px) 33vw, 100vw"
+                  className={stepImageClass}
+                />
               </div>
             </div>
           </Link>

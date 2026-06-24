@@ -32,7 +32,7 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "avr8js": "0.21.0",
-    "axios": "^1.17.0",
+    "axios": "^1.18.1",
     "better-auth": "^1.6.16",
     "drizzle-orm": "^0.45.2",
     "flags": "^4.2.0",
@@ -64,7 +64,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.2.0",
     "@tailwindcss/forms": "^0.5.11",
-    "@tailwindcss/postcss": "^4.3.0",
+    "@tailwindcss/postcss": "^4.3.1",
     "@tailwindcss/typography": "^0.5.20",
     "@types/node": "^20.19.43",
     "@types/pg": "^8.20.0",
@@ -76,6 +76,12 @@
     "drizzle-kit": "^0.31.10",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "dompurify": "^3.4.11",
+    "esbuild": "^0.28.1",
+    "form-data": "^4.0.6",
+    "postcss": "^8.5.15"
   },
   "ignoreScripts": [
     "sharp",

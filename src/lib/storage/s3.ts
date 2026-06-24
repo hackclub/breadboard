@@ -68,12 +68,21 @@ export async function getStorageObject(key: string) {
   );
 }
 
+function safeDecodeURIComponent(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
 export function storageKeyFromUrl(value: string) {
   if (value.startsWith("/demo/")) {
-    return `project-demo-videos/${decodeURIComponent(value.slice("/demo/".length))}`;
+    const demoPath = safeDecodeURIComponent(value.slice("/demo/".length));
+    return demoPath ? `project-demo-videos/${demoPath}` : null;
   }
   if (value.startsWith("/api/uploads/")) {
-    return decodeURIComponent(value.slice("/api/uploads/".length));
+    return safeDecodeURIComponent(value.slice("/api/uploads/".length));
   }
   try {
     const url = new URL(value);
@@ -81,7 +90,7 @@ export function storageKeyFromUrl(value: string) {
     if (url.origin !== publicPrefix.origin) return null;
     const prefixPath = publicPrefix.pathname.replace(/\/$/, "");
     if (!url.pathname.startsWith(`${prefixPath}/`)) return null;
-    return decodeURIComponent(url.pathname.slice(prefixPath.length + 1));
+    return safeDecodeURIComponent(url.pathname.slice(prefixPath.length + 1));
   } catch {
     return null;
   }

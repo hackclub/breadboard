@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { and, eq } from "drizzle-orm";
 import { getSession } from "@/lib/auth/guards";
 import { audit } from "@/lib/audit";
 import { db } from "@/lib/db/db";
@@ -29,6 +30,75 @@ function redirectWith(request: Request, returnTo: string, github: string) {
   const url = new URL(returnTo, request.url);
   url.searchParams.set("github", github);
   return NextResponse.redirect(url);
+}
+
+function isUniqueViolation(err: unknown) {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as { code?: string }).code === "23505"
+  );
+}
+
+async function storeGitHubPublishToken(input: {
+  userId: string;
+  githubUserId: number;
+  accessToken: string;
+  scope: string;
+}) {
+  const githubAccountId = String(input.githubUserId);
+  const now = new Date();
+  const [existing] = await db
+    .select({ id: account.id, userId: account.userId })
+    .from(account)
+    .where(
+      and(
+        eq(account.providerId, GITHUB_PUBLISH_PROVIDER_ID),
+        eq(account.accountId, githubAccountId),
+      ),
+    )
+    .limit(1);
+
+  if (existing && existing.userId !== input.userId) {
+    return { linkedToAnotherUser: true } as const;
+  }
+
+  if (existing) {
+    await db
+      .update(account)
+      .set({
+        accessToken: input.accessToken,
+        scope: input.scope,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(account.id, existing.id),
+          eq(account.userId, input.userId),
+          eq(account.providerId, GITHUB_PUBLISH_PROVIDER_ID),
+          eq(account.accountId, githubAccountId),
+        ),
+      );
+    return { linkedToAnotherUser: false } as const;
+  }
+
+  try {
+    await db.insert(account).values({
+      id: `${GITHUB_PUBLISH_PROVIDER_ID}:${input.userId}:${githubAccountId}`,
+      accountId: githubAccountId,
+      providerId: GITHUB_PUBLISH_PROVIDER_ID,
+      userId: input.userId,
+      accessToken: input.accessToken,
+      scope: input.scope,
+      updatedAt: now,
+    });
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    return { linkedToAnotherUser: true } as const;
+  }
+
+  return { linkedToAnotherUser: false } as const;
 }
 
 export async function GET(request: Request) {
@@ -89,26 +159,20 @@ export async function GET(request: Request) {
   if (!userResponse.ok) return redirectWith(request, returnTo, "user-error");
   const githubUser = (await userResponse.json()) as GitHubUserResponse;
 
-  await db
-    .insert(account)
-    .values({
-      id: `${GITHUB_PUBLISH_PROVIDER_ID}:${session.user.id}:${githubUser.id}`,
-      accountId: String(githubUser.id),
-      providerId: GITHUB_PUBLISH_PROVIDER_ID,
-      userId: session.user.id,
-      accessToken: token.access_token,
-      scope: token.scope ?? "",
-      updatedAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: [account.providerId, account.accountId],
-      set: {
-        userId: session.user.id,
-        accessToken: token.access_token,
-        scope: token.scope ?? "",
-        updatedAt: new Date(),
-      },
+  const stored = await storeGitHubPublishToken({
+    userId: session.user.id,
+    githubUserId: githubUser.id,
+    accessToken: token.access_token,
+    scope: token.scope ?? "",
+  });
+
+  if (stored.linkedToAnotherUser) {
+    await audit("github.publish.connect_conflict", "user", session.user.id, {
+      githubUser: githubUser.login,
+      githubUserId: githubUser.id,
     });
+    return redirectWith(request, returnTo, "account-linked");
+  }
 
   await audit("github.publish.connect", "user", session.user.id, {
     githubUser: githubUser.login,

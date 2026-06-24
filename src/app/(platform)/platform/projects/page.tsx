@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { ProjectsBoard } from "@/components/platform/projects-board";
 import { Surface } from "@/components/ui/card";

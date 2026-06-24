@@ -114,6 +114,7 @@ ENV CCACHE_COMPRESS=1
 ENV CCACHE_COMPRESSLEVEL=6
 ENV VELXIO_PERSISTENT_BUILD_DIR=1
 ENV FRONTEND_URL=http://localhost:3000
+ENV PORT=8001
 
 RUN grep -v 'esp-windows-curses' /opt/esp-idf/requirements.txt \
     | pip install --no-cache-dir -r /dev/stdin
@@ -122,6 +123,6 @@ VOLUME ["/app/data", "/root/.arduino15", "/root/Arduino", "/var/cache/ccache", "
 EXPOSE 8001
 
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=90s \
-  CMD curl -f http://localhost:8001/health || exit 1
+  CMD curl -f "http://localhost:${PORT:-8001}/health" || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["sh", "-c", "echo \"[entrypoint] starting editor backend on port ${PORT:-8001}\" && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8001}"]

@@ -334,6 +334,7 @@ export function ShipProjectModal({
   const hasGitHubRepo = project.codeUrl.length > 0;
   const hasTitle = project.title.trim().length > 0;
   const hasDescription = project.description.trim().length > 0;
+  const hasJournal = (project.journalCount ?? 0) > 0;
 
   if (!hasScreenshot) {
     return (
@@ -441,7 +442,7 @@ export function ShipProjectModal({
           />
           <SubmitRequirement done label="Hack Club Auth address is valid" />
           <SubmitRequirement
-            done
+            done={hasJournal}
             label="Write at least one journal entry in the editor"
           />
         </div>

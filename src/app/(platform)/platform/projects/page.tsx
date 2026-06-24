@@ -1,11 +1,11 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { ProjectsBoard } from "@/components/platform/projects-board";
 import { Surface } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { getSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
-import { projects } from "@/lib/db/schema";
+import { projectJournals, projects } from "@/lib/db/schema";
 import type { PlatformProject } from "@/types";
 
 const projectColumns = {
@@ -30,6 +30,10 @@ const projectColumns = {
   status: projects.status,
   reviewNote: projects.reviewNote,
   kitType: projects.kitType,
+  journalCount: sql<number>`(
+    SELECT COUNT(*) FROM ${projectJournals}
+    WHERE ${projectJournals.projectId} = ${projects.id}
+  )`.mapWith(Number),
 };
 
 type ProjectRow = Omit<PlatformProject, "kitType"> & { kitType: string };
@@ -38,6 +42,7 @@ function normalizeProjectRow(project: ProjectRow): PlatformProject {
   return {
     ...project,
     kitType: project.kitType === "esp32" ? "esp32" : "arduino",
+    journalCount: project.journalCount ?? 0,
   };
 }
 

@@ -75,6 +75,7 @@ export type PlatformProject = ShipInput & {
   demoVideoUrl: string;
   hoursSpent: number;
   kitType: "arduino" | "esp32";
+  journalCount: number;
 };
 
 export type ShippingAddress = {

@@ -13,7 +13,8 @@ on:
       - "public/**"
       - "next.config.ts"
       - ".gitattributes"
-      - "docker-compose.orch.yml"
+      - "scripts/docker-entrypoint.sh"
+      - "drizzle/**"
   workflow_dispatch:
 
 env:

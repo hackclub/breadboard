@@ -3,6 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireSession } from "@/lib/auth/guards";
+import { db } from "@/lib/db/db";
+import { account, projects } from "@/lib/db/schema";
+import { and, eq } from "drizzle-orm";
 import {
   archiveProjectForUser,
   confirmKitReceivedForUser,
@@ -24,23 +27,27 @@ const createProjectSchema = projectBasicsSchema
   .extend({ kitType: z.enum(["arduino", "esp32"]).default("arduino") });
 
 const shipProjectSchema = z.object({
-  email: z.email("A valid email is required").trim(),
-  codeUrl: z.url("Published GitHub repo URL is required").trim().max(2048),
   screenshotUrl: z
     .string()
     .trim()
     .min(1, "Screenshot URL is required")
     .max(2048),
-  addressLine1: z.string().trim().min(1, "Address line 1 is required").max(200),
-  addressLine2: z.string().trim().max(200).default(""),
-  city: z.string().trim().min(1, "City is required").max(120),
-  region: z.string().trim().min(1, "State / Province is required").max(120),
-  country: z.string().trim().min(1, "Country is required").max(120),
-  postalCode: z.string().trim().min(1, "ZIP / Postal Code is required").max(40),
-  birthday: z.string().trim().min(1, "Birthday is required").max(40),
-  firstName: z.string().trim().min(1, "First name is required").max(120),
-  lastName: z.string().trim().min(1, "Last name is required").max(120),
 });
+
+type HackClubClaims = {
+  given_name?: string;
+  family_name?: string;
+  name?: string;
+  email?: string;
+  birthdate?: string;
+  address?: {
+    street_address?: string;
+    locality?: string;
+    region?: string;
+    postal_code?: string;
+    country?: string;
+  };
+};
 
 const demoSubmissionSchema = z.object({
   playableUrl: z
@@ -51,7 +58,19 @@ const demoSubmissionSchema = z.object({
       (value) => value === "" || value.startsWith("/share/"),
       "Demo link must be the Breadboard read-only share link.",
     ),
-  demoVideoUrl: z.url("Upload a working demo video first").trim().max(2048),
+  demoVideoUrl: z
+    .string()
+    .trim()
+    .max(2048)
+    .refine((value) => {
+      if (value.startsWith("/demo/")) return true;
+      try {
+        const url = new URL(value);
+        return url.protocol === "http:" || url.protocol === "https:";
+      } catch {
+        return false;
+      }
+    }, "Upload a demo video first"),
 });
 
 function parseGitHubRepoUrl(value: string) {
@@ -71,6 +90,31 @@ async function fetchGitHubText(owner: string, repo: string, path: string) {
   );
   if (!res.ok) return "";
   return await res.text();
+}
+
+async function hasPublishedFirmware(owner: string, repo: string) {
+  const res = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/contents/firmware`,
+    {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+      cache: "no-store",
+    },
+  );
+  if (!res.ok) return false;
+  const entries = (await res.json()) as Array<{
+    type?: string;
+    name?: string;
+    download_url?: string | null;
+  }>;
+  for (const entry of entries) {
+    if (entry.type !== "file" || !entry.download_url) continue;
+    const file = await fetch(entry.download_url, { cache: "no-store" });
+    if (file.ok && (await file.text()).trim()) return true;
+  }
+  return false;
 }
 
 async function assertMaterialsRepoReady(codeUrl: string) {
@@ -96,9 +140,84 @@ async function assertMaterialsRepoReady(codeUrl: string) {
   );
   if (!snapshot)
     throw new Error("Publish the schematic snapshot before submitting.");
-  const firmware = await fetchGitHubText(owner, repo, "firmware/sketch.ino");
-  if (!firmware.trim())
+  if (!(await hasPublishedFirmware(owner, repo))) {
     throw new Error("Publish a firmware file before submitting.");
+  }
+}
+
+async function getHackClubClaims(userId: string) {
+  const [row] = await db
+    .select({ accessToken: account.accessToken, idToken: account.idToken })
+    .from(account)
+    .where(and(eq(account.userId, userId), eq(account.providerId, "hackclub")))
+    .limit(1);
+  const claims: HackClubClaims = {};
+
+  if (row?.idToken) {
+    const payload = row.idToken.split(".")[1];
+    if (payload) {
+      Object.assign(
+        claims,
+        JSON.parse(Buffer.from(payload, "base64url").toString("utf8")),
+      );
+    }
+  }
+
+  if (row?.accessToken) {
+    const res = await fetch("https://auth.hackclub.com/oauth/userinfo", {
+      headers: { Authorization: `Bearer ${row.accessToken}` },
+      cache: "no-store",
+    });
+    if (res.ok) Object.assign(claims, await res.json());
+  }
+
+  return claims;
+}
+
+function shippingFromClaims(
+  session: Awaited<ReturnType<typeof requireSession>>,
+  claims: HackClubClaims,
+): ShipInput {
+  const firstName = String(
+    claims.given_name ?? session.user.name?.split(" ")[0] ?? "",
+  ).trim();
+  const lastName = String(
+    claims.family_name ??
+      session.user.name?.split(" ").slice(1).join(" ") ??
+      "",
+  ).trim();
+  const address = claims.address ?? {};
+  const data = {
+    email: String(claims.email ?? session.user.email ?? "").trim(),
+    codeUrl: "",
+    screenshotUrl: "",
+    addressLine1: String(address.street_address ?? "").trim(),
+    addressLine2: "",
+    city: String(address.locality ?? "").trim(),
+    region: String(address.region ?? "").trim(),
+    country: String(address.country ?? "").trim(),
+    postalCode: String(address.postal_code ?? "").trim(),
+    birthday: String(claims.birthdate ?? "").trim(),
+    firstName,
+    lastName,
+  };
+  const missing = [
+    [data.email, "email"],
+    [data.addressLine1, "address"],
+    [data.city, "city"],
+    [data.region, "region"],
+    [data.country, "country"],
+    [data.postalCode, "postal code"],
+    [data.birthday, "birthdate"],
+    [data.firstName, "first name"],
+    [data.lastName, "last name"],
+  ].filter(([value]) => !value);
+  if (missing.length) {
+    throw new Error(
+      `Hack Club Auth is missing ${missing.map(([, label]) => label).join(", ")}. Re-log in and approve profile/address/birthdate scopes.`,
+    );
+  }
+  return data;
 }
 
 async function assertDemoRepoReady(codeUrl: string, demoVideoUrl: string) {
@@ -109,7 +228,11 @@ async function assertDemoRepoReady(codeUrl: string, demoVideoUrl: string) {
   if (!lower.includes("build journal")) {
     throw new Error("README needs build journal evidence before demo review.");
   }
-  if (!readme.includes(demoVideoUrl)) {
+  const demoMatch =
+    readme.includes(demoVideoUrl) ||
+    (demoVideoUrl.startsWith("/demo/") &&
+      readme.includes(demoVideoUrl.slice("/demo/".length)));
+  if (!demoMatch) {
     throw new Error("README must include the final demo video link.");
   }
 }
@@ -213,23 +336,25 @@ export async function shipProjectFromForm(
     const projectId = Number(formData.get("projectId"));
     if (!Number.isInteger(projectId)) throw new Error("Invalid project.");
 
-    const data: ShipInput = shipProjectSchema.parse({
-      email: formData.get("email"),
-      codeUrl: formData.get("codeUrl"),
+    const parsed = shipProjectSchema.parse({
       screenshotUrl: formData.get("screenshotUrl"),
-      addressLine1: formData.get("addressLine1"),
-      addressLine2: formData.get("addressLine2") ?? "",
-      city: formData.get("city"),
-      region: formData.get("region"),
-      country: formData.get("country"),
-      postalCode: formData.get("postalCode"),
-      birthday: formData.get("birthday"),
-      firstName: formData.get("firstName"),
-      lastName: formData.get("lastName"),
     });
-    await assertMaterialsRepoReady(data.codeUrl);
-
     const session = await requireSession();
+    const claims = await getHackClubClaims(session.user.id);
+    const data = shippingFromClaims(session, claims);
+    data.screenshotUrl = parsed.screenshotUrl;
+    const [project] = await db
+      .select({ codeUrl: projects.codeUrl })
+      .from(projects)
+      .where(
+        and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
+      )
+      .limit(1);
+    if (!project?.codeUrl) {
+      throw new Error("Publish to GitHub before submitting your design.");
+    }
+    data.codeUrl = project.codeUrl;
+    await assertMaterialsRepoReady(data.codeUrl);
     const tracked = await shipProjectForUser(
       { userId: session.user.id, email: session.user.email },
       projectId,

@@ -9,6 +9,95 @@ import { type FC, useEffect, useRef, useState } from "react";
 loader.config({ paths: { vs: "/monaco/vs" } });
 import type { EditorSnapshotState } from "@/lib/editor/captureState";
 
+type SnapshotLike = EditorSnapshotState | Record<string, any>;
+
+function normalizeSnapshot(input: SnapshotLike): EditorSnapshotState {
+  if (input?.editor && input?.simulator) return input as EditorSnapshotState;
+  const payload = input as Record<string, any>;
+
+  const boards = Array.isArray(payload.boards) ? payload.boards : [];
+  const activeBoardId = payload.activeBoardId ?? boards[0]?.id ?? null;
+  const firstGroupId = boards[0]?.activeFileGroupId ?? "";
+  const fileGroups = payload.fileGroups ?? {};
+  const activeGroupFileId: Record<string, string> = {};
+  const openGroupFileIds: Record<string, string[]> = {};
+  for (const [groupId, files] of Object.entries(fileGroups)) {
+    if (!Array.isArray(files)) continue;
+    const firstFile = files[0] as { id?: string; name?: string } | undefined;
+    const fileId = firstFile?.id ?? firstFile?.name ?? "";
+    if (fileId) activeGroupFileId[groupId] = fileId;
+    openGroupFileIds[groupId] = files
+      .map((file: any) => file.id ?? file.name)
+      .filter(Boolean);
+  }
+
+  return {
+    editor: {
+      viewMode: "both",
+      theme: "vs-dark",
+      fontSize: 14,
+      fileGroups,
+      activeGroupId: firstGroupId,
+      activeGroupFileId,
+      openGroupFileIds,
+      codeChangedSinceLastCompile: false,
+    },
+    simulator: {
+      boards: boards.map((board: any) => ({
+        ...board,
+        running: false,
+        serialMonitorOpen: false,
+      })),
+      activeBoardId,
+      components: Array.isArray(payload.components) ? payload.components : [],
+      wires: Array.isArray(payload.wires) ? payload.wires : [],
+      selectedWireId: null,
+      serialOutput: "",
+      serialBaudRate: 115200,
+      running: false,
+      compiledHex: null,
+      hexEpoch: 0,
+      esp32CrashBoardId: null,
+      canvasPan: { x: 0, y: 0 },
+      canvasZoom: 1,
+    },
+    project: { id: null, slug: payload.name ?? "Snapshot" },
+    compileLogs: [],
+    oscilloscope: {
+      open: false,
+      running: false,
+      timeDivMs: 1,
+      channels: [],
+      triggerMode: "auto",
+      triggerChannelId: null,
+      triggerEdge: "rising",
+      triggerStatus: "idle",
+    },
+    electrical: {
+      nodeVoltages: null,
+      analysisMode: null,
+      converged: null,
+      error: null,
+      paused: false,
+    },
+    vfs: { boards: {} },
+    monaco: null,
+    ui: {
+      editorWidthPct: 45,
+      explorerOpen: true,
+      explorerWidth: 165,
+      consoleOpen: false,
+      bottomPanelHeight: 200,
+      serialMonitorOpen: false,
+      oscilloscopeOpen: false,
+      canvasZoom: 1,
+      canvasScrollX: 0,
+      canvasScrollY: 0,
+      openModals: [],
+    },
+  };
+}
+
 function loadModules() {
   return Promise.all([
     import("@/lib/velxio/i18n"),
@@ -59,83 +148,87 @@ function injectState(
   oscilloscopeStore: any,
   electricalStore: any,
   vfsStore: any,
-  state: EditorSnapshotState,
+  state: SnapshotLike,
 ) {
+  const snapshot = normalizeSnapshot(state);
   projectStore.getState().setCurrentProject({
-    id: state.project?.id ?? "snapshot",
-    slug: state.project?.slug ?? "Snapshot",
+    id: snapshot.project?.id ?? "snapshot",
+    slug: snapshot.project?.slug ?? "Snapshot",
     ownerUsername: "",
     isPublic: false,
     visibility: "private" as any,
   });
 
   editorStore.setState({
-    viewMode: state.editor.viewMode as any,
-    theme: state.editor.theme as any,
-    fontSize: state.editor.fontSize,
-    fileGroups: state.editor.fileGroups,
-    activeGroupId: state.editor.activeGroupId,
-    activeGroupFileId: state.editor.activeGroupFileId,
-    openGroupFileIds: state.editor.openGroupFileIds,
-    codeChangedSinceLastCompile: state.editor.codeChangedSinceLastCompile,
+    viewMode: snapshot.editor.viewMode as any,
+    theme: snapshot.editor.theme as any,
+    fontSize: snapshot.editor.fontSize,
+    fileGroups: snapshot.editor.fileGroups,
+    activeGroupId: snapshot.editor.activeGroupId,
+    activeGroupFileId: snapshot.editor.activeGroupFileId,
+    openGroupFileIds: snapshot.editor.openGroupFileIds,
+    codeChangedSinceLastCompile: snapshot.editor.codeChangedSinceLastCompile,
   });
 
-  editorStore.getState().setActiveGroup(state.editor.activeGroupId);
+  editorStore.getState().setActiveGroup(snapshot.editor.activeGroupId);
 
   simStore.setState({
-    boards: state.simulator.boards,
-    activeBoardId: state.simulator.activeBoardId,
-    components: state.simulator.components,
-    wires: state.simulator.wires,
-    serialOutput: state.simulator.serialOutput,
-    serialBaudRate: state.simulator.serialBaudRate,
+    boards: snapshot.simulator.boards,
+    activeBoardId: snapshot.simulator.activeBoardId,
+    components: snapshot.simulator.components,
+    wires: snapshot.simulator.wires,
+    serialOutput: snapshot.simulator.serialOutput,
+    serialBaudRate: snapshot.simulator.serialBaudRate,
     running: false,
-    compiledHex: state.simulator.compiledHex,
-    hexEpoch: state.simulator.hexEpoch,
-    esp32CrashBoardId: state.simulator.esp32CrashBoardId,
-    canvasPan: state.simulator?.canvasPan ?? { x: 0, y: 0 },
-    canvasZoom: state.simulator?.canvasZoom ?? 1,
+    compiledHex: snapshot.simulator.compiledHex,
+    hexEpoch: snapshot.simulator.hexEpoch,
+    esp32CrashBoardId: snapshot.simulator.esp32CrashBoardId,
+    canvasPan: snapshot.simulator?.canvasPan ?? { x: 0, y: 0 },
+    canvasZoom: snapshot.simulator?.canvasZoom ?? 1,
     _timelapseReplay: true,
-    selectedWireId: state.simulator.selectedWireId,
+    selectedWireId: snapshot.simulator.selectedWireId,
     wireInProgress: null,
     history: [],
     historyIndex: -1,
   });
 
-  compileLogsStore.setState({ logs: state.compileLogs ?? [] });
+  compileLogsStore.setState({ logs: snapshot.compileLogs ?? [] });
   oscilloscopeStore.setState({
-    open: state.oscilloscope?.open ?? false,
-    running: state.oscilloscope?.running ?? false,
-    timeDivMs: state.oscilloscope?.timeDivMs ?? 1,
-    channels: state.oscilloscope?.channels ?? [],
-    triggerMode: state.oscilloscope?.triggerMode ?? "auto",
-    triggerChannelId: state.oscilloscope?.triggerChannelId ?? null,
-    triggerEdge: state.oscilloscope?.triggerEdge ?? "rising",
-    triggerStatus: state.oscilloscope?.triggerStatus ?? "idle",
+    open: snapshot.oscilloscope?.open ?? false,
+    running: snapshot.oscilloscope?.running ?? false,
+    timeDivMs: snapshot.oscilloscope?.timeDivMs ?? 1,
+    channels: snapshot.oscilloscope?.channels ?? [],
+    triggerMode: snapshot.oscilloscope?.triggerMode ?? "auto",
+    triggerChannelId: snapshot.oscilloscope?.triggerChannelId ?? null,
+    triggerEdge: snapshot.oscilloscope?.triggerEdge ?? "rising",
+    triggerStatus: snapshot.oscilloscope?.triggerStatus ?? "idle",
   });
 
-  if (state.electrical?.nodeVoltages) {
+  if (snapshot.electrical?.nodeVoltages) {
     electricalStore.setState({
-      nodeVoltages: state.electrical.nodeVoltages,
-      analysisMode: state.electrical.analysisMode,
-      converged: state.electrical.converged,
-      error: state.electrical.error,
-      paused: state.electrical.paused,
+      nodeVoltages: snapshot.electrical.nodeVoltages,
+      analysisMode: snapshot.electrical.analysisMode,
+      converged: snapshot.electrical.converged,
+      error: snapshot.electrical.error,
+      paused: snapshot.electrical.paused,
     });
   }
 
-  if (state.vfs?.boards) {
-    vfsStore.setState({ boards: state.vfs.boards });
+  if (snapshot.vfs?.boards) {
+    vfsStore.setState({ boards: snapshot.vfs.boards });
   }
 
   setTimeout(() => {
-    if (!state.monaco) return;
+    if (!snapshot.monaco) return;
     const monaco = (window as any).monaco;
     const ed = monaco?.editor?.getEditors?.()?.[0];
     if (!ed) return;
-    ed.setPosition({ lineNumber: state.monaco.cursorLine, column: state.monaco.cursorColumn });
-    ed.setScrollTop(state.monaco.scrollTop);
-    ed.setScrollLeft(state.monaco.scrollLeft);
+    ed.setPosition({
+      lineNumber: snapshot.monaco.cursorLine,
+      column: snapshot.monaco.cursorColumn,
+    });
+    ed.setScrollTop(snapshot.monaco.scrollTop);
+    ed.setScrollLeft(snapshot.monaco.scrollLeft);
   }, 600);
 }
 
@@ -144,7 +237,7 @@ export function VelxioSnapshotViewer({
   interactive = false,
   shareMode = false,
 }: {
-  snapshot: EditorSnapshotState;
+  snapshot: SnapshotLike;
   interactive?: boolean;
   shareMode?: boolean;
 }) {

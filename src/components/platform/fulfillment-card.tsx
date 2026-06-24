@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useState } from "react";
 import {
   HiArrowPath,
@@ -11,7 +12,6 @@ import {
   HiCube,
   HiExclamationTriangle,
   HiMapPin,
-  HiNoSymbol,
   HiPaperAirplane,
   HiTruck,
 } from "react-icons/hi2";
@@ -64,6 +64,7 @@ export function FulfillmentCard({
   items: FulfillmentItem[];
   kitType: string | null;
 }) {
+  const router = useRouter();
   const [checked, setChecked] = useState<Record<number, boolean>>({});
   const [addressChecked, setAddressChecked] = useState(false);
   const [labelChecked, setLabelChecked] = useState(false);
@@ -75,7 +76,10 @@ export function FulfillmentCard({
 
   useEffect(() => {
     if (state.success && state.status) setStatus(state.status);
-  }, [state]);
+    if (state.success && state.status === "sent") {
+      router.replace(`/platform/admin/fulfillment?skip=${order.id}`);
+    }
+  }, [state, router, order.id]);
 
   const isKitOrder = order.source === "project_kit";
   const kitImage =
@@ -286,25 +290,12 @@ export function FulfillmentCard({
                   pending={pending}
                   icon={HiClipboardDocumentCheck}
                 />
-                <div className="grid grid-cols-2 gap-2">
-                  <LinkButton
-                    href={`/platform/admin/fulfillment?skip=${order.id}`}
-                  >
-                    <HiArrowRight className="size-4" />
-                    Skip
-                  </LinkButton>
-                  <OrderStatusForm
-                    action={formAction}
-                    orderId={order.id}
-                    status="cancelled"
-                    submitLabel="Cancel"
-                    pendingLabel="Cancelling..."
-                    pending={pending}
-                    tone="danger"
-                    compact
-                    icon={HiNoSymbol}
-                  />
-                </div>
+                <LinkButton
+                  href={`/platform/admin/fulfillment?skip=${order.id}`}
+                >
+                  <HiArrowRight className="size-4" />
+                  Skip this kit
+                </LinkButton>
               </div>
             ) : sent ? (
               <div className="mt-4 rounded-xl border border-green-900/20 bg-green-50 p-4 text-sm font-black text-green-950">
@@ -313,6 +304,12 @@ export function FulfillmentCard({
               </div>
             ) : (
               <div className="mt-4 space-y-3">
+                <LinkButton
+                  href={`/platform/admin/fulfillment?skip=${order.id}`}
+                >
+                  <HiArrowRight className="size-4" />
+                  Skip this kit
+                </LinkButton>
                 {!isKitOrder || !order.acceptedAt ? (
                   <OrderStatusForm
                     action={formAction}
@@ -338,7 +335,7 @@ export function FulfillmentCard({
                   action={formAction}
                   orderId={order.id}
                   status="sent"
-                  submitLabel="Mark sent"
+                  submitLabel="Mark sent and load next"
                   pendingLabel="Saving..."
                   pending={pending}
                   disabled={!canShip}

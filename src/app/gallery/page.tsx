@@ -9,6 +9,7 @@ import { Surface } from "@/components/ui/card";
 import { Steps } from "@/components/marketing/steps";
 import { db } from "@/lib/db/db";
 import { projectSubmissions, projects, user } from "@/lib/db/schema";
+import { storageReadUrl } from "@/lib/storage/urls";
 
 export const dynamic = "force-dynamic";
 
@@ -27,8 +28,10 @@ type GalleryProject = {
 };
 
 function safeUrl(value: string) {
+  const storageUrl = storageReadUrl(value);
+  if (storageUrl.startsWith("/")) return storageUrl;
   try {
-    const url = new URL(value);
+    const url = new URL(storageUrl);
     if (!["http:", "https:"].includes(url.protocol)) return null;
     return url.toString();
   } catch {
@@ -37,6 +40,7 @@ function safeUrl(value: string) {
 }
 
 function shouldOptimizeImage(src: string) {
+  if (src.startsWith("/api/uploads/")) return false;
   try {
     const { hostname, protocol } = new URL(src);
     return (
@@ -129,13 +133,9 @@ function GalleryCard({ project }: { project: GalleryProject }) {
             className="object-cover transition duration-300 group-hover:scale-[1.04]"
           />
         ) : (
-          <Image
-            src="/assets/design.png"
-            alt="Example project preview"
-            fill
-            sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"
-            className="object-cover opacity-80"
-          />
+          <div className="flex h-full w-full items-center justify-center bg-white text-sm font-black tracking-[0.16em] text-black/35 uppercase">
+            Add image here
+          </div>
         )}
         <div className="absolute top-3 left-3 rounded-full border border-black bg-white px-3 py-1 text-xs font-black text-black shadow-[2px_2px_0_#000]">
           {project.kitType === "esp32" ? "ESP32" : "Arduino"}

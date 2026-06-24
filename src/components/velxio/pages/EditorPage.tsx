@@ -68,7 +68,7 @@ export const EditorPage: React.FC<{ readOnly?: boolean; shareMode?: boolean }> =
   // Lets users hide a pane to give the right-docked chat more room.
   const storedViewMode = useEditorStore((s) => s.viewMode);
   const setViewMode = useEditorStore((s) => s.setViewMode);
-  const viewMode = shareMode ? "circuit" : storedViewMode;
+  const viewMode = shareMode ? "both" : storedViewMode;
   const containerRef = useRef<HTMLDivElement>(null);
   const resizingRef = useRef(false);
   const serialMonitorOpen = useSimulatorStore((s) => s.serialMonitorOpen);
@@ -435,8 +435,8 @@ export const EditorPage: React.FC<{ readOnly?: boolean; shareMode?: boolean }> =
               setConsoleOpen={setConsoleOpen}
               compileLogs={compileLogs}
               setCompileLogs={setCompileLogs}
-              centerSlot={!isRaspberryPi3 && !shareMode ? <FileTabs /> : null}
-              readOnly={shareMode ? false : readOnly}
+              centerSlot={!isRaspberryPi3 ? <FileTabs /> : null}
+              readOnly={readOnly}
             />
           </div>
           <div className="unified-toolbar-canvas" ref={setCanvasHeaderSlot} />
@@ -464,7 +464,7 @@ export const EditorPage: React.FC<{ readOnly?: boolean; shareMode?: boolean }> =
           }}
         >
           {/* File explorer sidebar + resize handle */}
-          {explorerOpen && !shareMode && (
+          {explorerOpen && (
             <>
               <div
                 style={{
@@ -543,7 +543,7 @@ export const EditorPage: React.FC<{ readOnly?: boolean; shareMode?: boolean }> =
               className="editor-wrapper"
               style={{ flex: 1, overflow: "hidden", minHeight: 0 }}
             >
-              {shareMode ? null : isRaspberryPi3 && activeBoardId ? (
+              {!shareMode && isRaspberryPi3 && activeBoardId ? (
                 <Suspense
                   fallback={
                     <div style={{ color: "#666", padding: 16, fontSize: 12 }}>

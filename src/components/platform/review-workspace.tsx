@@ -1,34 +1,26 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { useState, useTransition } from "react";
 import {
   HiArrowTopRightOnSquare,
   HiCheckCircle,
   HiClock,
   HiCodeBracket,
-  HiDocumentText,
   HiExclamationTriangle,
   HiFilm,
   HiPencilSquare,
   HiPhoto,
   HiPlay,
-  HiTrash,
   HiXCircle,
 } from "react-icons/hi2";
-import {
-  addProjectNote,
-  addUserNote,
-  deleteNote,
-  editNote,
-} from "@/actions/admin/notes";
 import {
   approveProject,
   rejectProject,
   requestChanges,
 } from "@/actions/admin/review";
 import { BreadAmount, BreadIcon } from "@/components/shared/bread-amount";
+import { storageReadUrl } from "@/lib/storage/urls";
 
 type ReviewProject = {
   id: number;
@@ -78,28 +70,6 @@ type Journal = {
   createdAt: Date;
 };
 
-const materialsChecklistItems = [
-  {
-    key: "readme_scope",
-    label: "README explains what the project is and why it is interesting",
-  },
-  {
-    key: "readme_usage",
-    label: "README explains how it works and how to use it",
-  },
-  { key: "schematic", label: "Clear wiring diagram/schematic is present" },
-  { key: "bom", label: "Bill of materials is present" },
-  { key: "firmware", label: "Firmware code file is present" },
-  { key: "public_code", label: "GitHub repo/code is public and original" },
-] as const;
-
-const demoChecklistItems = [
-  { key: "video", label: "Photo/video shows the physical project working" },
-  { key: "readme_video", label: "README includes final photo/video evidence" },
-  { key: "journal", label: "Build journaling shows incremental progress" },
-  { key: "kit_build", label: "Built with the shipped kit" },
-] as const;
-
 const verdictOptions = [
   { value: "approve", icon: HiCheckCircle, label: "Approve" },
   { value: "changes", icon: HiExclamationTriangle, label: "Changes needed" },
@@ -107,8 +77,10 @@ const verdictOptions = [
 ] as const;
 
 function safeUrl(value: string) {
+  const storageUrl = storageReadUrl(value);
+  if (storageUrl.startsWith("/")) return storageUrl;
   try {
-    const url = new URL(value);
+    const url = new URL(storageUrl);
     if (!["http:", "https:"].includes(url.protocol)) return null;
     return url.toString();
   } catch {
@@ -117,6 +89,7 @@ function safeUrl(value: string) {
 }
 
 function shouldOptimizeProjectImage(src: string) {
+  if (src.startsWith("/api/uploads/")) return false;
   try {
     const { hostname, protocol } = new URL(src);
     return (
@@ -128,20 +101,6 @@ function shouldOptimizeProjectImage(src: string) {
   }
 }
 
-function readmeUrl(codeUrl: string) {
-  const url = safeUrl(codeUrl);
-  if (!url) return null;
-  try {
-    const parsed = new URL(url);
-    const parts = parsed.pathname.split("/").filter(Boolean);
-    if (!parsed.hostname.includes("github.com") || parts.length < 2)
-      return null;
-    return `https://github.com/${parts[0]}/${parts[1]}#readme`;
-  } catch {
-    return null;
-  }
-}
-
 function daysAgo(date: Date | null) {
   if (!date) return "not shipped";
   const diff = Date.now() - new Date(date).getTime();
@@ -149,16 +108,6 @@ function daysAgo(date: Date | null) {
   if (days === 0) return "today";
   if (days === 1) return "1 day ago";
   return `${days} days ago`;
-}
-
-function timeAgo(date: Date) {
-  const diff = Date.now() - new Date(date).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
 }
 
 function ReviewScreenshotPreview({
@@ -173,19 +122,9 @@ function ReviewScreenshotPreview({
 
   if (showExample) {
     return (
-      <>
-        <Image
-          src="/assets/design.png"
-          alt="Example project preview"
-          fill
-          sizes="208px"
-          className="object-cover opacity-90"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/25 via-transparent to-transparent" />
-        <p className="absolute right-2 bottom-2 rounded-full border border-black bg-white px-2 py-0.5 text-[10px] font-black text-black shadow-[1px_1px_0_#000]">
-          Example image
-        </p>
-      </>
+      <div className="flex h-full w-full items-center justify-center bg-white text-[10px] font-black tracking-[0.16em] text-black/35 uppercase">
+        Add image here
+      </div>
     );
   }
 
@@ -237,76 +176,13 @@ function EvidenceButton({
   );
 }
 
-function SideNote({
-  note,
-  currentUserId,
-  onEdit,
-  onDelete,
-}: {
-  note: Note;
-  currentUserId: string;
-  onEdit: (id: number, content: string) => void;
-  onDelete: (id: number) => void;
-}) {
-  const isMine = note.authorId === currentUserId;
-  const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(note.content);
-  const [, startTransition] = useTransition();
-
-  return (
-    <div className="rounded-lg border border-black/8 bg-zinc-50 p-2.5">
-      <div className="mb-1.5 flex items-center justify-between gap-1">
-        <div className="flex items-center gap-1.5 text-[11px] text-black/40">
-          <span className="font-black text-black/55">{note.authorName}</span>
-          <span>{timeAgo(note.createdAt)}</span>
-        </div>
-        {isMine ? (
-          <div className="flex gap-0.5">
-            <button
-              type="button"
-              onClick={() => {
-                if (editing) {
-                  startTransition(() => onEdit(note.id, text));
-                  setEditing(false);
-                } else setEditing(true);
-              }}
-              className="rounded px-1.5 py-0.5 text-[11px] font-black text-zinc-400 hover:bg-white hover:text-black"
-            >
-              {editing ? "Save" : "Edit"}
-            </button>
-            <button
-              type="button"
-              onClick={() => (confirm("Delete?") ? onDelete(note.id) : null)}
-              className="rounded px-1.5 py-0.5 text-[11px] text-zinc-300 hover:bg-red-50 hover:text-red-600"
-            >
-              <HiTrash className="size-3" />
-            </button>
-          </div>
-        ) : null}
-      </div>
-      {editing ? (
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={2}
-          className="w-full rounded border border-black px-2 py-1 text-xs"
-        />
-      ) : (
-        <p className="text-xs leading-snug text-black/60 whitespace-pre-wrap">
-          {note.content}
-        </p>
-      )}
-    </div>
-  );
-}
-
 export function ReviewWorkspace({
   project: initial,
-  projectNotes: initialProjectNotes,
-  userNotes: initialUserNotes,
+  projectNotes: _initialProjectNotes,
+  userNotes: _initialUserNotes,
   journals,
-  currentUserId,
-  targetUserId,
+  currentUserId: _currentUserId,
+  targetUserId: _targetUserId,
   breadPerHour,
 }: {
   project: ReviewProject;
@@ -317,36 +193,18 @@ export function ReviewWorkspace({
   targetUserId: string;
   breadPerHour: number;
 }) {
-  const [tab, setTab] = useState<"verdict" | "readme">("verdict");
   const [verdict, setVerdict] = useState<"approve" | "changes" | "reject">(
     "approve",
   );
   const [approvedHours, setApprovedHours] = useState(
     initial.overrideHoursSpent ?? initial.hoursSpent,
   );
-  const [internalJustification, setInternalJustification] = useState(
-    initial.overrideHoursSpentJustification,
-  );
   const [userComment, setUserComment] = useState("");
   const [pending, startTransition] = useTransition();
-  const [projectNotes, setProjectNotes] = useState(initialProjectNotes);
-  const [userNotesState, setUserNotesState] = useState(initialUserNotes);
-  const [newProjectNote, setNewProjectNote] = useState("");
-  const [newUserNote, setNewUserNote] = useState("");
-  const activeChecklist =
-    initial.projectStatus === "demo_review"
-      ? demoChecklistItems
-      : materialsChecklistItems;
-  const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
-  const reviewChecks = activeChecklist.map((item) => ({
-    ...item,
-    passed: Boolean(checkedItems[item.key]),
-  }));
   const screenshot = safeUrl(initial.screenshotUrl);
   const playable = safeUrl(initial.playableUrl);
   const demoVideo = safeUrl(initial.demoVideoUrl);
   const code = safeUrl(initial.codeUrl);
-  const readme = readmeUrl(initial.codeUrl);
   const approvedBread =
     Math.max(0, Math.floor(approvedHours || 0)) * breadPerHour;
 
@@ -406,11 +264,6 @@ export function ReviewWorkspace({
               />
               <EvidenceButton href={code} label="Code" icon={HiCodeBracket} />
               <EvidenceButton
-                href={readme}
-                label="README"
-                icon={HiDocumentText}
-              />
-              <EvidenceButton
                 href={screenshot}
                 label="Screenshot"
                 icon={HiPhoto}
@@ -446,176 +299,115 @@ export function ReviewWorkspace({
           </div>
         </div>
 
-        <div className="flex border-b border-black/10 px-4 pt-3">
-          {(["verdict", "readme"] as const).map((name) => (
-            <button
-              key={name}
-              type="button"
-              onClick={() => setTab(name)}
-              className={`rounded-t-xl px-5 py-2.5 text-sm font-black capitalize ${
-                tab === name
-                  ? "bg-black text-white"
-                  : "text-zinc-400 hover:bg-zinc-100 hover:text-black"
-              }`}
-            >
-              {name}
-            </button>
-          ))}
-        </div>
-
         <div className="p-5">
-          {tab === "verdict" ? (
-            <div className="space-y-5">
-              <div className="grid gap-2 sm:grid-cols-3">
-                {verdictOptions.map(({ value, icon: Icon, label }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setVerdict(value)}
-                    className={`flex items-center justify-center gap-2 rounded-xl border border-black py-3 text-sm font-black ${
-                      verdict === value
-                        ? "bg-[#BD0F32] text-white"
-                        : "bg-white text-black hover:bg-zinc-50"
-                    }`}
-                  >
-                    <Icon className="size-5" />
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {verdict === "approve" ? (
-                <div className="grid gap-4">
-                  <label className="grid gap-1.5">
-                    <span className="text-xs font-black tracking-[0.14em] text-black/40 uppercase">
-                      Approved hours
-                    </span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={approvedHours}
-                      onChange={(e) => setApprovedHours(Number(e.target.value))}
-                      className="rounded-xl border border-black bg-white px-4 py-3 text-xl font-black"
-                    />
-                    <span className="text-sm font-black text-[#BD0F32]">
-                      Awards <BreadAmount amount={approvedBread} /> (
-                      {approvedHours || 0}h × {breadPerHour})
-                    </span>
-                  </label>
-                  <label className="grid gap-1.5">
-                    <span className="text-xs font-black tracking-[0.14em] text-black/40 uppercase">
-                      Review justification · internal only
-                    </span>
-                    <textarea
-                      value={internalJustification}
-                      onChange={(e) => setInternalJustification(e.target.value)}
-                      rows={12}
-                      placeholder="Explain scope, deliverables, evidence reviewed, commit history, hour adjustments, README context, and project quality. Be thorough for >8hr projects."
-                      className="rounded-xl border border-black bg-white px-4 py-3 text-sm leading-relaxed"
-                    />
-                  </label>
-                  <label className="grid gap-1.5">
-                    <span className="text-xs font-black tracking-[0.14em] text-black/40 uppercase">
-                      Comment to user · optional, visible to them
-                    </span>
-                    <textarea
-                      value={userComment}
-                      onChange={(e) => setUserComment(e.target.value)}
-                      rows={3}
-                      className="rounded-xl border border-black bg-white px-4 py-3 text-sm"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    disabled={pending || initial.status !== "pending_review"}
-                    onClick={() =>
-                      run(() =>
-                        approveProject(
-                          initial.id,
-                          approvedHours,
-                          internalJustification,
-                          userComment,
-                          reviewChecks,
-                        ),
-                      )
-                    }
-                    className="rounded-xl bg-[#BD0F32] py-4 text-sm font-black text-white hover:bg-black disabled:opacity-50"
-                  >
-                    {initial.projectStatus === "demo_review" ? (
-                      <span className="inline-flex items-center gap-0.5">
-                        Approve demo ·{" "}
-                        <BreadAmount amount={approvedBread} size="sm" />
-                      </span>
-                    ) : (
-                      "Approve materials · send kit"
-                    )}
-                  </button>
-                </div>
-              ) : (
-                <div className="grid gap-3">
-                  <label className="grid gap-1.5">
-                    <span className="text-xs font-black tracking-[0.14em] text-black/40 uppercase">
-                      {verdict === "reject"
-                        ? "Rejection reason"
-                        : "What needs to be changed"}
-                    </span>
-                    <textarea
-                      value={userComment}
-                      onChange={(e) => setUserComment(e.target.value)}
-                      rows={8}
-                      className="rounded-xl border border-black bg-white px-4 py-3 text-sm"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    disabled={pending}
-                    onClick={() =>
-                      run(() =>
-                        verdict === "reject"
-                          ? rejectProject(initial.id, userComment, reviewChecks)
-                          : requestChanges(
-                              initial.id,
-                              userComment,
-                              reviewChecks,
-                            ),
-                      )
-                    }
-                    className="rounded-xl border border-black bg-white py-3.5 text-sm font-black text-black hover:bg-black hover:text-white disabled:opacity-50"
-                  >
-                    {verdict === "reject"
-                      ? "Reject permanently"
-                      : "Request changes"}
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-black/10 bg-zinc-50 p-5">
-              <div className="flex items-center gap-2">
-                <HiDocumentText className="size-5 text-[#BD0F32]" />
-                <h3 className="text-lg font-black text-black">README</h3>
-              </div>
-              <p className="mt-2 text-sm text-black/55">
-                Open the GitHub README to verify scope, commit history, and
-                claimed hours.
-              </p>
-              {readme ? (
-                <a
-                  href={readme}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-4 inline-flex items-center gap-2 rounded-xl bg-black px-5 py-3 text-sm font-black text-white no-underline hover:bg-[#BD0F32]"
+          <div className="space-y-5">
+            <div className="grid gap-2 sm:grid-cols-3">
+              {verdictOptions.map(({ value, icon: Icon, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setVerdict(value)}
+                  className={`flex items-center justify-center gap-2 rounded-xl border border-black py-3 text-sm font-black ${
+                    verdict === value
+                      ? "bg-[#BD0F32] text-white"
+                      : "bg-white text-black hover:bg-zinc-50"
+                  }`}
                 >
-                  Open README
-                  <HiArrowTopRightOnSquare className="size-4 opacity-60" />
-                </a>
-              ) : (
-                <p className="mt-4 text-sm font-black text-[#BD0F32]">
-                  No GitHub URL found.
-                </p>
-              )}
+                  <Icon className="size-5" />
+                  {label}
+                </button>
+              ))}
             </div>
-          )}
+
+            {verdict === "approve" ? (
+              <div className="grid gap-4">
+                <label className="grid gap-1.5">
+                  <span className="text-xs font-black tracking-[0.14em] text-black/40 uppercase">
+                    Approved hours
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={approvedHours}
+                    onChange={(e) => setApprovedHours(Number(e.target.value))}
+                    className="rounded-xl border border-black bg-white px-4 py-3 text-xl font-black"
+                  />
+                  <span className="text-sm font-black text-[#BD0F32]">
+                    Awards <BreadAmount amount={approvedBread} /> (
+                    {approvedHours || 0}h × {breadPerHour})
+                  </span>
+                </label>
+                <label className="grid gap-1.5">
+                  <span className="text-xs font-black tracking-[0.14em] text-black/40 uppercase">
+                    Comment to user
+                  </span>
+                  <textarea
+                    value={userComment}
+                    onChange={(e) => setUserComment(e.target.value)}
+                    rows={3}
+                    className="rounded-xl border border-black bg-white px-4 py-3 text-sm"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={pending || initial.status !== "pending_review"}
+                  onClick={() =>
+                    run(() =>
+                      approveProject(
+                        initial.id,
+                        approvedHours,
+                        "",
+                        userComment,
+                        [],
+                      ),
+                    )
+                  }
+                  className="rounded-xl bg-[#BD0F32] py-4 text-sm font-black text-white hover:bg-black disabled:opacity-50"
+                >
+                  {initial.projectStatus === "demo_review" ? (
+                    <span className="inline-flex items-center gap-0.5">
+                      Approve demo ·{" "}
+                      <BreadAmount amount={approvedBread} size="sm" />
+                    </span>
+                  ) : (
+                    "Approve materials · send kit"
+                  )}
+                </button>
+              </div>
+            ) : (
+              <div className="grid gap-3">
+                <label className="grid gap-1.5">
+                  <span className="text-xs font-black tracking-[0.14em] text-black/40 uppercase">
+                    {verdict === "reject"
+                      ? "Rejection reason"
+                      : "What needs to be changed"}
+                  </span>
+                  <textarea
+                    value={userComment}
+                    onChange={(e) => setUserComment(e.target.value)}
+                    rows={8}
+                    className="rounded-xl border border-black bg-white px-4 py-3 text-sm"
+                  />
+                </label>
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() =>
+                    run(() =>
+                      verdict === "reject"
+                        ? rejectProject(initial.id, userComment, [])
+                        : requestChanges(initial.id, userComment, []),
+                    )
+                  }
+                  className="rounded-xl border border-black bg-white py-3.5 text-sm font-black text-black hover:bg-black hover:text-white disabled:opacity-50"
+                >
+                  {verdict === "reject"
+                    ? "Reject permanently"
+                    : "Request changes"}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
@@ -629,7 +421,7 @@ export function ReviewWorkspace({
           </p>
           <div className="mt-3 space-y-2 text-sm text-white/65">
             <div className="flex justify-between">
-              <span>Hours claimed</span>
+              <span>Hours tracked</span>
               <span className="font-black text-white">
                 {initial.hoursSpent}h
               </span>
@@ -637,10 +429,10 @@ export function ReviewWorkspace({
             <div className="flex justify-between">
               <span className="inline-flex items-center gap-1">
                 <BreadIcon />
-                Bread possible
+                Award
               </span>
               <span className="font-black text-white">
-                {initial.hoursSpent * breadPerHour}
+                <BreadAmount amount={approvedBread} />
               </span>
             </div>
             {initial.overrideHoursSpent ? (
@@ -690,12 +482,28 @@ export function ReviewWorkspace({
             <HiClock className="size-5 text-[#BD0F32]" />
             Currency
           </div>
-          <p className="mt-3 text-3xl font-black text-black">
+          <p className="mt-2 text-xs font-bold uppercase tracking-[0.1em] text-black/40">
+            Award
+          </p>
+          <p className="text-3xl font-black text-black">
             <BreadAmount amount={approvedBread} size="lg" />
           </p>
-          <p className="mt-1 text-sm text-black/45">
+          <p className="mt-1 text-sm text-black/55">
             {approvedHours || 0}h × {breadPerHour}
           </p>
+          <div className="mt-3 space-y-1.5 border-t border-black/10 pt-3">
+            <p className="text-xs font-bold uppercase tracking-[0.1em] text-black/40">
+              Default
+            </p>
+            <p className="text-base font-black text-black/60">
+              {initial.hoursSpent}h × {breadPerHour} ={" "}
+              <BreadAmount amount={initial.hoursSpent * breadPerHour} />
+            </p>
+            <p className="text-[10px] font-bold text-black/35">
+              Server-tracked hours. This value will be the default for demo
+              review.
+            </p>
+          </div>
         </section>
 
         <section className="rounded-[16px] border border-black bg-white p-4 shadow-[4px_4px_0_#000]">

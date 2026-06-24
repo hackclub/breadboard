@@ -1,7 +1,8 @@
 import { desc, eq } from "drizzle-orm";
 import Image from "next/image";
 import Link from "next/link";
-import { HiArrowRight, HiHandRaised, HiPencilSquare } from "react-icons/hi2";
+import { FaHandPeace } from "react-icons/fa6";
+import { HiArrowRight, HiPencilSquare } from "react-icons/hi2";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { Badge } from "@/components/ui/badge";
 import { buttonClass } from "@/components/ui/button";
@@ -16,7 +17,7 @@ const helpCards = [
   {
     title: "Plan the circuit",
     href: "/get-started",
-    image: "/assets/design.png",
+    image: null,
   },
   { title: "Use the guides", href: "/guides", image: "/assets/Build.png" },
   {
@@ -34,8 +35,8 @@ export default async function PlatformDashboardPage() {
       <main className="max-w-3xl">
         <Surface>
           <div className="flex items-center gap-3">
-            <HiHandRaised className="size-7 text-[#BD0F32]" />
-            <h1 className="text-3xl font-black text-black">Welcome</h1>
+            <FaHandPeace className="size-7 text-[#BD0F32]" />
+            <h1 className="text-3xl font-black text-black">Sup</h1>
           </div>
           <p className="mt-3 text-sm leading-relaxed text-black/60">
             Log in to see your projects and continue building.
@@ -68,9 +69,9 @@ export default async function PlatformDashboardPage() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-3">
-                <HiHandRaised className="size-7 text-[#BD0F32]" />
+                <FaHandPeace className="size-7 text-[#BD0F32]" />
                 <h1 className="text-3xl font-black text-black">
-                  Welcome, {session.user.name}
+                  Sup {session.user.name?.split(" ")[0]}
                 </h1>
               </div>
             </div>
@@ -202,13 +203,19 @@ export default async function PlatformDashboardPage() {
                 className="grid grid-cols-[92px_1fr] text-black no-underline"
               >
                 <div className="relative min-h-24 bg-[#f4f4f4]">
-                  <Image
-                    src={card.image}
-                    alt=""
-                    fill
-                    sizes="92px"
-                    className="object-cover transition group-hover:scale-105"
-                  />
+                  {card.image ? (
+                    <Image
+                      src={card.image}
+                      alt=""
+                      fill
+                      sizes="92px"
+                      className="object-cover transition group-hover:scale-105"
+                    />
+                  ) : (
+                    <div className="flex h-full min-h-24 w-full items-center justify-center bg-white px-2 text-center text-[10px] font-black tracking-[0.12em] text-black/35 uppercase">
+                      Add image here
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center p-4">
                   <p className="text-lg font-black leading-tight">

@@ -60,9 +60,13 @@ export default async function FulfillmentPage({
       Number.isInteger(skippedOrderId) && skippedOrderId > 0
         ? and(
             inArray(orders.status, ["being_fulfilled", "pending"]),
+            eq(orders.source, "project_kit"),
             ne(orders.id, skippedOrderId),
           )
-        : inArray(orders.status, ["being_fulfilled", "pending"]),
+        : and(
+            inArray(orders.status, ["being_fulfilled", "pending"]),
+            eq(orders.source, "project_kit"),
+          ),
     )
     .orderBy(asc(orders.status), asc(orders.createdAt))
     .limit(1);

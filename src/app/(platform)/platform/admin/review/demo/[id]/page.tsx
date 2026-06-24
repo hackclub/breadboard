@@ -60,7 +60,7 @@ export default async function AdminDemoReviewPage({
       firstName: projectSubmissions.firstName,
       lastName: projectSubmissions.lastName,
       hoursSpent: projectSubmissions.hoursSpent,
-      overrideHoursSpent: projectSubmissions.approvedHours,
+      overrideHoursSpent: projects.overrideHoursSpent,
       overrideHoursSpentJustification: projectSubmissions.internalNote,
       status: projectSubmissions.status,
       projectStatus: projects.status,

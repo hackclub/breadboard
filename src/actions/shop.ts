@@ -18,6 +18,7 @@ import type {
   OrderStatusFormState,
   ShippingAddress,
 } from "@/types";
+import { shopOpen } from "@/flags";
 
 const SHIPPING_FIELD_LIMIT = 120;
 const PRODUCT_TEXT_LIMIT = 500;
@@ -175,6 +176,9 @@ export async function placeOrder(
   address: ShippingAddress,
 ) {
   const session = await requireSession();
+  if (!(await shopOpen())) {
+    throw new Error("The shop is closed right now. Project kits still work.");
+  }
   const shippingAddress = normalizeAddress(address);
 
   const normalizedItems = checkoutItems
@@ -488,6 +492,9 @@ export async function cancelOrder(orderId: number) {
 
   const order = existingOrder[0];
   if (!order) throw new Error("Order not found");
+  if (order.source === "project_kit") {
+    throw new Error("Project kit orders cannot be cancelled.");
+  }
   if (order.status !== "pending")
     throw new Error("Only pending orders can be cancelled");
 

@@ -173,11 +173,30 @@ async function OrderCard({ orderId }: { orderId: number }) {
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-black/10 px-5 py-4">
         <p className="text-sm text-black/55">
-          {o.status === "pending"
-            ? "Not fulfilled yet. You can still cancel this order."
-            : "This order can no longer be cancelled from the store."}
+          {o.source === "project_kit"
+            ? "Track your order here. Project kits cannot be cancelled."
+            : o.status === "pending"
+              ? "Not fulfilled yet. You can still cancel this order."
+              : "This order can no longer be cancelled from the store."}
         </p>
-        {o.status === "pending" ? <CancelOrderButton orderId={o.id} /> : null}
+        {o.source === "project_kit" ? (
+          o.trackingInfo ? (
+            <a
+              href={o.trackingInfo}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-full border border-black bg-white px-4 py-2 text-sm font-bold text-black no-underline transition hover:bg-black hover:text-white"
+            >
+              Track your order
+            </a>
+          ) : (
+            <span className="text-xs font-bold text-black/35">
+              No tracking yet
+            </span>
+          )
+        ) : o.status === "pending" ? (
+          <CancelOrderButton orderId={o.id} />
+        ) : null}
       </div>
     </div>
   );

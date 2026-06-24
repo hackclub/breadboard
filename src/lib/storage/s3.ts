@@ -1,6 +1,10 @@
 import "server-only";
 
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const endpoint = process.env.S3_ENDPOINT ?? "https://silo.deployor.dev";
@@ -38,8 +42,37 @@ export async function createPresignedPutUrl({
   });
 
   const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 60 });
+  const readUrl = await createPresignedGetUrl(key);
   return {
     uploadUrl,
-    publicUrl: `${publicBaseUrl.replace(/\/$/, "")}/${key}`,
+    publicUrl: readUrl,
   };
+}
+
+export async function createPresignedGetUrl(key: string) {
+  const command = new GetObjectCommand({ Bucket: bucket, Key: key });
+  return await getSignedUrl(s3, command, { expiresIn: 5 * 60 });
+}
+
+export async function getStorageObject(key: string) {
+  return await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+}
+
+export function storageKeyFromUrl(value: string) {
+  if (value.startsWith("/demo/")) {
+    return `project-demo-videos/${decodeURIComponent(value.slice("/demo/".length))}`;
+  }
+  if (value.startsWith("/api/uploads/")) {
+    return decodeURIComponent(value.slice("/api/uploads/".length));
+  }
+  try {
+    const url = new URL(value);
+    const publicPrefix = new URL(publicBaseUrl.replace(/\/$/, "/"));
+    if (url.origin !== publicPrefix.origin) return null;
+    const prefixPath = publicPrefix.pathname.replace(/\/$/, "");
+    if (!url.pathname.startsWith(`${prefixPath}/`)) return null;
+    return decodeURIComponent(url.pathname.slice(prefixPath.length + 1));
+  } catch {
+    return null;
+  }
 }

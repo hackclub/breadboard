@@ -8,6 +8,7 @@ import { products } from "@/lib/db/schema";
 import { AddToCartButton, ShopCart } from "@/components/platform/shop-cart";
 import { ShopTabs } from "./_nav";
 import { BreadAmount } from "@/components/shared/bread-amount";
+import { shopOpen } from "@/flags";
 
 export default async function PlatformShopPage() {
   const session = await getSession();
@@ -40,6 +41,7 @@ export default async function PlatformShopPage() {
     .select()
     .from(products)
     .where(eq(products.active, true));
+  const isShopOpen = await shopOpen();
 
   return (
     <>
@@ -47,7 +49,9 @@ export default async function PlatformShopPage() {
         <div className="mt-3 flex flex-wrap items-center justify-between gap-5">
           <ShopTabs active="shop" />
           <p className="rounded-full border border-black bg-white px-4 py-2 text-sm font-bold text-black/70 shadow-[3px_3px_0_#000]">
-            Spend bread you earned from building projects
+            {isShopOpen
+              ? "Spend bread you earned from building projects"
+              : "Shop orders are closed for now. Project kits still work."}
           </p>
         </div>
       </PageHero>
@@ -122,6 +126,7 @@ export default async function PlatformShopPage() {
                     imageUrl={product.imageUrl}
                     price={product.price}
                     stock={product.stock}
+                    shopOpen={isShopOpen}
                   />
                 </div>
               </div>
@@ -129,7 +134,7 @@ export default async function PlatformShopPage() {
           ))}
         </div>
       </section>
-      <ShopCart />
+      <ShopCart shopOpen={isShopOpen} />
     </>
   );
 }

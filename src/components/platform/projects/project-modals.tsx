@@ -21,20 +21,6 @@ type ProjectPatch = Partial<Project> & Pick<Project, "id">;
 
 const initialProjectFormState: ProjectFormState = { success: false };
 
-const shipFields = [
-  ["email", "Email"],
-  ["codeUrl", "Published GitHub repo / README URL"],
-  ["firstName", "First Name"],
-  ["lastName", "Last Name"],
-  ["birthday", "Birthday"],
-  ["addressLine1", "Address line 1"],
-  ["addressLine2", "Address line 2"],
-  ["city", "City"],
-  ["region", "State / Province"],
-  ["country", "Country"],
-  ["postalCode", "ZIP / Postal Code"],
-] as const;
-
 type ProjectActionModalProps = {
   project: Project;
   onClose: () => void;
@@ -345,6 +331,9 @@ export function ShipProjectModal({
   }, [state, onShipped, onClose]);
   const formId = `ship-project-form-${project.id}`;
   const hasScreenshot = project.screenshotUrl.length > 0;
+  const hasGitHubRepo = project.codeUrl.length > 0;
+  const hasTitle = project.title.trim().length > 0;
+  const hasDescription = project.description.trim().length > 0;
 
   if (!hasScreenshot) {
     return (
@@ -377,6 +366,46 @@ export function ShipProjectModal({
     );
   }
 
+  if (!hasGitHubRepo || !hasTitle || !hasDescription) {
+    return (
+      <Modal
+        open
+        onClose={onClose}
+        eyebrow="Submit design"
+        title={project.title}
+        maxWidth="lg"
+        tone="red"
+      >
+        <div className="grid gap-4">
+          <p className="text-sm font-semibold text-black/60">
+            Finish these before submitting your design for review.
+          </p>
+          <SubmitRequirement done={hasTitle} label="Project name is saved" />
+          <SubmitRequirement
+            done={hasDescription}
+            label="Project description is saved"
+          />
+          <SubmitRequirement
+            done={hasGitHubRepo}
+            label="GitHub repo is published from the editor"
+          />
+          <SubmitRequirement
+            done
+            label={`Demo share link will be /share/${project.id}`}
+          />
+          <SubmitRequirement done label="Hack Club Auth address is valid" />
+          <Button
+            tone="paper"
+            className="justify-self-center rounded-full px-8"
+            onClick={onClose}
+          >
+            Got it
+          </Button>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <Modal
       open
@@ -394,46 +423,43 @@ export function ShipProjectModal({
         />
       }
     >
-      <form
-        id={formId}
-        action={formAction}
-        className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
-      >
+      <form id={formId} action={formAction} className="grid gap-4">
         <input type="hidden" name="projectId" value={project.id} />
         <input
           type="hidden"
           name="screenshotUrl"
           value={project.screenshotUrl}
         />
-        <div className="rounded-xl border border-black bg-[#f4f4f4] p-3 text-sm font-black text-black md:col-span-2 xl:col-span-3">
-          {project.hoursSpent}h tracked. Use Publish in the editor to create a
-          GitHub repo with your README, schematic snapshot, BOM, and firmware.
+        <div className="grid gap-3 rounded-xl border border-black bg-[#f4f4f4] p-4 text-sm font-bold text-black">
+          <SubmitRequirement done label="Project name is saved" />
+          <SubmitRequirement done label="Project description is saved" />
+          <SubmitRequirement done label="Screenshot is uploaded" />
+          <SubmitRequirement done label="GitHub repo is published" />
+          <SubmitRequirement
+            done
+            label={`Demo share link: /share/${project.id}`}
+          />
+          <SubmitRequirement done label="Hack Club Auth address is valid" />
         </div>
-        {shipFields.map(([key, label]) => (
-          <FormField
-            key={key}
-            label={label}
-            id={`${formId}-${key}`}
-            className="gap-1"
-          >
-            <Input
-              id={`${formId}-${key}`}
-              name={key}
-              defaultValue={String(project[key])}
-              required={key !== "addressLine2"}
-              type={
-                key === "email" ? "email" : key === "birthday" ? "date" : "text"
-              }
-              className="py-2"
-            />
-          </FormField>
-        ))}
-        <ProjectActionMessage
-          message={state.message}
-          className="md:col-span-2 xl:col-span-3"
-        />
+        <ProjectActionMessage message={state.message} />
       </form>
     </Modal>
+  );
+}
+
+function SubmitRequirement({ done, label }: { done: boolean; label: string }) {
+  return (
+    <div className="flex items-center gap-2 text-sm font-black text-black">
+      <span
+        className={cn(
+          "grid size-5 place-items-center rounded-full border border-black text-[10px]",
+          done ? "bg-green-200" : "bg-white text-black/40",
+        )}
+      >
+        {done ? "✓" : ""}
+      </span>
+      {label}
+    </div>
   );
 }
 

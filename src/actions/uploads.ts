@@ -37,15 +37,17 @@ export async function createProjectDemoVideoUpload(
   projectId: number,
   contentType: string,
 ) {
-  const session = await requireSession();
+  await requireSession();
   const id = Number(projectId);
   if (!Number.isInteger(id) || id < 1) throw new Error("Invalid project");
 
   const extension = videoContentTypes.get(contentType);
   if (!extension) throw new Error("Upload an MP4, WebM, or MOV video.");
+  const demoPath = `${id}/${randomUUID()}.${extension}`;
 
-  return createPresignedPutUrl({
-    key: `project-demo-videos/${session.user.id}/${id}/${randomUUID()}.${extension}`,
+  const upload = await createPresignedPutUrl({
+    key: `project-demo-videos/${demoPath}`,
     contentType,
   });
+  return { ...upload, publicUrl: `/demo/${demoPath}` };
 }

@@ -1,16 +1,24 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { audit } from "@/lib/audit";
 import { getSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
-import { account, projects } from "@/lib/db/schema";
+import {
+  account,
+  editorActivitySessions,
+  projectJournals,
+  projects,
+} from "@/lib/db/schema";
 import {
   enforceSameOrigin,
   hasAllowedContentLength,
 } from "@/lib/editor/security";
+import { GITHUB_PUBLISH_PROVIDER_ID } from "@/lib/github/oauth";
 
 type GitHubUser = { login: string };
 type GitHubRepo = { html_url: string; full_name: string };
 type GitHubContent = { sha?: string };
+type GitHubError = Error & { status?: number };
 
 const GITHUB_HEADERS = {
   Accept: "application/vnd.github+json",
@@ -25,9 +33,11 @@ function slugify(value: string) {
   return (
     value
       .toLowerCase()
-      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
-      .slice(0, 70) || "breadboard-project"
+      .replace(/-{2,}/g, "-")
+      .slice(0, 80)
+      .replace(/-+$/g, "") || "breadboard-project"
   );
 }
 
@@ -53,6 +63,14 @@ function optionalUrl(value: unknown) {
   return parsed.toString();
 }
 
+function optionalPublicUrl(value: unknown, origin: string) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("/demo/")) return `${origin}${trimmed}`;
+  return optionalUrl(trimmed);
+}
+
 function encodeBase64(content: string) {
   return Buffer.from(content, "utf8").toString("base64");
 }
@@ -74,8 +92,19 @@ async function github<T>(token: string, path: string, init: RequestInit = {}) {
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as {
       message?: string;
+      errors?: Array<{ message?: string; field?: string; code?: string }>;
     } | null;
-    throw new Error(body?.message ?? `GitHub request failed: ${res.status}`);
+    const details = body?.errors
+      ?.map((item) => item.message ?? item.field ?? item.code)
+      .filter(Boolean)
+      .join("; ");
+    const err = new Error(
+      [body?.message ?? `GitHub request failed: ${res.status}`, details]
+        .filter(Boolean)
+        .join(" "),
+    ) as GitHubError;
+    err.status = res.status;
+    throw err;
   }
 
   return (await res.json()) as T;
@@ -132,6 +161,74 @@ async function putFile({
   );
 }
 
+async function createUniqueRepo({
+  token,
+  owner,
+  baseName,
+  description,
+}: {
+  token: string;
+  owner: string;
+  baseName: string;
+  description: string;
+}) {
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    const suffix = attempt === 1 ? "" : `-${attempt}`;
+    const name = `${baseName.slice(0, 100 - suffix.length)}${suffix}`;
+    try {
+      const repo = await github<GitHubRepo>(token, "/user/repos", {
+        method: "POST",
+        body: JSON.stringify({
+          name,
+          description,
+          private: false,
+          auto_init: false,
+        }),
+      });
+      return { repo, existed: false };
+    } catch (err) {
+      const message = err instanceof Error ? err.message.toLowerCase() : "";
+      const status = (err as GitHubError).status;
+      if (status !== 422) throw err;
+
+      const existing = await getRepoIfExists(token, owner, name);
+      if (existing) return { repo: existing, existed: true };
+
+      if (!message.includes("name already exists")) throw err;
+    }
+  }
+  throw new Error(
+    `Could not find an available repository name for ${baseName}`,
+  );
+}
+
+async function getRepoIfExists(token: string, owner: string, repo: string) {
+  const res = await fetch(
+    `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+    {
+      headers: {
+        ...GITHUB_HEADERS,
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
+  return (await res.json()) as GitHubRepo;
+}
+
+function parseGitHubRepoUrl(value: string) {
+  try {
+    const url = new URL(value);
+    if (url.hostname !== "github.com") return null;
+    const [owner, repo] = url.pathname.split("/").filter(Boolean);
+    if (!owner || !repo) return null;
+    return { owner, repo: repo.replace(/\.git$/, "") };
+  } catch {
+    return null;
+  }
+}
+
 function flattenFiles(
   fileGroups: unknown,
 ): Array<{ name: string; content: string }> {
@@ -178,55 +275,69 @@ function buildReadme({
   description,
   demoUrl,
   videoUrl,
+  screenshotUrl,
   editorData,
+  hours,
+  journals,
 }: {
   title: string;
   description: string;
   demoUrl: string;
   videoUrl: string;
+  screenshotUrl: string;
   editorData: Record<string, unknown> | null;
+  hours: number;
+  journals: Array<{ content: string; createdAt: Date }>;
 }) {
-  return `# ${title}
+  const desc = description || title;
+  const section = (heading: string, body: string) =>
+    body.trim() ? `## ${heading}\n\n${body.trim()}\n` : "";
 
-${description || "Describe what your project is and what makes it interesting."}
+  const journalSection = journals.length
+    ? `## Build Journal\n\n${journals
+        .map(
+          (j) =>
+            `> ${new Date(j.createdAt).toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            })}\n\n${j.content}`,
+        )
+        .join("\n\n---\n\n")}\n`
+    : "";
 
-## What It Does
+  const bom = buildBom(editorData);
 
-Explain the goal of the project, what inputs it uses, and what outputs it controls.
-
-## How It Works
-
-Describe the circuit, firmware, and any important design decisions.
-
-## How To Use It
-
-1. Wire the project using the schematic in this repository.
-2. Upload the firmware from the \`firmware/\` folder.
-3. Power the board and test each input/output.
-
-## Demo
-
-${demoUrl ? `Try it here: ${demoUrl}` : "Add a playable/demo link here if you have one."}
-
-${videoUrl ? `Video: ${videoUrl}` : "Add a photo/video of the physical build here after the kit arrives."}
-
-## Wiring / Schematic
-
-The editor snapshot is saved in \`breadboard-project.json\`. Add an exported image or screenshot here before final review.
-
-## Bill of Materials
-
-${buildBom(editorData)}
-
-## Firmware
-
-Firmware files are in \`firmware/\`.
-
-## Build Journal
-
-- Initial project published from Breadboard.
-- Add notes, photos, and debugging discoveries as you build.
-`;
+  return [
+    `# ${title}`,
+    "",
+    desc,
+    `\n> Built in [Breadboard](https://breadboard.hackclub.com), a Hack Club program. This project took ~${hours} hours of work.`,
+    "",
+    section(
+      "Demo",
+      [
+        demoUrl ? `- **Try it:** [${demoUrl}](${demoUrl})` : "",
+        videoUrl ? `- **Video:** ${videoUrl}` : "",
+        screenshotUrl ? `\n![${title} screenshot](${screenshotUrl})` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    ),
+    section(
+      "Schematic",
+      `The editor snapshot is in \`breadboard-project.json\`.`,
+    ),
+    section("Bill of Materials", bom),
+    section("Firmware", "Firmware files are in the `firmware/` folder."),
+    journalSection,
+    "---",
+    "",
+    `*Made in [Breadboard](https://breadboard.hackclub.com) — ${hours}h of work*`,
+  ]
+    .join("\n\n")
+    .trim();
 }
 
 export async function POST(
@@ -245,11 +356,20 @@ export async function POST(
   const [project] = await db
     .select()
     .from(projects)
-    .where(
-      and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
-    )
+    .where(eq(projects.id, projectId))
     .limit(1);
   if (!project) return error("Project not found", 404);
+  if (project.userId !== session.user.id) {
+    return error("You can only publish your own projects", 403);
+  }
+
+  if (!process.env.GITHUB_CLIENT_ID || !process.env.GITHUB_CLIENT_SECRET) {
+    await audit("github.publish.missing_config", "project", String(projectId));
+    return error(
+      "GitHub OAuth is not configured. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.",
+      503,
+    );
+  }
 
   const [githubAccount] = await db
     .select({ accessToken: account.accessToken })
@@ -257,12 +377,13 @@ export async function POST(
     .where(
       and(
         eq(account.userId, session.user.id),
-        eq(account.providerId, "github"),
+        eq(account.providerId, GITHUB_PUBLISH_PROVIDER_ID),
       ),
     )
     .limit(1);
 
   if (!githubAccount?.accessToken) {
+    await audit("github.publish.needs_auth", "project", String(projectId));
     return NextResponse.json({ needsGitHubAuth: true }, { status: 409 });
   }
 
@@ -270,51 +391,97 @@ export async function POST(
     string,
     unknown
   >;
+  const origin = new URL(request.url).origin;
   let videoUrl = "";
   try {
-    videoUrl = optionalUrl(body.videoUrl);
+    videoUrl = optionalPublicUrl(body.videoUrl, origin);
+    if (!videoUrl) videoUrl = optionalPublicUrl(project.demoVideoUrl, origin);
   } catch (err) {
     return error(err instanceof Error ? err.message : "Invalid URL", 400);
   }
-  const origin = new URL(request.url).origin;
   const demoUrl = `${origin}/share/${projectId}`;
   const editorData = project.editorData
     ? (JSON.parse(project.editorData) as Record<string, unknown>)
     : null;
-  const repoName = slugify(`${project.title}-${project.id}`);
-  const ghUser = await github<GitHubUser>(githubAccount.accessToken, "/user");
+  await audit("github.publish.attempt", "project", String(projectId), {
+    storedRepoUrl: project.codeUrl || null,
+  });
 
   let repo: GitHubRepo;
+  let repoExisted = false;
+  let repoName = "";
   try {
-    repo = await github<GitHubRepo>(githubAccount.accessToken, "/user/repos", {
-      method: "POST",
-      body: JSON.stringify({
-        name: repoName,
-        description:
-          project.description || `Breadboard project: ${project.title}`,
-        private: false,
-        auto_init: false,
-      }),
-    });
+    const baseRepoName = slugify(project.title);
+    const ghUser = await github<GitHubUser>(githubAccount.accessToken, "/user");
+    const storedRepo = parseGitHubRepoUrl(project.codeUrl);
+    const reusableRepo = storedRepo
+      ? await getRepoIfExists(
+          githubAccount.accessToken,
+          storedRepo.owner,
+          storedRepo.repo,
+        )
+      : null;
+    const resolved = reusableRepo
+      ? { repo: reusableRepo, existed: true }
+      : await createUniqueRepo({
+          token: githubAccount.accessToken,
+          owner: ghUser.login,
+          baseName: baseRepoName,
+          description:
+            project.description || `Breadboard project: ${project.title}`,
+        });
+    repo = resolved.repo;
+    repoExisted = resolved.existed;
+    repoName = repo.full_name.split("/").pop() ?? baseRepoName;
   } catch (err) {
-    const message = err instanceof Error ? err.message : "";
-    if (!message.toLowerCase().includes("name already exists")) throw err;
-    repo = await github<GitHubRepo>(
-      githubAccount.accessToken,
-      `/repos/${ghUser.login}/${repoName}`,
-    );
+    const message =
+      err instanceof Error ? err.message : "GitHub publish failed";
+    await audit("github.publish.failure", "project", String(projectId), {
+      message,
+      storedRepoUrl: project.codeUrl || null,
+    });
+    return error(message, (err as GitHubError).status === 422 ? 422 : 502);
   }
+
+  const [journals, activityTotal] = await Promise.all([
+    db
+      .select({
+        content: projectJournals.content,
+        createdAt: projectJournals.createdAt,
+      })
+      .from(projectJournals)
+      .where(eq(projectJournals.projectId, projectId))
+      .orderBy(asc(projectJournals.createdAt)),
+    db
+      .select({ seconds: editorActivitySessions.activeSeconds })
+      .from(editorActivitySessions)
+      .where(eq(editorActivitySessions.projectId, projectId)),
+  ]);
+  const totalSeconds = activityTotal.reduce(
+    (sum, row) => sum + (row.seconds ?? 0),
+    0,
+  );
+  const hours = Math.max(
+    1,
+    Math.round(
+      (project.hoursSpent > 0 ? project.hoursSpent : totalSeconds / 3600) * 10,
+    ) / 10,
+  );
 
   const readme = buildReadme({
     title: project.title,
     description: project.description,
     demoUrl,
     videoUrl,
+    screenshotUrl: project.screenshotUrl,
     editorData,
+    hours,
+    journals,
   });
+  const repoOwner = repo.full_name.split("/")[0] ?? "";
   await putFile({
     token: githubAccount.accessToken,
-    owner: ghUser.login,
+    owner: repoOwner,
     repo: repoName,
     path: "README.md",
     content: readme,
@@ -324,7 +491,7 @@ export async function POST(
   if (editorData) {
     await putFile({
       token: githubAccount.accessToken,
-      owner: ghUser.login,
+      owner: repoOwner,
       repo: repoName,
       path: "breadboard-project.json",
       content: JSON.stringify(editorData, null, 2),
@@ -334,7 +501,7 @@ export async function POST(
     for (const file of flattenFiles(editorData.fileGroups)) {
       await putFile({
         token: githubAccount.accessToken,
-        owner: ghUser.login,
+        owner: repoOwner,
         repo: repoName,
         path: `firmware/${file.name}`,
         content: file.content,
@@ -348,15 +515,30 @@ export async function POST(
     .set({
       codeUrl: repo.html_url,
       playableUrl: demoUrl,
-      demoVideoUrl: videoUrl || project.demoVideoUrl,
+      demoVideoUrl:
+        typeof body.videoUrl === "string" && body.videoUrl.trim()
+          ? body.videoUrl.trim()
+          : project.demoVideoUrl,
       updatedAt: new Date(),
     })
     .where(
       and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
     );
 
+  await audit(
+    repoExisted ? "github.publish.update" : "github.publish.create",
+    "project",
+    String(projectId),
+    {
+      repoUrl: repo.html_url,
+      fullName: repo.full_name,
+      storedRepoUrl: project.codeUrl || null,
+    },
+  );
+
   return NextResponse.json({
     repoUrl: repo.html_url,
     fullName: repo.full_name,
+    repoExisted,
   });
 }

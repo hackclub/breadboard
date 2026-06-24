@@ -21,6 +21,7 @@ import {
   requestChanges,
 } from "@/actions/admin/review";
 import { BreadAmount, BreadIcon } from "@/components/shared/bread-amount";
+import { storageReadUrl } from "@/lib/storage/urls";
 
 type ReviewProject = {
   id: number;
@@ -76,8 +77,10 @@ const demoChecklistItems = [
 ];
 
 function safeUrl(value: string) {
+  const storageUrl = storageReadUrl(value);
+  if (storageUrl.startsWith("/")) return storageUrl;
   try {
-    const url = new URL(value);
+    const url = new URL(storageUrl);
     if (!["http:", "https:"].includes(url.protocol)) return null;
     return url.toString();
   } catch {
@@ -130,9 +133,17 @@ export function DemoReviewWorkspace({
   const [newProjectNote, setNewProjectNote] = useState("");
   const [newUserNote, setNewUserNote] = useState("");
 
-  const demoVideo = safeUrl(initial.playableUrl);
+  const demoVideo = safeUrl(initial.demoVideoUrl);
+  const designApprovedHours = initial.overrideHoursSpent ?? initial.hoursSpent;
   const approvedBread =
     Math.max(0, Math.floor(approvedHours || 0)) * breadPerHour;
+  const designBread = designApprovedHours * breadPerHour;
+  const pctChange =
+    designApprovedHours > 0
+      ? Math.round(
+          ((approvedHours - designApprovedHours) / designApprovedHours) * 100,
+        )
+      : 0;
 
   const statusTone =
     initial.status === "pending_review"
@@ -327,18 +338,18 @@ export function DemoReviewWorkspace({
           </p>
           <div className="mt-3 space-y-2 text-sm text-white/65">
             <div className="flex justify-between">
-              <span>Hours claimed</span>
-              <span className="font-black text-white">
-                {initial.hoursSpent}h
+              <span>Design review hours</span>
+              <span className="font-black text-white line-through text-white/50">
+                {designApprovedHours}h
               </span>
             </div>
             <div className="flex justify-between">
               <span className="inline-flex items-center gap-1">
                 <BreadIcon />
-                Bread possible
+                Demo award
               </span>
               <span className="font-black text-white">
-                {initial.hoursSpent * breadPerHour}
+                <BreadAmount amount={approvedBread} />
               </span>
             </div>
           </div>
@@ -349,12 +360,39 @@ export function DemoReviewWorkspace({
             <HiCheckCircle className="size-5 text-[#BD0F32]" />
             Currency
           </div>
-          <p className="mt-3 text-3xl font-black text-black">
+          <p className="mt-2 text-xs font-bold uppercase tracking-[0.1em] text-black/40">
+            Demo award
+          </p>
+          <p className="text-3xl font-black text-black">
             <BreadAmount amount={approvedBread} size="lg" />
           </p>
-          <p className="mt-1 text-sm text-black/45">
+          <p className="mt-1 text-sm text-black/55">
             {approvedHours || 0}h × {breadPerHour}
           </p>
+          {designApprovedHours > 0 && (
+            <div className="mt-3 space-y-1.5 border-t border-black/10 pt-3">
+              <p className="text-xs font-bold uppercase tracking-[0.1em] text-black/40">
+                Design review baseline
+              </p>
+              <p className="text-base font-black text-black/60 line-through">
+                {designApprovedHours}h × {breadPerHour} ={" "}
+                <BreadAmount amount={designBread} />
+              </p>
+              {pctChange !== 0 && (
+                <p
+                  className={`text-xs font-black ${
+                    pctChange > 0 ? "text-green-700" : "text-[#BD0F32]"
+                  }`}
+                >
+                  {pctChange > 0 ? "+" : ""}
+                  {pctChange}% vs design review
+                </p>
+              )}
+              <p className="text-[10px] font-bold text-black/35">
+                Hours were decided during design review. Adjust above if needed.
+              </p>
+            </div>
+          )}
         </section>
 
         <section className="rounded-[16px] border border-black bg-white p-4 shadow-[4px_4px_0_#000]">

@@ -40,6 +40,7 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       { protocol: "https", hostname: "cdn.hackclub.com" },
       { protocol: "https", hostname: "assets.hackclub.com" },
+      { protocol: "https", hostname: "silo.deployor.dev" },
     ],
   },
   reactCompiler: process.env.NODE_ENV === "production",

@@ -166,7 +166,7 @@ function flyImageToCart(imageUrl: string, source: HTMLElement) {
   );
 }
 
-export function ShopCart() {
+export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<CartItem[]>([]);
   const [checkout, setCheckout] = useState(false);
@@ -225,6 +225,10 @@ export function ShopCart() {
     }
     if (items.length === 0) {
       setMessage("Cart is empty.");
+      return;
+    }
+    if (!shopOpen) {
+      setMessage("The shop is closed right now. Project kits still work.");
       return;
     }
 
@@ -323,7 +327,7 @@ export function ShopCart() {
                     Order placed
                   </h3>
                   <p className="mx-auto mt-3 max-w-sm text-sm leading-relaxed text-black/60">
-                    Order #{placedOrder.orderId} is in. We’ll review it and
+                    Order #{placedOrder.orderId} is in. We'll review it and
                     start fulfillment soon. You can track it from your Orders
                     tab.
                   </p>
@@ -555,21 +559,25 @@ export function ShopCart() {
                   <button
                     type="button"
                     onClick={order}
-                    disabled={placing || items.length === 0}
+                    disabled={placing || items.length === 0 || !shopOpen}
                     className="rounded-full border border-black bg-[#BD0F32] px-4 py-3 text-sm font-black text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {placing ? "Placing..." : "Place order"}
+                    {shopOpen
+                      ? placing
+                        ? "Placing..."
+                        : "Place order"
+                      : "Shop closed"}
                   </button>
                 </div>
               ) : (
                 <button
                   type="button"
                   onClick={() => setCheckout(true)}
-                  disabled={items.length === 0}
+                  disabled={items.length === 0 || !shopOpen}
                   className="w-full rounded-full border border-black bg-[#BD0F32] px-4 py-3 text-sm font-black text-white shadow-[4px_4px_0_#000] transition hover:-translate-y-0.5 hover:bg-black disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
                 >
                   <span className="inline-flex items-center justify-center gap-2">
-                    Checkout
+                    {shopOpen ? "Checkout" : "Shop closed"}
                     <HiChevronRight className="size-5" />
                   </span>
                 </button>
@@ -588,16 +596,19 @@ export function AddToCartButton({
   imageUrl,
   price,
   stock,
+  shopOpen = true,
 }: {
   productId: number;
   name: string;
   imageUrl: string;
   price: number;
   stock: number | null;
+  shopOpen?: boolean;
 }) {
   const [added, setAdded] = useState(false);
 
   const add = (event: MouseEvent<HTMLButtonElement>) => {
+    if (!shopOpen) return;
     const stored = loadCart();
     const existing = stored.find((item) => item.productId === productId);
     if (stock !== null && existing && existing.quantity >= stock) return;
@@ -643,14 +654,16 @@ export function AddToCartButton({
     <button
       type="button"
       onClick={add}
-      disabled={stock !== null && stock <= 0}
+      disabled={!shopOpen || (stock !== null && stock <= 0)}
       className="w-full rounded-full border border-black bg-[#BD0F32] px-5 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-black disabled:cursor-not-allowed disabled:bg-[#f4f4f4] disabled:text-black/40"
     >
-      {stock !== null && stock <= 0
-        ? "Out of stock"
-        : added
-          ? "Added"
-          : "Add to cart"}
+      {!shopOpen
+        ? "Shop closed"
+        : stock !== null && stock <= 0
+          ? "Out of stock"
+          : added
+            ? "Added"
+            : "Add to cart"}
     </button>
   );
 }

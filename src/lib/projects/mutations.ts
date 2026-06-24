@@ -50,7 +50,8 @@ export async function submitDemoForUser(
   const now = new Date();
   const cleanPlayableUrl = clean(data.playableUrl);
   const cleanDemoVideoUrl = clean(data.demoVideoUrl);
-  if (!cleanDemoVideoUrl) throw new Error("Upload a demo video first");
+  if (!cleanDemoVideoUrl)
+    throw new Error("Upload a demo video before submitting");
 
   await db.transaction(async (tx) => {
     const latest = await tx
@@ -178,11 +179,14 @@ export async function shipProjectForUser(
     const hoursSpent = Math.max(0, Math.ceil(activeSeconds / 3600));
     const now = new Date();
     const projectRows = await tx
-      .select({ editorData: projects.editorData })
+      .select({ editorData: projects.editorData, codeUrl: projects.codeUrl })
       .from(projects)
       .where(and(eq(projects.id, projectId), eq(projects.userId, owner.userId)))
       .limit(1);
     const editorData = projectRows[0]?.editorData ?? "";
+    const codeUrl = clean(projectRows[0]?.codeUrl ?? "");
+    if (!codeUrl)
+      throw new Error("Publish to GitHub before submitting your design.");
     const latestVersion = await tx
       .select({ versionNumber: max(projectEditorVersions.versionNumber) })
       .from(projectEditorVersions)
@@ -203,7 +207,7 @@ export async function shipProjectForUser(
       userId: owner.userId,
       submissionNumber,
       email: clean(data.email),
-      codeUrl: clean(data.codeUrl),
+      codeUrl,
       screenshotUrl: clean(data.screenshotUrl),
       addressLine1: clean(data.addressLine1),
       addressLine2: clean(data.addressLine2),
@@ -226,7 +230,7 @@ export async function shipProjectForUser(
       .update(projects)
       .set({
         email: clean(data.email),
-        codeUrl: clean(data.codeUrl),
+        codeUrl,
         screenshotUrl: clean(data.screenshotUrl),
         addressLine1: clean(data.addressLine1),
         addressLine2: clean(data.addressLine2),

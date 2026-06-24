@@ -9,6 +9,7 @@ import {
   submitDemoFromForm,
 } from "@/actions/projects";
 import { createProjectDemoVideoUpload } from "@/actions/uploads";
+import { storageReadUrl } from "@/lib/storage/urls";
 import {
   canEditProjectCard,
   canShipProjectCard,
@@ -40,6 +41,7 @@ export function ProjectCard({
   const shareUrl = `/share/${project.id}`;
   const [demoVideoUrl, setDemoVideoUrl] = useState("");
   const [demoUploading, setDemoUploading] = useState(false);
+  const [demoPublishing, setDemoPublishing] = useState(false);
   const [demoMessage, setDemoMessage] = useState("");
   const [demoState, demoAction, demoPending] = useActionState(
     submitDemoFromForm,
@@ -80,10 +82,35 @@ export function ProjectCard({
       });
       if (!response.ok) throw new Error("Upload failed. Try again.");
       setDemoVideoUrl(publicUrl);
-      setDemoMessage(
-        "Demo uploaded. Add this link to your README, then submit.",
+      setDemoUploading(false);
+      setDemoPublishing(true);
+      setDemoMessage("Updating GitHub README...");
+      const publishResponse = await fetch(
+        `/api/projects/${project.id}/github/publish`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoUrl: publicUrl }),
+        },
       );
+      if (publishResponse.status === 409) {
+        setDemoPublishing(false);
+        setDemoMessage(
+          "Demo uploaded. Connect GitHub from the editor to add it to your README automatically.",
+        );
+        return;
+      }
+      if (!publishResponse.ok) {
+        const result = (await publishResponse.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        setDemoPublishing(false);
+        throw new Error(result?.error ?? "GitHub README update failed.");
+      }
+      setDemoPublishing(false);
+      setDemoMessage("Demo uploaded and added to your GitHub README.");
     } catch (error) {
+      setDemoPublishing(false);
       setDemoMessage(error instanceof Error ? error.message : "Upload failed.");
     } finally {
       setDemoUploading(false);
@@ -164,16 +191,18 @@ export function ProjectCard({
           {editable ? (
             <Link
               href={`/editor/${project.id}`}
-              className={
-                isAfterKitApproved(project.status)
-                  ? "text-center text-[11px] font-semibold text-black/40 underline transition hover:text-black/60"
-                  : buttonClass({ tone: "ink" })
-              }
+              className={buttonClass({ tone: "ink" })}
             >
               {isAfterKitApproved(project.status)
-                ? "View project"
+                ? "Continue editing"
                 : "Open editor"}
             </Link>
+          ) : null}
+          {isAfterKitApproved(project.status) && editable ? (
+            <p className="text-center text-[11px] font-bold text-black/45">
+              Editing stays open. Extra editor time is not tracked after kit
+              approval.
+            </p>
           ) : null}
           {editable ? (
             <Button tone="paper" onClick={() => setEditOpen(true)}>
@@ -227,9 +256,8 @@ export function ProjectCard({
                 Open read-only simulation demo
               </a>
               <div className="rounded-xl border border-black bg-[#fffaf1] p-3 text-xs font-bold text-black/65 shadow-[2px_2px_0_#000]">
-                Before demo review, your GitHub README must include the final
-                working photo/video, build journal, schematic, BOM, and
-                firmware.
+                Upload your demo video here. Breadboard will add the public demo
+                link to your GitHub README automatically.
               </div>
               <input
                 type="file"
@@ -242,7 +270,7 @@ export function ProjectCard({
               />
               {demoVideoUrl ? (
                 <video
-                  src={demoVideoUrl}
+                  src={storageReadUrl(demoVideoUrl)}
                   controls
                   className="h-32 rounded border border-black bg-black"
                 >
@@ -251,7 +279,7 @@ export function ProjectCard({
               ) : null}
               {demoVideoUrl ? (
                 <p className="break-all rounded border border-black bg-white p-2 text-xs font-bold text-black/60">
-                  Video URL to add to README: {demoVideoUrl}
+                  Public demo video: {demoVideoUrl}
                 </p>
               ) : null}
               {demoMessage ? (
@@ -260,9 +288,20 @@ export function ProjectCard({
               <Button
                 type="submit"
                 tone="primary"
-                disabled={demoPending || demoUploading || !demoVideoUrl}
+                disabled={
+                  demoPending ||
+                  demoUploading ||
+                  demoPublishing ||
+                  !demoVideoUrl
+                }
               >
-                {demoPending ? "Submitting..." : "Submit final demo"}
+                {demoPending
+                  ? "Submitting..."
+                  : demoPublishing
+                    ? "Loading..."
+                    : demoUploading
+                      ? "Uploading..."
+                      : "Submit final demo"}
               </Button>
               {demoState.message ? (
                 <p className="text-xs font-bold text-[#BD0F32]">

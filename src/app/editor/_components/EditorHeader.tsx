@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, Github, Save, X } from "lucide-react";
-import { authClient } from "@/lib/auth/client";
 import {
   type EditorSaveState,
   subscribeEditorSaveState,
@@ -58,6 +57,7 @@ export function EditorHeader({
   projectTitle,
   projectId,
   projectStatus,
+  initialPublishUrl,
   version,
   readOnly,
   reviewLabel,
@@ -67,6 +67,7 @@ export function EditorHeader({
   projectTitle: string;
   projectId: number;
   projectStatus: string;
+  initialPublishUrl?: string | null;
   version?: number;
   readOnly?: boolean;
   reviewLabel?: string;
@@ -79,9 +80,13 @@ export function EditorHeader({
   });
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
-  const [publishUrl, setPublishUrl] = useState<string | null>(null);
+  const [publishUrl, setPublishUrl] = useState<string | null>(
+    initialPublishUrl ?? null,
+  );
   const [publishModalOpen, setPublishModalOpen] = useState(false);
   const [publishError, setPublishError] = useState("");
+  const [publishStatus, setPublishStatus] = useState("");
+  const autoPublishStarted = useRef(false);
 
   useEffect(() => subscribeEditorSaveState((s) => setState({ ...s })), []);
 
@@ -112,8 +117,12 @@ export function EditorHeader({
     if (readOnly || publishing) return;
     setPublishing(true);
     setPublishError("");
+    setPublishStatus("Saving your latest project state...");
     try {
       await triggerManualSave().catch(() => {});
+      setPublishStatus(
+        publishUrl ? "Updating GitHub repo..." : "Publishing to GitHub...",
+      );
 
       const res = await fetch(`/api/projects/${projectId}/github/publish`, {
         method: "POST",
@@ -125,12 +134,11 @@ export function EditorHeader({
       if (res.status === 409) {
         const payload = (await res.json().catch(() => null)) as {
           needsGitHubAuth?: boolean;
+          error?: string;
         } | null;
         if (payload?.needsGitHubAuth) {
-          await authClient.signIn.oauth2({
-            providerId: "github",
-            callbackURL: window.location.href,
-          });
+          setPublishStatus("Connecting GitHub...");
+          window.location.href = `/api/github/publish/start?returnTo=${encodeURIComponent(window.location.pathname + window.location.search)}`;
           return;
         }
       }
@@ -139,21 +147,59 @@ export function EditorHeader({
         const payload = (await res.json().catch(() => null)) as {
           error?: string;
         } | null;
-        throw new Error(payload?.error ?? "GitHub publish failed");
+        throw new Error(
+          payload?.error ?? `GitHub publish failed with ${res.status}`,
+        );
       }
 
-      const payload = (await res.json()) as { repoUrl: string };
+      const payload = (await res.json()) as {
+        repoUrl: string;
+        repoExisted?: boolean;
+      };
       setPublishUrl(payload.repoUrl);
-      setPublishModalOpen(false);
+      setPublishStatus(
+        payload.repoExisted
+          ? "Updated existing GitHub repo."
+          : "Published new GitHub repo.",
+      );
+      setPublishModalOpen(true);
       window.open(payload.repoUrl, "_blank", "noopener,noreferrer");
     } catch (err) {
+      setPublishStatus("");
       setPublishError(
         err instanceof Error ? err.message : "GitHub publish failed",
       );
+      setPublishModalOpen(true);
     } finally {
       setPublishing(false);
     }
-  }, [projectId, publishing, readOnly]);
+  }, [projectId, publishUrl, publishing, readOnly]);
+
+  useEffect(() => {
+    if (readOnly || autoPublishStarted.current) return;
+    const url = new URL(window.location.href);
+    const github = url.searchParams.get("github");
+    if (!github) return;
+
+    url.searchParams.delete("github");
+    window.history.replaceState(null, "", url.toString());
+    setPublishModalOpen(true);
+
+    if (github === "connected") {
+      autoPublishStarted.current = true;
+      setPublishStatus("GitHub connected. Publishing now...");
+      void handlePublish();
+      return;
+    }
+
+    const messages: Record<string, string> = {
+      "missing-config": "GitHub OAuth is not configured.",
+      "invalid-state": "GitHub connection expired. Try publishing again.",
+      "token-error": "GitHub did not return an access token.",
+      "user-error": "Could not read your GitHub account.",
+    };
+    setPublishError(messages[github] ?? "GitHub connection failed.");
+  }, [handlePublish, readOnly]);
 
   const showStatus = state.status !== "idle";
   const trackingBlocked = [
@@ -280,10 +326,13 @@ export function EditorHeader({
                 </div>
                 <div>
                   <h2 className="font-black text-white text-sm">
-                    Publish to GitHub
+                    {publishUrl ? "Update GitHub repo" : "Publish to GitHub"}
                   </h2>
                   <p className="text-[#888] text-xs">
-                    Repo, README, firmware, BOM, and schematic snapshot
+                    {publishStatus ||
+                      (publishUrl
+                        ? "Update README, firmware, BOM, and schematic snapshot"
+                        : "Create repo, README, firmware, BOM, and schematic snapshot")}
                   </p>
                 </div>
               </div>
@@ -298,17 +347,18 @@ export function EditorHeader({
             </div>
             <div className="grid gap-4 px-5 py-4">
               <div className="rounded-xl border border-[#3a3a3a] bg-[#171717] p-3 text-[#aaa] text-xs leading-5">
-                Publishing is safe to run again. Breadboard will overwrite the
-                generated files it owns:{" "}
+                {publishUrl ? "Updating" : "Publishing"} is safe to run again.
+                Breadboard will overwrite the generated files it owns:{" "}
                 <span className="text-white">README.md</span>,{" "}
                 <span className="text-white">breadboard-project.json</span>, and{" "}
                 <span className="text-white">firmware/*</span>. Other files in
                 the repo are left alone.
               </div>
               <div className="rounded-xl border border-[#3a3a3a] bg-[#111] p-3 text-[#aaa] text-xs leading-5">
-                Publish also creates a read-only simulation link for reviewers.
-                It has no editor controls, no component picker, no store, and no
-                time tracking. Users can only run the simulation.
+                {publishUrl ? "Update" : "Publish"} also creates a read-only
+                simulation link for reviewers. It has no editor controls, no
+                component picker, no store, and no time tracking. Users can only
+                run the simulation.
               </div>
               {publishUrl ? (
                 <a
@@ -317,8 +367,13 @@ export function EditorHeader({
                   rel="noreferrer"
                   className="text-[#ff6b86] text-xs font-bold hover:text-white"
                 >
-                  Last published repo: {publishUrl}
+                  GitHub repo: {publishUrl}
                 </a>
+              ) : null}
+              {publishStatus ? (
+                <p className="rounded-lg border border-green-500/30 bg-green-500/10 px-3 py-2 text-green-200 text-xs font-bold">
+                  {publishStatus}
+                </p>
               ) : null}
               {publishError ? (
                 <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-red-200 text-xs font-bold">
@@ -340,7 +395,13 @@ export function EditorHeader({
                 disabled={publishing || state.status === "saving"}
                 className="rounded-lg bg-[#BD0F32] px-4 py-2 text-white text-xs font-black transition hover:bg-[#d71943] disabled:opacity-40"
               >
-                {publishing ? "Publishing..." : "Publish and overwrite"}
+                {publishing
+                  ? publishUrl
+                    ? "Updating..."
+                    : "Publishing..."
+                  : publishUrl
+                    ? "Update repo"
+                    : "Publish and overwrite"}
               </button>
             </div>
           </div>

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DataPanel } from "@/components/ui/table";
+import { storageReadUrl } from "@/lib/storage/urls";
 
 type ReviewProject = {
   id: number;
@@ -33,8 +34,10 @@ const filters = [
 ];
 
 function safeUrl(value: string) {
+  const storageUrl = storageReadUrl(value);
+  if (storageUrl.startsWith("/")) return storageUrl;
   try {
-    const url = new URL(value);
+    const url = new URL(storageUrl);
     if (!["http:", "https:"].includes(url.protocol)) return null;
     return url.toString();
   } catch {
@@ -132,7 +135,7 @@ export function ReviewQueue({ projects }: { projects: ReviewProject[] }) {
           const screenshot = safeUrl(project.screenshotUrl);
           return (
             <Link
-              key={project.id}
+              key={`${project.id}-${project.submissionId}-${project.submissionType}`}
               href={
                 project.submissionType === "demo"
                   ? `/platform/admin/review/demo/${project.id}`
@@ -147,6 +150,7 @@ export function ReviewQueue({ projects }: { projects: ReviewProject[] }) {
                     alt=""
                     fill
                     sizes="(min-width:768px) 33vw, 100vw"
+                    unoptimized={screenshot.startsWith("/api/uploads/")}
                     className="object-cover transition group-hover:scale-105"
                   />
                 ) : (

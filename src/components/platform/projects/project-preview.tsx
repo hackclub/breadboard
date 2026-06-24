@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useState } from "react";
+import { storageReadUrl } from "@/lib/storage/urls";
 import type { PlatformProject } from "@/types";
 
 type Project = PlatformProject;
@@ -9,6 +10,7 @@ type Project = PlatformProject;
 const previewSizes = "(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw";
 
 function shouldOptimizeProjectImage(src: string) {
+  if (src.startsWith("/api/uploads/")) return false;
   if (src.startsWith("/")) return true;
 
   try {
@@ -24,33 +26,24 @@ function shouldOptimizeProjectImage(src: string) {
 
 export function ProjectPreview({ project }: { project: Project }) {
   const [failed, setFailed] = useState(false);
-  const showExample = !project.screenshotUrl || failed;
-
-  const kitImage =
-    project.kitType === "esp32" ? "/assets/esp32.png" : "/assets/arduino.png";
+  const screenshotUrl = storageReadUrl(project.screenshotUrl);
+  const showExample = !screenshotUrl || failed;
 
   if (showExample) {
     return (
-      <div className="relative h-full bg-[#f4f4f4]">
-        <Image
-          src={kitImage}
-          alt={`${project.kitType === "esp32" ? "ESP32" : "Arduino"} kit preview`}
-          fill
-          sizes={previewSizes}
-          className="object-cover transition duration-300 group-hover:scale-[1.03]"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent" />
+      <div className="flex h-full w-full items-center justify-center bg-white text-sm font-black tracking-[0.16em] text-black/35 uppercase">
+        Add image here
       </div>
     );
   }
 
   return (
     <Image
-      src={project.screenshotUrl}
+      src={screenshotUrl}
       alt={`${project.title || "Project"} screenshot`}
       fill
       sizes={previewSizes}
-      unoptimized={!shouldOptimizeProjectImage(project.screenshotUrl)}
+      unoptimized={!shouldOptimizeProjectImage(screenshotUrl)}
       onError={() => setFailed(true)}
       className="object-cover transition duration-300 group-hover:scale-[1.03]"
     />

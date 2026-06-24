@@ -18,3 +18,10 @@ export const launched = flag<boolean>({
   defaultValue: false,
   identify,
 });
+
+export const shopOpen = flag<boolean>({
+  key: "shop-open",
+  adapter: growthbookAdapter.feature<boolean>(),
+  defaultValue: false,
+  identify,
+});

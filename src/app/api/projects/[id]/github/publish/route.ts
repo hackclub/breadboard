@@ -335,6 +335,8 @@ function buildReadme({
     "---",
     "",
     `*Made in [Breadboard](https://breadboard.hackclub.com) — ${hours}h of work*`,
+    "",
+    '<p align="center"><img src="https://cdn.hackclub.com/019efae7-6857-75a2-8bc1-2618087b4eae/a%20bred%20tanuki%20(3).png" width="64" alt="Breadboard mascot" /></p>',
   ]
     .join("\n\n")
     .trim();

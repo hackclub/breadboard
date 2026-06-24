@@ -18,15 +18,21 @@ function requireStorageEnv(name: string) {
   return value;
 }
 
-const s3 = new S3Client({
-  region: process.env.S3_REGION ?? "auto",
-  endpoint,
-  forcePathStyle: true,
-  credentials: {
-    accessKeyId: requireStorageEnv("S3_ACCESS_KEY_ID"),
-    secretAccessKey: requireStorageEnv("S3_SECRET_ACCESS_KEY"),
-  },
-});
+let _s3: S3Client | null = null;
+
+function getS3Client() {
+  if (_s3) return _s3;
+  _s3 = new S3Client({
+    region: process.env.S3_REGION ?? "auto",
+    endpoint,
+    forcePathStyle: true,
+    credentials: {
+      accessKeyId: requireStorageEnv("S3_ACCESS_KEY_ID"),
+      secretAccessKey: requireStorageEnv("S3_SECRET_ACCESS_KEY"),
+    },
+  });
+  return _s3;
+}
 
 export async function createPresignedPutUrl({
   key,
@@ -41,7 +47,9 @@ export async function createPresignedPutUrl({
     ContentType: contentType,
   });
 
-  const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 60 });
+  const uploadUrl = await getSignedUrl(getS3Client(), command, {
+    expiresIn: 60,
+  });
   const readUrl = await createPresignedGetUrl(key);
   return {
     uploadUrl,
@@ -51,11 +59,13 @@ export async function createPresignedPutUrl({
 
 export async function createPresignedGetUrl(key: string) {
   const command = new GetObjectCommand({ Bucket: bucket, Key: key });
-  return await getSignedUrl(s3, command, { expiresIn: 5 * 60 });
+  return await getSignedUrl(getS3Client(), command, { expiresIn: 5 * 60 });
 }
 
 export async function getStorageObject(key: string) {
-  return await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  return await getS3Client().send(
+    new GetObjectCommand({ Bucket: bucket, Key: key }),
+  );
 }
 
 export function storageKeyFromUrl(value: string) {

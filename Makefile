@@ -1,4 +1,4 @@
-.PHONY: build up down restart logs ps clean db-migrate db-push db-studio db-generate shell-nextjs shell-backend shell-db pull pull-base build-nocache up-prod help
+.PHONY: build up down restart logs ps clean db-migrate db-push db-studio db-generate shell-nextjs shell-backend shell-db pull-base build-nocache help
 
 # ── Docker Compose ──────────────────────────────────────────────
 
@@ -87,14 +87,6 @@ dev: ## Start Next.js dev server (hot reload)
 
 dev-backend: ## Start editor backend locally (port 8001)
 	bun run editor:backend
-
-# ── Production (pull prebuilt images, no local build) ────────────
-
-pull: ## Pull latest prebuilt images from GHCR
-	docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
-
-up-prod: ## Start from prebuilt images (no local build)
-	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 # ── Deployment helpers ──────────────────────────────────────────
 

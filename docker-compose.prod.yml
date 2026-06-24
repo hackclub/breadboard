@@ -1,8 +1,0 @@
-# Override for production — pull prebuilt images from GHCR, never build locally.
-# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-services:
-  editor-backend:
-    build: !reset null
-  nextjs:
-    image: ${NEXTJS_IMAGE:-ghcr.io/hackclub/breadboard:latest}
-    build: !reset null

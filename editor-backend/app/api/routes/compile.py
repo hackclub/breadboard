@@ -464,33 +464,39 @@ async def compile_start(
     times → six concurrent ninja processes peeling each other apart"
     failure mode.
     """
-    files = _resolve_files(request)
-    _purge_expired_jobs()
+    try:
+        files = _resolve_files(request)
+        _purge_expired_jobs()
 
-    spiffs_dicts = (
-        [f.model_dump() for f in request.spiffs_files] if request.spiffs_files else None
-    )
-    key = _job_key(files, request.board_fqbn, request.board_options, spiffs_dicts)
-    existing_id = JOB_BY_KEY.get(key)
-    if existing_id is not None:
-        existing = COMPILE_JOBS.get(existing_id)
-        if existing is not None and existing.get("state") in ("pending", "running"):
-            logger.info(f"[compile] dedup hit — reusing job {existing_id}")
-            return CompileStartResponse(job_id=existing_id)
+        spiffs_dicts = (
+            [f.model_dump() for f in request.spiffs_files] if request.spiffs_files else None
+        )
+        key = _job_key(files, request.board_fqbn, request.board_options, spiffs_dicts)
+        existing_id = JOB_BY_KEY.get(key)
+        if existing_id is not None:
+            existing = COMPILE_JOBS.get(existing_id)
+            if existing is not None and existing.get("state") in ("pending", "running"):
+                logger.info(f"[compile] dedup hit — reusing job {existing_id}")
+                return CompileStartResponse(job_id=existing_id)
 
-    job_id = uuid.uuid4().hex
-    COMPILE_JOBS[job_id] = {"state": "pending", "started_at": time.time(), "key": key}
-    JOB_BY_KEY[key] = job_id
+        job_id = uuid.uuid4().hex
+        COMPILE_JOBS[job_id] = {"state": "pending", "started_at": time.time(), "key": key}
+        JOB_BY_KEY[key] = job_id
 
-    asyncio.create_task(
-        _compile_job(
-            job_id=job_id,
-            request=request,
-            files=files,
-            user_id=user_id,
-        ),
-    )
-    return CompileStartResponse(job_id=job_id)
+        asyncio.create_task(
+            _compile_job(
+                job_id=job_id,
+                request=request,
+                files=files,
+                user_id=user_id,
+            ),
+        )
+        return CompileStartResponse(job_id=job_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("[compile] failed to start compile job")
+        raise HTTPException(status_code=500, detail=f"Failed to start compile job: {exc}") from exc
 
 
 @router.get("/status/{job_id}", response_model=CompileStatusResponse)

@@ -126,9 +126,22 @@ export async function compileCode(
   } catch (error) {
     console.error("Compilation request failed:", error);
     if (axios.isAxiosError(error) && error.response) {
-      // Server returned a structured error (422, 500, etc.) — surface as a
-      // failed CompileResult so the editor can show stderr/error.
-      return error.response.data as CompileResult;
+      // Server may return either a structured compile result / FastAPI JSON
+      // error or a plain-text 500 body. Always normalize to CompileResult so
+      // callers don't try to parse "Internal Server Error" as compiler output.
+      const data = error.response.data;
+      const detail =
+        typeof data === "string"
+          ? data
+          : typeof data?.detail === "string"
+            ? data.detail
+            : error.message;
+      return {
+        success: false,
+        stdout: "",
+        stderr: detail,
+        error: detail,
+      };
     }
     throw error instanceof Error
       ? error

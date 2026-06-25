@@ -10,11 +10,15 @@ class ArduinoCLIService:
     CORE_URLS: dict[str, str] = {
         "rp2040:rp2040": "https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json",
         "esp32:esp32": "https://espressif.github.io/arduino-esp32/package_esp32_index.json",
-        # Spence Konde's ATTinyCore — needed for ATtiny85 FQBNs like
-        #   ATTinyCore:avr:attinyx5:chip=85,clock=internal16mhz
-        # Without it arduino-cli reports
-        #   "Platform 'ATTinyCore:avr' not found: platform not installed".
-        "ATTinyCore:avr": "http://drazzy.com/package_drazzy.com_index.json",
+        "ATTinyCore:avr": "https://descartes.net/package_drazzy.com_index.json",
+    }
+
+    # Spence Konde's ATTinyCore mirror. The original drazzy.com URL has had TLS
+    # failures, so persisted configs using it are cleaned up during startup.
+    ATTINY_CORE_URL = "https://descartes.net/package_drazzy.com_index.json"
+    OLD_ATTINY_CORE_URLS = {
+        "http://drazzy.com/package_drazzy.com_index.json",
+        "https://drazzy.com/package_drazzy.com_index.json",
     }
 
     # Cores to auto-install on startup
@@ -97,6 +101,15 @@ class ArduinoCLIService:
                         capture_output=True, text=True
                     )
 
+            for old_url in self.OLD_ATTINY_CORE_URLS:
+                if old_url not in existing:
+                    continue
+                print(f"[arduino-cli] Removing stale ATTinyCore URL: {old_url}")
+                subprocess.run(
+                    [self.cli_path, "config", "remove", "board_manager.additional_urls", old_url],
+                    capture_output=True, text=True
+                )
+
             # Always refresh the full index so missing/corrupt index files
             # are re-downloaded.  Log stderr so warnings (like unreachable
             # third-party servers) are visible in the container logs.
@@ -110,21 +123,6 @@ class ArduinoCLIService:
                 if result.stderr:
                     print(f"[arduino-cli] stderr: {result.stderr.strip()}")
 
-            # Fallback: if the Drazzy index file is still missing, download it
-            # directly.  Some environments have transient DNS / network issues
-            # and arduino-cli silently skips unavailable indexes.
-            drazzy_path = Path("/root/.arduino15/package_drazzy.com_index.json")
-            if not drazzy_path.exists():
-                print("[arduino-cli] Drazzy index missing — fetching directly...")
-                import urllib.request
-                try:
-                    urllib.request.urlretrieve(
-                        "http://drazzy.com/package_drazzy.com_index.json",
-                        str(drazzy_path),
-                    )
-                    print("[arduino-cli] Drazzy index downloaded.")
-                except Exception as fetch_err:
-                    print(f"[arduino-cli] Direct fetch failed: {fetch_err}")
         except Exception as e:
             print(f"[arduino-cli] Warning: Could not configure board URLs: {e}")
 

@@ -7,15 +7,6 @@ export default function GuidesPage() {
         <p className="mt-2 text-base text-black/80">
           Complete Component Guide for the REXQualis Breadboard Kit
         </p>
-        <p className="mt-2 text-sm text-black/60">
-          View this on{" "}
-          <a
-            href="https://linen-hub-2b8.notion.site/Breadboard-Basics-2cd0b458002c80c68681ede3b7cc6040?pvs=74"
-            className="underline hover:text-black"
-          >
-            Notion
-          </a>
-        </p>
       </PageHero>
       <ProseCard>
         <img

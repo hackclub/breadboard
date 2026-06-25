@@ -16,12 +16,9 @@ export const ROUTES = {
     workshop: "/workshop",
     gallery: "/gallery",
     requirements: "/requirements",
-    readme: "/readme",
-    exampleSubmission: "/guides/example-submission",
     firmware: "/guides/firmware",
     shippedProject: "/project-resources/what-is-a-shipped-project",
     goodJournaling: "/project-resources/good-journaling",
-    designTips: "/project-resources/design-tips",
   },
   platform: {
     dashboard: "/platform",

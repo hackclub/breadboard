@@ -65,26 +65,12 @@ export default function ShippedProjectPage() {
 
         <div className="not-prose my-6 rounded-[10px] border-[1.1px] border-black bg-white p-6 shadow-[3px_3px_0_#000]">
           <p className="mb-3 text-sm font-bold uppercase tracking-wide text-black">
-            For this program, shipping means all three of these:
+            For this program, shipping means both of these:
           </p>
           <ul className="space-y-3 text-sm text-black">
             <li className="flex items-start gap-3">
               <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[1.1px] border-black bg-black text-xs text-white">
                 1
-              </span>
-              <span>
-                <strong>
-                  A complete CAD assembly with a polished enclosure.
-                </strong>{" "}
-                Not a bare breadboard sitting loose. Your circuit needs to live
-                inside a real, designed case with proper mounting. Screws,
-                clips, or press fits. Something you&apos;d actually hand to
-                someone.
-              </span>
-            </li>
-            <li className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[1.1px] border-black bg-black text-xs text-white">
-                2
               </span>
               <span>
                 <strong>
@@ -96,7 +82,7 @@ export default function ShippedProjectPage() {
             </li>
             <li className="flex items-start gap-3">
               <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[1.1px] border-black bg-black text-xs text-white">
-                3
+                2
               </span>
               <span>
                 <strong>

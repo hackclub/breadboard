@@ -14,11 +14,6 @@ export default function RequirementsPage() {
           Built something cool? Awesome. Here's what you need to do before we
           ship you anything.
         </p>
-        <p>
-          We ship real projects. Not vibes, not half-finished ideas.{" "}
-          <strong>Real, working things.</strong>
-        </p>
-
         <p>There are two submission stages:</p>
         <ol>
           <li>
@@ -30,8 +25,9 @@ export default function RequirementsPage() {
           </li>
         </ol>
         <p>
-          Both are required. You don't get to skip the build submission. That's
-          the whole point.
+          <strong>
+            Both are required. You must ship the build, not just the design.
+          </strong>
         </p>
 
         <p className="text-center !text-xl text-red-600">
@@ -42,31 +38,17 @@ export default function RequirementsPage() {
         </p>
 
         <p>
-          Stuck? Ask in <a href="https://hackclub.slack.com">#breadboard</a>{" "}
-          before DMing us. Odds are someone else had the same question.
+          Stuck? Ask in <a href="https://hackclub.slack.com">#breadboard</a>.
         </p>
 
         <div className="not-prose my-6 rounded-[10px] border-[1.1px] border-black bg-white p-6 shadow-[3px_3px_0_#000]">
           <p className="mb-3 text-sm font-bold tracking-wide text-black uppercase">
-            A shipped design means all three of these:
+            A shipped design means both of these:
           </p>
           <ul className="space-y-3 text-sm text-black">
             <li className="flex items-start gap-3">
               <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[1.1px] border-black bg-black text-xs text-white">
                 1
-              </span>
-              <span>
-                <strong>
-                  A complete CAD assembly with a polished enclosure.
-                </strong>{" "}
-                Not a bare breadboard sitting loose. Your circuit needs to live
-                inside a real, designed case with proper mounting. Screws,
-                clips, or press fits. Something you'd actually hand to someone.
-              </span>
-            </li>
-            <li className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[1.1px] border-black bg-black text-xs text-white">
-                2
               </span>
               <span>
                 <strong>
@@ -78,7 +60,7 @@ export default function RequirementsPage() {
             </li>
             <li className="flex items-start gap-3">
               <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[1.1px] border-black bg-black text-xs text-white">
-                3
+                2
               </span>
               <span>
                 <strong>A working physical build with a demo.</strong> You built
@@ -110,57 +92,41 @@ export default function RequirementsPage() {
             did you want to learn?
           </li>
           <li>A clear wiring diagram or schematic</li>
-          <li>Renders or images of your planned enclosure</li>
         </ul>
 
         <h3>Your Design</h3>
         <p>Your project must:</p>
         <ul>
           <li>
-            Be your own original work. No AI-generated designs, no copied
-            tutorials.
+            Be your own original work. You cannot AI generate anything, and you
+            cannot simply copy any tutorials!
           </li>
           <li>
             Use several components from the kit (think shift registers,
             optocouplers, rotary encoders, etc.)
           </li>
           <li>Have a complete wiring diagram or schematic</li>
-          <li>Have firmware. Even untested is fine, but it needs to exist.</li>
-          <li>
-            Have a designed enclosure with a real attachment method. Not tape
-            and hope. Screws, clips, something solid.
-          </li>
-          <li>
-            Have been looked over by someone else before you submit. Fresh eyes
-            catch things yours won't.
-          </li>
+          <li>Have firmware.</li>
         </ul>
 
         <p>Your repo must include:</p>
         <ul>
           <li>A BOM (Bill of Materials) as a CSV, with links to every part</li>
           <li>Your wiring diagram or schematic file</li>
-          <li>Firmware source code, if applicable</li>
-          <li>
-            CAD files for your enclosure (.step, .f3d, .FCStd, or an Onshape
-            link)
-          </li>
+          <li>Firmware source code</li>
           <li>Any libraries or references your project depends on</li>
           <li>Folders and files with clear, logical names</li>
         </ul>
 
         <h2>Stage 2: Build Submission</h2>
         <p>
-          Once you receive your kit and build your project, you are required to
-          submit your build. This is not optional. Receiving the kit and going
-          silent is not okay.
+          Once you receive your kit and build your project, you{" "}
+          <strong>must</strong> submit your build. This is not optional.
+          Receiving the kit and going silent is not okay.
         </p>
         <p>Your build submission must include:</p>
         <ul>
           <li>Photos of the finished breadboard circuit, fully assembled</li>
-          <li>
-            Photos of your completed enclosure with everything housed inside
-          </li>
           <li>A demo video showing it actually working</li>
           <li>
             A build log covering what you made, the decisions you made along the
@@ -171,7 +137,7 @@ export default function RequirementsPage() {
         <h2>Things That Will Get You Rejected</h2>
         <ul>
           <li>AI-generated code, designs, or writeups</li>
-          <li>Copying someone else's project without credit</li>
+          <li>Copying someone else's project or a guide</li>
           <li>Missing files from the checklist above</li>
           <li>Not submitting your build after receiving the kit</li>
         </ul>

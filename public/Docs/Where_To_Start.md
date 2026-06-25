@@ -22,7 +22,7 @@ The two available kits are below. Pick the one that best fits your idea.
 <div style="display: flex; gap: 2rem; align-items: flex-start;">
 <div>
 
-[**Kit A: ESP32 Starter Kit**](https://www.alibaba.com/product-detail/Basic-Starter-Kit-for-ESP32-ESP_1601458696838.html)
+[**Kit B: ESP32 Starter Kit**](https://www.alibaba.com/product-detail/Basic-Starter-Kit-for-ESP32-ESP_1601458696838.html)
 
 | Component | Qty |
 |---|---|
@@ -51,7 +51,7 @@ The two available kits are below. Pick the one that best fits your idea.
 </div>
 <div>
 
-[**Kit B: Arduino UNO Starter Kit**](https://www.alibaba.com/product-detail/Jubaolai-Starter-Kit-for-UNO-R3_1600761988959.html)
+[**Kit A: Arduino UNO Starter Kit**](https://www.alibaba.com/product-detail/Jubaolai-Starter-Kit-for-UNO-R3_1600761988959.html)
 
 | Component | Qty |
 |---|---|

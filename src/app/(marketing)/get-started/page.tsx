@@ -12,10 +12,6 @@ export default function GetStartedPage() {
 
       <ProseCard>
         <h2>1. Read the docs first</h2>
-        <p>
-          <strong>This is important, don't skip it.</strong> Read all the docs
-          before anything else. Then read the guides:
-        </p>
         <ul>
           <li>
             <strong>Breadboard Basics</strong> covers the fundamental breadboard
@@ -54,7 +50,7 @@ export default function GetStartedPage() {
           <div className="min-w-0 flex-1">
             <h3>
               <a href="https://www.alibaba.com/product-detail/Basic-Starter-Kit-for-ESP32-ESP_1601458696838.html">
-                Kit A: ESP32 Starter Kit
+                Kit B: ESP32 Starter Kit
               </a>
             </h3>
             <table>
@@ -156,7 +152,7 @@ export default function GetStartedPage() {
           <div className="min-w-0 flex-1">
             <h3>
               <a href="https://www.alibaba.com/product-detail/Jubaolai-Starter-Kit-for-UNO-R3_1600761988959.html">
-                Kit B: Arduino UNO Starter Kit
+                Kit A: Arduino UNO Starter Kit
               </a>
             </h3>
             <table>
@@ -332,60 +328,13 @@ export default function GetStartedPage() {
           </div>
         </div>
 
-        <h2>3. What software to use?</h2>
-
-        <div className="flex flex-col gap-8 lg:flex-row lg:gap-8">
-          <div className="min-w-0 flex-1">
-            <h3>3D modeling / CAD</h3>
-            <ul>
-              <li>
-                <a href="https://www.onshape.com/">
-                  <strong>Onshape</strong>
-                </a>{" "}
-                is browser-based and beginner-friendly, great for lower-end
-                machines. Free for hobbyists and students.
-              </li>
-              <li>
-                <a href="https://www.autodesk.com/products/fusion-360">
-                  <strong>Autodesk Fusion</strong>
-                </a>{" "}
-                handles more complex models but is heavier on your computer.
-                Free for students.
-              </li>
-            </ul>
-          </div>
-          <div className="min-w-0 flex-1">
-            <h3>Schematic design</h3>
-            <ul>
-              <li>
-                <a href="https://kicad.org/">
-                  <strong>KiCad</strong>
-                </a>{" "}
-                is open source and professional-grade. Works for everything from
-                beginner to complex multi-layer boards. Free.
-              </li>
-              <li>
-                <a href="https://easyeda.com/">
-                  <strong>EasyEDA</strong>
-                </a>{" "}
-                is browser-based and beginner-friendly, but more limited for
-                complex projects. Free for basic use.
-              </li>
-            </ul>
-          </div>
-        </div>
-
-        <h2>4. Make it and submit</h2>
+        <h2>3. Make it and submit</h2>
         <p>
           Check the{" "}
-          <a href="/guides/example-submission">
-            <strong>Example Submission</strong>
-          </a>{" "}
-          and{" "}
           <a href="/project-resources/what-is-a-shipped-project">
             <strong>What is a Shipped Project</strong>
           </a>{" "}
-          pages to see exactly what you need to turn in. At minimum you need a
+          page to see exactly what you need to turn in. At minimum you need a
           build log with photos and a demo video of your project working.
         </p>
         <p>

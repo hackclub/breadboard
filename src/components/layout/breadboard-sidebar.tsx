@@ -12,18 +12,12 @@ type DocLink = {
 
 const topLevelItems: DocLink[] = [
   { label: "Start here!", href: "/get-started" },
-  { label: "Readme", href: "/readme" },
   { label: "FAQ", href: "/faq" },
 ];
 
 const guideItems: DocLink[] = [
   { label: "Breadboard Basics", href: "/guides", sub: true },
   { label: "LED Workshop", href: "/workshop", sub: true },
-  {
-    label: "Example submission",
-    href: "/guides/example-submission",
-    sub: true,
-  },
   { label: "Firmware Guide", href: "/guides/firmware", sub: true },
 ];
 
@@ -43,7 +37,6 @@ const projectResourceItems: DocLink[] = [
     href: "/project-resources/good-journaling",
     sub: true,
   },
-  { label: "Design tips", href: "/project-resources/design-tips", sub: true },
 ];
 
 const breadboardHoles = [

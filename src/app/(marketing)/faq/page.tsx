@@ -27,7 +27,11 @@ export default function FaqPage() {
           Welcome to the FAQ! This page attempts to point you to the right place
           when you have a question. It&apos;ll be constantly updated throughout
           the event as more questions get asked! As always, if anything is
-          unclear, ask in #breadboard for help!
+          unclear, ask in{" "}
+          <a href="https://hackclub.enterprise.slack.com/archives/C09EB0AE68M">
+            #breadboard
+          </a>{" "}
+          for help!
         </p>
 
         <h2>What is this all about?</h2>
@@ -36,21 +40,21 @@ export default function FaqPage() {
           global community of high school hackers.
         </p>
         <p>
-          The goal is simple: build something real on a breadboard.{" "}
-          <strong>Not just a schematic</strong>, but a working prototype with a
-          purpose, a polished enclosure, and a build log to show how you got
-          there. Ship it, and we&apos;ll ship you a component kit to keep
-          building with.
+          Your goal is to build something real on a breadboard. This includes the <strong> design and build phase! </strong> Ship it, and
+          we&apos;ll ship you a component kit to keep building with.
         </p>
 
         <h2>Where do I get started?</h2>
         <p>
-          Check out our getting started doc, which walks you through what a
-          valid project looks like, links to a sample project so you can see the
-          general direction, and includes tutorials and component references to
-          help you along the way. Projects are submitted via GitHub, and our
-          Hack Club Slack channel is where you can ask questions, share
-          progress, and get feedback.
+          Check out our{" "}
+          <a href="/get-started">getting started doc</a>, which walks you
+          through what a valid project looks like, links to a sample project so
+          you can see the general direction, and includes tutorials and
+          component references to help you along the way. Our Hack Club Slack{" "}
+          <a href="https://hackclub.enterprise.slack.com/archives/C09EB0AE68M">
+            channel
+          </a>{" "}
+          is where you can ask questions, share progress, and get feedback.
         </p>
 
         <h2>But I&apos;m a beginner and don&apos;t know hardware</h2>
@@ -62,24 +66,25 @@ export default function FaqPage() {
         </p>
 
         <h2>What do I need to submit?</h2>
-        <p>A valid Breadboard submission has three parts:</p>
+        <p>A valid Breadboard submission has two parts:</p>
         <ol>
           <li>
-            <strong>A working breadboard prototype</strong>: a circuit that
-            actually does something with a clear purpose
-          </li>
-          <li>
-            <strong>A polished enclosure</strong>: a CAD-designed case that
-            turns your project into something finished and real
+            <strong>A design submission</strong>: a complete, fully
+            replicatable project plan. This includes the README, wiring
+            diagram, and firmware.
           </li>
         </ol>
         <p>After you receive your breadboard, you will have to submit:</p>
-        <ol start={3}>
+        <ol start={2}>
           <li>
-            <strong>A build log + demo</strong>: photos or video of the build
-            process and a demo of it working
+            <strong>A build submission</strong>: photos, a demo video, and a
+            build log showing your finished circuit actually working
           </li>
         </ol>
+        <p>
+          See the <a href="/requirements">full requirements</a> for exactly
+          what each stage needs.
+        </p>
 
         <h2>What will I get?</h2>
         <p>You&apos;ll choose one of two component kits:</p>
@@ -88,7 +93,7 @@ export default function FaqPage() {
           <div className="min-w-0 flex-1">
             <h3>
               <a href="https://www.alibaba.com/product-detail/Basic-Starter-Kit-for-ESP32-ESP_1601458696838.html">
-                Kit A: ESP32 Starter Kit
+                Kit B: ESP32 Starter Kit
               </a>
             </h3>
             <table>
@@ -190,7 +195,7 @@ export default function FaqPage() {
           <div className="min-w-0 flex-1">
             <h3>
               <a href="https://www.alibaba.com/product-detail/Jubaolai-Starter-Kit-for-UNO-R3_1600761988959.html">
-                Kit B: Arduino UNO Starter Kit
+                Kit A: Arduino UNO Starter Kit
               </a>
             </h3>
             <table>

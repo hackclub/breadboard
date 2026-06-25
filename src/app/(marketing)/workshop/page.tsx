@@ -7,15 +7,6 @@ export default function WorkshopPage() {
         <p className="mt-2 text-base text-black/80">
           Build and Control a Circuit
         </p>
-        <p className="mt-2 text-sm text-black/60">
-          View this on{" "}
-          <a
-            href="https://linen-hub-2b8.notion.site/LED-Tutorial-2cd0b458002c800ea5c8de8a329c6b35"
-            className="underline hover:text-black"
-          >
-            Notion
-          </a>
-        </p>
       </PageHero>
 
       <ProseCard>

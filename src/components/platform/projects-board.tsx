@@ -32,7 +32,6 @@ export function ProjectsBoard({ projects }: { projects: Project[] }) {
       <PageHeader
         eyebrow="projects"
         title="Your projects"
-        description="Make project -> Submit schematic and code (a reviewer checks here) -> Kit sent out -> make -> send demo -> (demo reviewed here)-> Get currency"
         action={
           <Button
             tone="primary"

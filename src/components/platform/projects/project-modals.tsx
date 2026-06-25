@@ -122,15 +122,13 @@ export function NewProjectModal({
                       className="mt-0.5 size-4 accent-[#BD0F32]"
                     />
                     <p className="text-sm font-black text-black">
-                      {value === "esp32"
-                        ? "B - Advanced (ESP32)"
-                        : "A - Beginner (Arduino)"}
+                      {value === "esp32" ? "B - ESP32" : "A - Arduino"}
                     </p>
                   </div>
                   <p className="mt-1 text-xs text-black/50">
                     {value === "esp32"
-                      ? "ESP32 board, breadboard, more sensors, Wi-Fi support."
-                      : "Arduino board, breadboard, basic components."}
+                      ? "ESP32 board, breadboard, sensors, and Wi-Fi/Bluetooth support."
+                      : "Arduino board, breadboard, sensors, and additional modules."}
                   </p>
                 </div>
               </label>

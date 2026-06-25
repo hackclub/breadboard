@@ -68,6 +68,25 @@ export async function getStorageObject(key: string) {
   );
 }
 
+export async function putStorageObject({
+  key,
+  contentType,
+  body,
+}: {
+  key: string;
+  contentType: string;
+  body: Buffer;
+}) {
+  await getS3Client().send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      ContentType: contentType,
+      Body: body,
+    }),
+  );
+}
+
 function safeDecodeURIComponent(value: string) {
   try {
     return decodeURIComponent(value);

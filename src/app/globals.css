@@ -90,3 +90,14 @@ select {
     transform: translateY(10px) rotate(45deg);
   }
 }
+
+@keyframes slideInFromRight {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}

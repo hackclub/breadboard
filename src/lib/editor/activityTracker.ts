@@ -1,21 +1,23 @@
 "use client";
 
 const HB_INTERVAL = 20_000;
-const SNAP_INTERVAL = 5_000;
+const SNAP_INTERVAL = 20_000;
 const MIN_ACTIVITY_MS = 60_000;
 
 let active = false;
 let sessionId = 0;
 let activeSeconds = 0;
 let unjournaledSeconds = 0;
+let lastValidatedAt = 0;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let snapshotTimer: ReturnType<typeof setInterval> | null = null;
 let projectId = 0;
 let onStatusChange:
   | ((s: {
-      status: "active" | "idle" | "blocked";
+      status: "active" | "idle" | "blocked" | "error";
       activeSeconds: number;
       unjournaledSeconds?: number;
+      validatedAt?: number;
       needsJournal?: boolean;
       reason?: string;
     }) => void)
@@ -23,9 +25,10 @@ let onStatusChange:
 
 export function setActivityStatusListener(
   fn: (s: {
-    status: "active" | "idle" | "blocked";
+    status: "active" | "idle" | "blocked" | "error";
     activeSeconds: number;
     unjournaledSeconds?: number;
+    validatedAt?: number;
     needsJournal?: boolean;
     reason?: string;
   }) => void,
@@ -38,6 +41,7 @@ function emit() {
     status: active ? "active" : "idle",
     activeSeconds,
     unjournaledSeconds,
+    validatedAt: lastValidatedAt || undefined,
   });
 }
 
@@ -49,7 +53,20 @@ function emitBlocked(reason: string, needsJournal: boolean, seconds: number) {
     status: "blocked",
     activeSeconds,
     unjournaledSeconds,
+    validatedAt: lastValidatedAt || undefined,
     needsJournal,
+    reason,
+  });
+}
+
+function emitError(reason: string) {
+  active = false;
+  onStatusChange?.({
+    status: "error",
+    activeSeconds,
+    unjournaledSeconds,
+    validatedAt: lastValidatedAt || undefined,
+    needsJournal: false,
     reason,
   });
 }
@@ -73,21 +90,26 @@ export async function startActivityTracking(
   lastActivity = Date.now();
 
   const result = await sendHeartbeat(projectId);
-  if (result) {
-    if (!("sessionId" in result)) {
-      emitBlocked(result.reason, result.needsJournal, result.activeSeconds);
-      return;
-    }
+  if (!result) {
+    emitError("Time tracking heartbeat failed.");
+  } else if (!("sessionId" in result)) {
+    emitBlocked(result.reason, result.needsJournal, result.activeSeconds);
+  } else {
     sessionId = result.sessionId;
     activeSeconds = result.activeSeconds;
     unjournaledSeconds = result.unjournaledSeconds;
+    lastValidatedAt = Date.now();
+    active = true;
+    emit();
   }
-  active = true;
-  emit();
 
   heartbeatTimer = setInterval(async () => {
     if (checkRecentActivity()) {
       const result = await sendHeartbeat(projectId);
+      if (!result) {
+        emitError("Time tracking heartbeat failed.");
+        return;
+      }
       if (result) {
         if (!("sessionId" in result)) {
           emitBlocked(result.reason, result.needsJournal, result.activeSeconds);
@@ -96,12 +118,14 @@ export async function startActivityTracking(
         sessionId = result.sessionId;
         activeSeconds = result.activeSeconds;
         unjournaledSeconds = result.unjournaledSeconds;
+        lastValidatedAt = Date.now();
       }
       active = true;
+      emit();
     } else {
       active = false;
+      emit();
     }
-    emit();
   }, HB_INTERVAL);
 
   snapshotTimer = setInterval(() => {
@@ -119,25 +143,29 @@ export async function startActivityTracking(
 }
 
 async function sendHeartbeat(projectId: number) {
-  const response = await fetch(
-    `/api/editor/projects/${projectId}/activity/heartbeat`,
-    { method: "POST" },
-  );
-  if (!response.ok) return null;
-  return (await response.json()) as
-    | {
-        sessionId: number;
-        activeSeconds: number;
-        unjournaledSeconds: number;
-        needsJournal: boolean;
-        startedAt: string;
-      }
-    | {
-        blocked: true;
-        reason: string;
-        needsJournal: boolean;
-        activeSeconds: number;
-      };
+  try {
+    const response = await fetch(
+      `/api/editor/projects/${projectId}/activity/heartbeat`,
+      { method: "POST" },
+    );
+    if (!response.ok) return null;
+    return (await response.json()) as
+      | {
+          sessionId: number;
+          activeSeconds: number;
+          unjournaledSeconds: number;
+          needsJournal: boolean;
+          startedAt: string;
+        }
+      | {
+          blocked: true;
+          reason: string;
+          needsJournal: boolean;
+          activeSeconds: number;
+        };
+  } catch {
+    return null;
+  }
 }
 
 async function storeSnapshot(
@@ -167,6 +195,24 @@ export function stopActivityTracking() {
   document.removeEventListener("scroll", markRealActivity);
   document.removeEventListener("wheel", markRealActivity);
   active = false;
+  lastValidatedAt = 0;
   lastActivity = 0;
+  emit();
+}
+
+export async function refreshActivityTracking() {
+  if (!projectId) return;
+  markRealActivity();
+  const result = await sendHeartbeat(projectId);
+  if (!result) return;
+  if (!("sessionId" in result)) {
+    emitBlocked(result.reason, result.needsJournal, result.activeSeconds);
+    return;
+  }
+  sessionId = result.sessionId;
+  activeSeconds = result.activeSeconds;
+  unjournaledSeconds = result.unjournaledSeconds;
+  lastValidatedAt = Date.now();
+  active = true;
   emit();
 }

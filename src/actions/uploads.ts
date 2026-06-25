@@ -40,10 +40,11 @@ export async function createProjectScreenshotUpload(
   const extension = imageContentTypes.get(contentType);
   if (!extension) throw new Error("Upload a PNG, JPEG, or WebP image.");
 
-  return createPresignedPutUrl({
-    key: `project-screenshots/${session.user.id}/${id}/${randomUUID()}.${extension}`,
-    contentType,
-  });
+  const key = `project-screenshots/${session.user.id}/${id}/${randomUUID()}.${extension}`;
+  return {
+    uploadUrl: `/api/uploads/${key}`,
+    publicUrl: `/api/uploads/${key}`,
+  };
 }
 
 export async function createProjectDemoVideoUpload(

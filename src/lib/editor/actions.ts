@@ -10,11 +10,11 @@ import {
 } from "@/lib/db/schema";
 
 const INACTIVITY_TIMEOUT_SECONDS = 60;
-const HEARTBEAT_INTERVAL_SECONDS = 20;
 const MIN_HEARTBEAT_GAP_SECONDS = 10;
+const MAX_HEARTBEAT_CREDIT_SECONDS = 60;
 const JOURNAL_MIN_SECONDS = 10 * 60;
-const JOURNAL_REMINDER_SECONDS = 60 * 60;
-const JOURNAL_BLOCK_SECONDS = 90 * 60;
+const JOURNAL_REMINDER_SECONDS = 50 * 60;
+const JOURNAL_BLOCK_SECONDS = 60 * 60;
 
 async function getUnjournaledSeconds(projectId: number, userId: string) {
   const latestJournal = await db
@@ -115,7 +115,7 @@ export async function sendHeartbeat(projectId: number) {
     );
     activeSecondsAdded =
       elapsedSeconds >= MIN_HEARTBEAT_GAP_SECONDS
-        ? Math.min(elapsedSeconds, HEARTBEAT_INTERVAL_SECONDS)
+        ? Math.min(elapsedSeconds, MAX_HEARTBEAT_CREDIT_SECONDS)
         : 0;
     const [updated] = await db
       .update(editorActivitySessions)
@@ -159,12 +159,12 @@ export async function sendHeartbeat(projectId: number) {
         projectId,
         userId: session.user.id,
         startedAt: now,
-        activeSeconds: HEARTBEAT_INTERVAL_SECONDS,
+        activeSeconds: 0,
         lastActivityAt: now,
       })
       .returning();
     activeSession = inserted;
-    activeSecondsAdded = HEARTBEAT_INTERVAL_SECONDS;
+    activeSecondsAdded = 0;
   }
 
   const nextUnjournaledSeconds = unjournaledSeconds + activeSecondsAdded;

@@ -57,7 +57,6 @@ yarn-error.log*
 # Large generated editor assets
 /public/boards/
 /public/components/
-/public/component-svgs/
 /public/firmware/
 /public/wasm/
 /public/components-metadata.json

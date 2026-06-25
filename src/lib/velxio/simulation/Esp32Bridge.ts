@@ -583,7 +583,7 @@ export class Esp32Bridge {
 
     socket.onclose = (ev) => {
       console.log(
-        `[Esp32Bridge:${this.boardId}] WebSocket closed (code=${ev?.code ?? "?"})`,
+        `[Esp32Bridge:${this.boardId}] WebSocket closed (url=${wsUrl}, code=${ev?.code ?? "?"}, reason=${ev?.reason || "none"}, clean=${ev?.wasClean ?? false})`,
       );
       this._connected = false;
       this.socket = null;
@@ -591,8 +591,11 @@ export class Esp32Bridge {
     };
 
     socket.onerror = (ev) => {
-      console.error(`[Esp32Bridge:${this.boardId}] WebSocket error`, ev);
-      this.onError?.("WebSocket error");
+      console.error(
+        `[Esp32Bridge:${this.boardId}] WebSocket error (url=${wsUrl}, readyState=${socket.readyState})`,
+        ev,
+      );
+      this.onError?.(`WebSocket error connecting to ${wsUrl}`);
     };
   }
 

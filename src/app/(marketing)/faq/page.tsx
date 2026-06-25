@@ -40,17 +40,18 @@ export default function FaqPage() {
           global community of high school hackers.
         </p>
         <p>
-          Your goal is to build something real on a breadboard. This includes the <strong> design and build phase! </strong> Ship it, and
-          we&apos;ll ship you a component kit to keep building with.
+          Your goal is to build something real on a breadboard. This includes
+          the <strong> design and build phase! </strong> Ship it, and we&apos;ll
+          ship you a component kit to keep building with.
         </p>
 
         <h2>Where do I get started?</h2>
         <p>
-          Check out our{" "}
-          <a href="/get-started">getting started doc</a>, which walks you
-          through what a valid project looks like, links to a sample project so
-          you can see the general direction, and includes tutorials and
-          component references to help you along the way. Our Hack Club Slack{" "}
+          Check out our <a href="/get-started">getting started doc</a>, which
+          walks you through what a valid project looks like, links to a sample
+          project so you can see the general direction, and includes tutorials
+          and component references to help you along the way. Our Hack Club
+          Slack{" "}
           <a href="https://hackclub.enterprise.slack.com/archives/C09EB0AE68M">
             channel
           </a>{" "}
@@ -69,9 +70,9 @@ export default function FaqPage() {
         <p>A valid Breadboard submission has two parts:</p>
         <ol>
           <li>
-            <strong>A design submission</strong>: a complete, fully
-            replicatable project plan. This includes the README, wiring
-            diagram, and firmware.
+            <strong>A design submission</strong>: a complete, fully replicatable
+            project plan. This includes the README, wiring diagram, and
+            firmware.
           </li>
         </ol>
         <p>After you receive your breadboard, you will have to submit:</p>
@@ -82,8 +83,8 @@ export default function FaqPage() {
           </li>
         </ol>
         <p>
-          See the <a href="/requirements">full requirements</a> for exactly
-          what each stage needs.
+          See the <a href="/requirements">full requirements</a> for exactly what
+          each stage needs.
         </p>
 
         <h2>What will I get?</h2>

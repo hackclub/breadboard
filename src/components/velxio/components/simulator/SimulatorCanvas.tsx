@@ -198,6 +198,7 @@ export const SimulatorCanvas = ({
   const recordRotate = useSimulatorStore((s) => s.recordRotate);
   const recordSetProperty = useSimulatorStore((s) => s.recordSetProperty);
   const recordRemoveWire = useSimulatorStore((s) => s.recordRemoveWire);
+  const recordUpdateWire = useSimulatorStore((s) => s.recordUpdateWire);
   // Subscribe to history shape so the undo/redo buttons reactively
   // enable/disable and their tooltips reflect the next command.
   const history = useSimulatorStore((s) => s.history);
@@ -2861,15 +2862,10 @@ export const SimulatorCanvas = ({
             />
           )}
 
-          {/* Floating action bar for the current selection — primary delete UI
-              for touch devices (no Delete key, no right-click). Hidden:
+          {/* Floating action bar for the current selection. Hidden:
               - while creating a wire (would fight the wire-mode banner)
-              - on desktop (delete is bound to the Delete key, rotate is in
-                the right-click menu — the floating bar covered nearby pins
-                and intercepted clicks on buttons during simulation)
               - while the simulator is running (canvas is read-only). */}
           {!wireInProgress &&
-            isTouchDevice &&
             !interactionRunning &&
             !readOnly &&
             (() => {

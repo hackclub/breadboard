@@ -193,7 +193,7 @@ export const SelectionActionBar: React.FC<SelectionActionBarProps> = ({
         borderRadius: 8,
         padding: "6px 8px",
         boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
-        zIndex: 50,
+        zIndex: 300,
         fontSize: 13,
         color: "#e0e0e0",
         pointerEvents: "auto",

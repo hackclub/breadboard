@@ -3024,24 +3024,21 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     },
 
     recordUpdateWire: (wireId, prev, next, description = "Update wire") => {
-      get().pushCommand(
-        {
-          description,
-          execute: () =>
-            set((s) => ({
-              wires: s.wires.map((w) =>
-                w.id === wireId ? { ...w, ...next } : w,
-              ),
-            })),
-          undo: () =>
-            set((s) => ({
-              wires: s.wires.map((w) =>
-                w.id === wireId ? { ...w, ...prev } : w,
-              ),
-            })),
-        },
-        { applyNow: false },
-      );
+      get().pushCommand({
+        description,
+        execute: () =>
+          set((s) => ({
+            wires: s.wires.map((w) =>
+              w.id === wireId ? { ...w, ...next } : w,
+            ),
+          })),
+        undo: () =>
+          set((s) => ({
+            wires: s.wires.map((w) =>
+              w.id === wireId ? { ...w, ...prev } : w,
+            ),
+          })),
+      });
     },
 
     toggleSerialMonitor: () =>

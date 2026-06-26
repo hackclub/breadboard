@@ -67,6 +67,7 @@ const adminNavigation: SidebarSection = {
     },
     { name: "Orders", href: "/platform/admin/orders", icon: HiShoppingBag },
     { name: "Products", href: "/platform/admin/products", icon: HiCube },
+    { name: "Projects", href: "/platform/admin/projects", icon: HiCube },
     { name: "Users", href: "/platform/admin/users", icon: HiUsers },
     { name: "Audit", href: "/platform/admin/audit", icon: HiClock },
   ],

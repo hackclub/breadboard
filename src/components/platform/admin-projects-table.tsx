@@ -49,6 +49,15 @@ function label(value: string) {
   return value.replace(/_/g, " ");
 }
 
+function formatHours(value: number) {
+  const minutes = Math.round(value * 60);
+  if (minutes < 60) return `${minutes}m`;
+
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder > 0 ? `${hours}h ${remainder}m` : `${hours}h`;
+}
+
 function OwnerCell({ project }: { project: AdminProjectRow }) {
   const avatar = slackPfpUrl(project.ownerSlackId);
   const initial = (project.ownerName || project.ownerEmail || "?")
@@ -154,8 +163,9 @@ export function AdminProjectsTable({
                         {project.title}
                       </p>
                       <p className="mt-0.5 text-xs text-black/50">
-                        #{project.id} · {project.kitType} · {project.hoursSpent}
-                        h · {project.breadAmount} bread
+                        #{project.id} · {project.kitType} · {formatHours(
+                          project.hoursSpent,
+                        )} · {project.breadAmount} bread
                       </p>
                     </div>
                   </TableCell>

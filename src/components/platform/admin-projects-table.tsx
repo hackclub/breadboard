@@ -163,9 +163,9 @@ export function AdminProjectsTable({
                         {project.title}
                       </p>
                       <p className="mt-0.5 text-xs text-black/50">
-                        #{project.id} · {project.kitType} · {formatHours(
-                          project.hoursSpent,
-                        )} · {project.breadAmount} bread
+                        #{project.id} · {project.kitType} ·{" "}
+                        {formatHours(project.hoursSpent)} ·{" "}
+                        {project.breadAmount} bread
                       </p>
                     </div>
                   </TableCell>

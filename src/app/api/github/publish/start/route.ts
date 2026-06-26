@@ -9,10 +9,19 @@ import {
   safeReturnTo,
 } from "@/lib/github/oauth";
 
+function publicBaseUrl(request: Request) {
+  return (
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    process.env.BETTER_AUTH_URL?.trim() ||
+    request.url
+  );
+}
+
 export async function GET(request: Request) {
+  const baseUrl = publicBaseUrl(request);
   const session = await getSession();
   if (!session) {
-    return NextResponse.redirect(new URL("/", request.url));
+    return NextResponse.redirect(new URL("/", baseUrl));
   }
 
   const { clientId } = githubOAuthConfig();
@@ -21,7 +30,7 @@ export async function GET(request: Request) {
   );
   if (!clientId) {
     return NextResponse.redirect(
-      new URL(`${returnTo}?github=missing-config`, request.url),
+      new URL(`${returnTo}?github=missing-config`, baseUrl),
     );
   }
 
@@ -42,7 +51,7 @@ export async function GET(request: Request) {
     maxAge: 10 * 60,
   });
 
-  const callbackUrl = new URL("/api/github/publish/callback", request.url);
+  const callbackUrl = new URL("/api/github/publish/callback", baseUrl);
   const githubUrl = new URL("https://github.com/login/oauth/authorize");
   githubUrl.searchParams.set("client_id", clientId);
   githubUrl.searchParams.set("redirect_uri", callbackUrl.toString());

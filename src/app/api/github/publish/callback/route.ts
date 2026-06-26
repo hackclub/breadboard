@@ -26,8 +26,16 @@ type GitHubUserResponse = {
   login: string;
 };
 
+function publicBaseUrl(request: Request) {
+  return (
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    process.env.BETTER_AUTH_URL?.trim() ||
+    request.url
+  );
+}
+
 function redirectWith(request: Request, returnTo: string, github: string) {
-  const url = new URL(returnTo, request.url);
+  const url = new URL(returnTo, publicBaseUrl(request));
   url.searchParams.set("github", github);
   return NextResponse.redirect(url);
 }
@@ -102,8 +110,9 @@ async function storeGitHubPublishToken(input: {
 }
 
 export async function GET(request: Request) {
+  const baseUrl = publicBaseUrl(request);
   const session = await getSession();
-  if (!session) return NextResponse.redirect(new URL("/", request.url));
+  if (!session) return NextResponse.redirect(new URL("/", baseUrl));
 
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
@@ -139,7 +148,7 @@ export async function GET(request: Request) {
         code,
         redirect_uri: new URL(
           "/api/github/publish/callback",
-          request.url,
+          baseUrl,
         ).toString(),
       }),
     },

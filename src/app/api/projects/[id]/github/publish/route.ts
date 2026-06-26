@@ -29,6 +29,14 @@ function error(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
 }
 
+function publicBaseUrl(request: Request) {
+  return (
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    process.env.BETTER_AUTH_URL?.trim() ||
+    request.url
+  );
+}
+
 function slugify(value: string) {
   return (
     value
@@ -415,7 +423,7 @@ export async function POST(
     string,
     unknown
   >;
-  const origin = new URL(request.url).origin;
+  const origin = new URL(publicBaseUrl(request)).origin;
   const requestedHowToUse =
     typeof body.howToUse === "string" ? body.howToUse.trim() : "";
   const howToUse = requestedHowToUse || project.howToUse;

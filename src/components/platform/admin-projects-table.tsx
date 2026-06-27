@@ -175,7 +175,7 @@ export function AdminProjectsTable({
                       </p>
                       <p className="mt-0.5 text-xs text-black/50">
                         #{project.id} · {project.kitType} · submitted{" "}
-                        {formatHours(project.hoursSpent)} · tracked{" "}
+                        {formatHours(project.hoursSpent)} · current{" "}
                         {formatTrackedSeconds(project.trackedSeconds)} ·{" "}
                         {project.country || "Unknown country"} ·{" "}
                         {project.breadAmount} bread

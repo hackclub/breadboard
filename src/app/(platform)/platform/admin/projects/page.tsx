@@ -7,7 +7,6 @@ import { db } from "@/lib/db/db";
 import {
   editorActivitySessions,
   projectEditorVersions,
-  projectTimeEntries,
   projects,
   user,
 } from "@/lib/db/schema";
@@ -35,7 +34,7 @@ export default async function AdminProjectsPage() {
     );
   }
 
-  const trackedSeconds = sql<number>`coalesce(sum(${projectTimeEntries.activeSeconds}) filter (where ${projectTimeEntries.counted} = true), 0)::int`;
+  const trackedSeconds = sql<number>`coalesce(sum(${editorActivitySessions.activeSeconds}), 0)::int`;
 
   const rows = await db
     .select({
@@ -57,14 +56,14 @@ export default async function AdminProjectsPage() {
         projectEditorVersions,
         eq(projectEditorVersions.projectId, projects.id),
       ),
-      activitySessionCount: db.$count(
-        editorActivitySessions,
-        eq(editorActivitySessions.projectId, projects.id),
-      ),
+      activitySessionCount: sql<number>`count(${editorActivitySessions.id})::int`,
     })
     .from(projects)
     .innerJoin(user, eq(projects.userId, user.id))
-    .leftJoin(projectTimeEntries, eq(projectTimeEntries.projectId, projects.id))
+    .leftJoin(
+      editorActivitySessions,
+      eq(editorActivitySessions.projectId, projects.id),
+    )
     .groupBy(
       projects.id,
       projects.title,

@@ -100,6 +100,12 @@ async function flushQueue(projectId: number) {
   saveQueue(projectId, queue.slice(batch.length));
 }
 
+function stopStream(stream: MediaStream | null) {
+  stream?.getTracks().forEach((track) => {
+    track.stop();
+  });
+}
+
 export function ScreenShareTracker({ projectId }: { projectId: number }) {
   const [sharing, setSharing] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -123,6 +129,7 @@ export function ScreenShareTracker({ projectId }: { projectId: number }) {
   const wasSharingRef = useRef(false);
   const captureInFlightRef = useRef(false);
   const flushInFlightRef = useRef(false);
+  const suppressEndedRef = useRef(false);
 
   const playWarningSound = useCallback(() => {
     try {
@@ -246,6 +253,9 @@ export function ScreenShareTracker({ projectId }: { projectId: number }) {
   const startSharing = useCallback(async () => {
     setError("");
     try {
+      suppressEndedRef.current = true;
+      stopStream(streamRef.current);
+      suppressEndedRef.current = false;
       const stream = await navigator.mediaDevices.getDisplayMedia({
         video: { displaySurface: "monitor", frameRate: 1 },
         audio: false,
@@ -263,6 +273,7 @@ export function ScreenShareTracker({ projectId }: { projectId: number }) {
       setSetupOpen(false);
       setSetupDismissed(false);
       stream.getVideoTracks()[0]?.addEventListener("ended", () => {
+        if (suppressEndedRef.current) return;
         setSharing(false);
         setWarningOpen(true);
         setError(
@@ -320,6 +331,13 @@ export function ScreenShareTracker({ projectId }: { projectId: number }) {
       const queue = loadQueue(projectId).slice(0, MAX_UPLOAD_BATCH);
       if (queue.length === 0) return;
       const body = JSON.stringify({ frames: queue });
+      void fetch(`/api/editor/projects/${projectId}/activity/screen-frame`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body,
+        keepalive: true,
+      }).catch(() => {});
       navigator.sendBeacon?.(
         `/api/editor/projects/${projectId}/activity/screen-frame`,
         new Blob([body], { type: "application/json" }),
@@ -362,9 +380,8 @@ export function ScreenShareTracker({ projectId }: { projectId: number }) {
   useEffect(
     () => () => {
       void flushQueue(projectId).catch(() => {});
-      streamRef.current?.getTracks().forEach((track) => {
-        track.stop();
-      });
+      suppressEndedRef.current = true;
+      stopStream(streamRef.current);
       setActivityTrackingPaused(false);
     },
     [projectId],

@@ -27,7 +27,7 @@ export async function GET(
   if (!project)
     return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  if (!isAdmin && project.userId !== session.user.id) {
+  if (!isAdmin) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

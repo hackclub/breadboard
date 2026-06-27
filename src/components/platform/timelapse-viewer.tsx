@@ -51,8 +51,15 @@ async function preloadImages(urls: string[]) {
       (url) =>
         new Promise<void>((resolve) => {
           const image = new Image();
-          image.onload = () => resolve();
-          image.onerror = () => resolve();
+          const timeout = window.setTimeout(resolve, 3000);
+          image.onload = () => {
+            window.clearTimeout(timeout);
+            resolve();
+          };
+          image.onerror = () => {
+            window.clearTimeout(timeout);
+            resolve();
+          };
           image.src = url;
         }),
     ),

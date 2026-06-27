@@ -21,6 +21,11 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const isAdmin = await isAdminSession(session);
+  if (!isAdmin) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const [row] = await db
     .select({
       userId: projects.userId,
@@ -38,11 +43,6 @@ export async function GET(
 
   if (!row || !row.imageKey) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  const isAdmin = await isAdminSession(session);
-  if (!isAdmin && row.userId !== session.user.id) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   return NextResponse.redirect(await createPresignedGetUrl(row.imageKey));

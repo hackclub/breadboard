@@ -3,6 +3,10 @@ import { LoginButton } from "@/components/shared/auth-buttons";
 import { ProjectsBoard } from "@/components/platform/projects-board";
 import { Surface } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import {
+  countryFromHackClubClaims,
+  getHackClubClaims,
+} from "@/lib/auth/hackclub";
 import { getSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import { projectJournals, projects } from "@/lib/db/schema";
@@ -62,6 +66,18 @@ export default async function ProjectsPage() {
         </Surface>
       </>
     );
+  }
+
+  const country = countryFromHackClubClaims(
+    await getHackClubClaims(session.user.id),
+  );
+  if (country) {
+    await db
+      .update(projects)
+      .set({ country })
+      .where(
+        and(eq(projects.userId, session.user.id), eq(projects.archived, false)),
+      );
   }
 
   const projectRows = await db

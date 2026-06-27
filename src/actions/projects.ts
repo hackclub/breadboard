@@ -2,9 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import type { HackClubClaims } from "@/lib/auth/hackclub";
+import { getHackClubClaims } from "@/lib/auth/hackclub";
 import { requireSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
-import { account, projectJournals, projects } from "@/lib/db/schema";
+import { projectJournals, projects } from "@/lib/db/schema";
 import { and, count, eq } from "drizzle-orm";
 import {
   archiveProjectForUser,
@@ -37,21 +39,6 @@ const shipProjectSchema = z.object({
 function hasMinimumWords(value: string, minimum: number) {
   return value.trim().split(/\s+/).filter(Boolean).length >= minimum;
 }
-
-type HackClubClaims = {
-  given_name?: string;
-  family_name?: string;
-  name?: string;
-  email?: string;
-  birthdate?: string;
-  address?: {
-    street_address?: string;
-    locality?: string;
-    region?: string;
-    postal_code?: string;
-    country?: string;
-  };
-};
 
 const demoSubmissionSchema = z.object({
   playableUrl: z
@@ -147,35 +134,6 @@ async function assertMaterialsRepoReady(codeUrl: string) {
   if (!(await hasPublishedFirmware(owner, repo))) {
     throw new Error("Publish a firmware file before submitting.");
   }
-}
-
-async function getHackClubClaims(userId: string) {
-  const [row] = await db
-    .select({ accessToken: account.accessToken, idToken: account.idToken })
-    .from(account)
-    .where(and(eq(account.userId, userId), eq(account.providerId, "hackclub")))
-    .limit(1);
-  const claims: HackClubClaims = {};
-
-  if (row?.idToken) {
-    const payload = row.idToken.split(".")[1];
-    if (payload) {
-      Object.assign(
-        claims,
-        JSON.parse(Buffer.from(payload, "base64url").toString("utf8")),
-      );
-    }
-  }
-
-  if (row?.accessToken) {
-    const res = await fetch("https://auth.hackclub.com/oauth/userinfo", {
-      headers: { Authorization: `Bearer ${row.accessToken}` },
-      cache: "no-store",
-    });
-    if (res.ok) Object.assign(claims, await res.json());
-  }
-
-  return claims;
 }
 
 function shippingFromClaims(

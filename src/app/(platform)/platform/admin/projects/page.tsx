@@ -35,6 +35,8 @@ export default async function AdminProjectsPage() {
     );
   }
 
+  const trackedSeconds = sql<number>`coalesce(sum(${projectTimeEntries.activeSeconds}) filter (where ${projectTimeEntries.counted} = true), 0)::int`;
+
   const rows = await db
     .select({
       id: projects.id,
@@ -43,7 +45,7 @@ export default async function AdminProjectsPage() {
       lifecycleState: projects.lifecycleState,
       kitType: projects.kitType,
       hoursSpent: projects.hoursSpent,
-      trackedSeconds: sql<number>`coalesce((select sum(${projectTimeEntries.activeSeconds}) from ${projectTimeEntries} where ${projectTimeEntries.projectId} = ${projects.id} and ${projectTimeEntries.counted} = true), 0)::int`,
+      trackedSeconds,
       breadAmount: projects.breadAmount,
       country: projects.country,
       editorLastSavedAt: projects.editorLastSavedAt,
@@ -62,11 +64,23 @@ export default async function AdminProjectsPage() {
     })
     .from(projects)
     .innerJoin(user, eq(projects.userId, user.id))
-    .orderBy(
-      desc(
-        sql<number>`coalesce((select sum(${projectTimeEntries.activeSeconds}) from ${projectTimeEntries} where ${projectTimeEntries.projectId} = ${projects.id} and ${projectTimeEntries.counted} = true), 0)::int`,
-      ),
+    .leftJoin(projectTimeEntries, eq(projectTimeEntries.projectId, projects.id))
+    .groupBy(
+      projects.id,
+      projects.title,
+      projects.status,
+      projects.lifecycleState,
+      projects.kitType,
+      projects.hoursSpent,
+      projects.breadAmount,
+      projects.country,
+      projects.editorLastSavedAt,
+      projects.createdAt,
+      user.name,
+      user.email,
+      user.slackId,
     )
+    .orderBy(desc(trackedSeconds))
     .limit(1000);
 
   return (

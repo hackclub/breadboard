@@ -68,16 +68,23 @@ export default async function ProjectsPage() {
     );
   }
 
-  const country = countryFromHackClubClaims(
-    await getHackClubClaims(session.user.id),
-  );
-  if (country) {
-    await db
-      .update(projects)
-      .set({ country })
-      .where(
-        and(eq(projects.userId, session.user.id), eq(projects.archived, false)),
-      );
+  try {
+    const country = countryFromHackClubClaims(
+      await getHackClubClaims(session.user.id),
+    );
+    if (country) {
+      await db
+        .update(projects)
+        .set({ country })
+        .where(
+          and(
+            eq(projects.userId, session.user.id),
+            eq(projects.archived, false),
+          ),
+        );
+    }
+  } catch {
+    // Country is nice-to-have here; submit still refreshes and validates it.
   }
 
   const projectRows = await db

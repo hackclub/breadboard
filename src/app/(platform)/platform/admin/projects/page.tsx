@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { AdminProjectsTable } from "@/components/platform/admin-projects-table";
 import { AccessCard } from "@/components/ui/access-card";
@@ -43,11 +43,9 @@ export default async function AdminProjectsPage() {
       lifecycleState: projects.lifecycleState,
       kitType: projects.kitType,
       hoursSpent: projects.hoursSpent,
-      trackedSeconds: db.$count(
-        projectTimeEntries,
-        eq(projectTimeEntries.projectId, projects.id),
-      ),
+      trackedSeconds: sql<number>`coalesce((select sum(${projectTimeEntries.activeSeconds}) from ${projectTimeEntries} where ${projectTimeEntries.projectId} = ${projects.id} and ${projectTimeEntries.counted} = true), 0)::int`,
       breadAmount: projects.breadAmount,
+      country: projects.country,
       editorLastSavedAt: projects.editorLastSavedAt,
       createdAt: projects.createdAt,
       ownerName: user.name,
@@ -64,7 +62,11 @@ export default async function AdminProjectsPage() {
     })
     .from(projects)
     .innerJoin(user, eq(projects.userId, user.id))
-    .orderBy(desc(projectTimeEntries.activeSeconds))
+    .orderBy(
+      desc(
+        sql<number>`coalesce((select sum(${projectTimeEntries.activeSeconds}) from ${projectTimeEntries} where ${projectTimeEntries.projectId} = ${projects.id} and ${projectTimeEntries.counted} = true), 0)::int`,
+      ),
+    )
     .limit(1000);
 
   return (

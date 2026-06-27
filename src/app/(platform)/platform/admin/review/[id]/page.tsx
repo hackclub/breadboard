@@ -58,6 +58,7 @@ export default async function AdminReviewProjectPage({
       howToUse: projects.howToUse,
       firstName: projectSubmissions.firstName,
       lastName: projectSubmissions.lastName,
+      country: projectSubmissions.country,
       hoursSpent: projectSubmissions.hoursSpent,
       overrideHoursSpent: projectSubmissions.approvedHours,
       overrideHoursSpentJustification: projectSubmissions.internalNote,

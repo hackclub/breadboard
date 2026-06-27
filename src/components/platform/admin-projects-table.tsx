@@ -26,6 +26,7 @@ export interface AdminProjectRow {
   hoursSpent: number;
   trackedSeconds: number;
   breadAmount: number;
+  country: string;
   editorLastSavedAt: string | null;
   createdAt: string;
   ownerName: string | null;
@@ -176,6 +177,7 @@ export function AdminProjectsTable({
                         #{project.id} · {project.kitType} · submitted{" "}
                         {formatHours(project.hoursSpent)} · tracked{" "}
                         {formatTrackedSeconds(project.trackedSeconds)} ·{" "}
+                        {project.country || "Unknown country"} ·{" "}
                         {project.breadAmount} bread
                       </p>
                     </div>

@@ -38,6 +38,7 @@ type ReviewProject = {
   howToUse: string;
   firstName: string;
   lastName: string;
+  country: string;
   hoursSpent: number;
   overrideHoursSpent: number | null;
   overrideHoursSpentJustification: string;
@@ -185,6 +186,11 @@ export function DemoReviewWorkspace({
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-black/50">
             <span>{initial.userName}</span>
             <span className="text-black/25">{initial.userEmail}</span>
+            {initial.country ? (
+              <span className="font-bold text-black/55">
+                Country: {initial.country}
+              </span>
+            ) : null}
           </div>
         </div>
 

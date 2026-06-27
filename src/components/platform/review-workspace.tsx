@@ -37,6 +37,7 @@ type ReviewProject = {
   howToUse: string;
   firstName: string;
   lastName: string;
+  country: string;
   hoursSpent: number;
   overrideHoursSpent: number | null;
   overrideHoursSpentJustification: string;
@@ -232,6 +233,11 @@ export function ReviewWorkspace({
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-black/50">
               <span>{initial.userName}</span>
               <span className="text-black/25">{initial.userEmail}</span>
+              {initial.country ? (
+                <span className="font-bold text-black/55">
+                  Country: {initial.country}
+                </span>
+              ) : null}
             </div>
             <div className="mt-2.5 flex flex-wrap gap-2">
               <EvidenceButton
@@ -409,6 +415,12 @@ export function ReviewWorkspace({
             {daysAgo(initial.shippedAt)}
           </p>
           <div className="mt-3 space-y-2 text-sm text-white/65">
+            <div className="flex justify-between">
+              <span>Country</span>
+              <span className="font-black text-white">
+                {initial.country || "Unknown"}
+              </span>
+            </div>
             <div className="flex justify-between">
               <span>Hours tracked</span>
               <span className="font-black text-white">

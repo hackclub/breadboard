@@ -19,6 +19,10 @@ const videoContentTypes = new Map([
   ["video/quicktime", "mov"],
 ]);
 
+function normalizeContentType(contentType: string) {
+  return contentType.split(";", 1)[0].trim().toLowerCase();
+}
+
 async function assertProjectOwned(projectId: number, userId: string) {
   const [project] = await db
     .select({ id: projects.id })
@@ -37,7 +41,8 @@ export async function createProjectScreenshotUpload(
   if (!Number.isInteger(id) || id < 1) throw new Error("Invalid project");
   await assertProjectOwned(id, session.user.id);
 
-  const extension = imageContentTypes.get(contentType);
+  const safeContentType = normalizeContentType(contentType);
+  const extension = imageContentTypes.get(safeContentType);
   if (!extension) throw new Error("Upload a PNG, JPEG, or WebP image.");
 
   const key = `project-screenshots/${session.user.id}/${id}/${randomUUID()}.${extension}`;
@@ -56,13 +61,14 @@ export async function createProjectDemoVideoUpload(
   if (!Number.isInteger(id) || id < 1) throw new Error("Invalid project");
   await assertProjectOwned(id, session.user.id);
 
-  const extension = videoContentTypes.get(contentType);
+  const safeContentType = normalizeContentType(contentType);
+  const extension = videoContentTypes.get(safeContentType);
   if (!extension) throw new Error("Upload an MP4, WebM, or MOV video.");
   const demoPath = `${id}/${randomUUID()}.${extension}`;
 
   const upload = await createPresignedPutUrl({
     key: `project-demo-videos/${demoPath}`,
-    contentType,
+    contentType: safeContentType,
   });
   return { ...upload, publicUrl: `/demo/${demoPath}` };
 }

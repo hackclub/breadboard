@@ -7,6 +7,7 @@ import { db } from "@/lib/db/db";
 import {
   editorActivitySessions,
   projectEditorVersions,
+  projectTimeEntries,
   projects,
   user,
 } from "@/lib/db/schema";
@@ -42,6 +43,10 @@ export default async function AdminProjectsPage() {
       lifecycleState: projects.lifecycleState,
       kitType: projects.kitType,
       hoursSpent: projects.hoursSpent,
+      trackedSeconds: db.$count(
+        projectTimeEntries,
+        eq(projectTimeEntries.projectId, projects.id),
+      ),
       breadAmount: projects.breadAmount,
       editorLastSavedAt: projects.editorLastSavedAt,
       createdAt: projects.createdAt,
@@ -59,7 +64,7 @@ export default async function AdminProjectsPage() {
     })
     .from(projects)
     .innerJoin(user, eq(projects.userId, user.id))
-    .orderBy(desc(projects.hoursSpent))
+    .orderBy(desc(projectTimeEntries.activeSeconds))
     .limit(1000);
 
   return (
@@ -69,6 +74,7 @@ export default async function AdminProjectsPage() {
           ...row,
           editorLastSavedAt: row.editorLastSavedAt?.toISOString() ?? null,
           createdAt: row.createdAt.toISOString(),
+          trackedSeconds: row.trackedSeconds,
         }))}
       />
     </main>

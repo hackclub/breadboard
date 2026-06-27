@@ -24,6 +24,7 @@ export interface AdminProjectRow {
   lifecycleState: string;
   kitType: string;
   hoursSpent: number;
+  trackedSeconds: number;
   breadAmount: number;
   editorLastSavedAt: string | null;
   createdAt: string;
@@ -51,6 +52,15 @@ function label(value: string) {
 
 function formatHours(value: number) {
   const minutes = Math.round(value * 60);
+  if (minutes < 60) return `${minutes}m`;
+
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder > 0 ? `${hours}h ${remainder}m` : `${hours}h`;
+}
+
+function formatTrackedSeconds(value: number) {
+  const minutes = Math.round(value / 60);
   if (minutes < 60) return `${minutes}m`;
 
   const hours = Math.floor(minutes / 60);
@@ -163,8 +173,9 @@ export function AdminProjectsTable({
                         {project.title}
                       </p>
                       <p className="mt-0.5 text-xs text-black/50">
-                        #{project.id} · {project.kitType} ·{" "}
-                        {formatHours(project.hoursSpent)} ·{" "}
+                        #{project.id} · {project.kitType} · submitted{" "}
+                        {formatHours(project.hoursSpent)} · tracked{" "}
+                        {formatTrackedSeconds(project.trackedSeconds)} ·{" "}
                         {project.breadAmount} bread
                       </p>
                     </div>

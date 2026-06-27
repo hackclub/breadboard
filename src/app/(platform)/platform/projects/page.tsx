@@ -68,11 +68,19 @@ export default async function ProjectsPage() {
     );
   }
 
+  let projectRows = await db
+    .select(projectColumns)
+    .from(projects)
+    .where(
+      and(eq(projects.userId, session.user.id), eq(projects.archived, false)),
+    )
+    .orderBy(desc(projects.updatedAt));
+
   try {
     const country = countryFromHackClubClaims(
       await getHackClubClaims(session.user.id),
     );
-    if (country) {
+    if (country && projectRows.some((project) => project.country !== country)) {
       await db
         .update(projects)
         .set({ country })
@@ -82,18 +90,11 @@ export default async function ProjectsPage() {
             eq(projects.archived, false),
           ),
         );
+      projectRows = projectRows.map((project) => ({ ...project, country }));
     }
   } catch {
     // Country is nice-to-have here; submit still refreshes and validates it.
   }
-
-  const projectRows = await db
-    .select(projectColumns)
-    .from(projects)
-    .where(
-      and(eq(projects.userId, session.user.id), eq(projects.archived, false)),
-    )
-    .orderBy(desc(projects.updatedAt));
   const userProjects = projectRows.map(normalizeProjectRow);
 
   return <ProjectsBoard projects={userProjects} />;

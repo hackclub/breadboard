@@ -5,6 +5,7 @@ const SNAP_INTERVAL = 20_000;
 const MIN_ACTIVITY_MS = 60_000;
 
 let active = false;
+let paused = false;
 let sessionId = 0;
 let activeSeconds = 0;
 let unjournaledSeconds = 0;
@@ -12,69 +13,105 @@ let lastValidatedAt = 0;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let snapshotTimer: ReturnType<typeof setInterval> | null = null;
 let projectId = 0;
-let onStatusChange:
-  | ((s: {
-      status: "active" | "idle" | "blocked" | "error";
-      activeSeconds: number;
-      unjournaledSeconds?: number;
-      validatedAt?: number;
-      needsJournal?: boolean;
-      reason?: string;
-    }) => void)
-  | null = null;
+type ActivityStatus = {
+  status: "active" | "idle" | "blocked" | "error";
+  activeSeconds: number;
+  unjournaledSeconds?: number;
+  validatedAt?: number;
+  needsJournal?: boolean;
+  reason?: string;
+};
+
+const statusListeners = new Set<(s: ActivityStatus) => void>();
 
 export function setActivityStatusListener(
-  fn: (s: {
-    status: "active" | "idle" | "blocked" | "error";
-    activeSeconds: number;
-    unjournaledSeconds?: number;
-    validatedAt?: number;
-    needsJournal?: boolean;
-    reason?: string;
-  }) => void,
+  fn: (s: ActivityStatus) => void,
 ) {
-  onStatusChange = fn;
+  statusListeners.add(fn);
+  return () => {
+    statusListeners.delete(fn);
+  };
 }
 
 function emit() {
-  onStatusChange?.({
+  const status = {
     status: active ? "active" : "idle",
     activeSeconds,
     unjournaledSeconds,
     validatedAt: lastValidatedAt || undefined,
-  });
+  } satisfies ActivityStatus;
+  statusListeners.forEach((listener) => listener(status));
 }
 
 function emitBlocked(reason: string, needsJournal: boolean, seconds: number) {
   active = false;
   activeSeconds = seconds;
   unjournaledSeconds = seconds;
-  onStatusChange?.({
+  const status = {
     status: "blocked",
     activeSeconds,
     unjournaledSeconds,
     validatedAt: lastValidatedAt || undefined,
     needsJournal,
     reason,
-  });
+  } satisfies ActivityStatus;
+  statusListeners.forEach((listener) => listener(status));
 }
 
 function emitError(reason: string) {
   active = false;
-  onStatusChange?.({
+  const status = {
     status: "error",
     activeSeconds,
     unjournaledSeconds,
     validatedAt: lastValidatedAt || undefined,
     needsJournal: false,
     reason,
-  });
+  } satisfies ActivityStatus;
+  statusListeners.forEach((listener) => listener(status));
 }
 
 let lastActivity = Date.now();
 
 export function markRealActivity() {
+  if (paused) return;
   lastActivity = Date.now();
+}
+
+export function setActivityTrackingPaused(value: boolean) {
+  paused = value;
+  if (paused) {
+    active = false;
+    emit();
+    return;
+  }
+  markRealActivity();
+  emit();
+}
+
+export async function recordExternalActivity() {
+  if (!projectId || paused) return null;
+  markRealActivity();
+  const result = await sendHeartbeat(projectId);
+  if (!result) {
+    emitError("Time tracking heartbeat failed.");
+    return null;
+  }
+  if (!("sessionId" in result)) {
+    emitBlocked(result.reason, result.needsJournal, result.activeSeconds);
+    return result;
+  }
+  sessionId = result.sessionId;
+  activeSeconds = result.activeSeconds;
+  unjournaledSeconds = result.unjournaledSeconds;
+  lastValidatedAt = Date.now();
+  active = true;
+  emit();
+  return result;
+}
+
+export function getCurrentActivitySessionId() {
+  return sessionId;
 }
 
 function checkRecentActivity(): boolean {
@@ -104,7 +141,7 @@ export async function startActivityTracking(
   }
 
   heartbeatTimer = setInterval(async () => {
-    if (checkRecentActivity()) {
+    if (!paused && checkRecentActivity()) {
       const result = await sendHeartbeat(projectId);
       if (!result) {
         emitError("Time tracking heartbeat failed.");
@@ -195,6 +232,7 @@ export function stopActivityTracking() {
   document.removeEventListener("scroll", markRealActivity);
   document.removeEventListener("wheel", markRealActivity);
   active = false;
+  paused = false;
   lastValidatedAt = 0;
   lastActivity = 0;
   emit();

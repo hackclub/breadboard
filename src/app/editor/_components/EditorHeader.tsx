@@ -9,6 +9,7 @@ import {
   triggerManualSave,
 } from "@/lib/editor/saveState";
 import { EditorActivityIndicator } from "./EditorActivityIndicator";
+import { ScreenShareTracker } from "./ScreenShareTracker";
 
 function timeAgo(ms: number | null): string {
   if (!ms) return "";
@@ -264,7 +265,10 @@ export function EditorHeader({
 
       <div className="ml-auto flex items-center gap-3">
         {!readOnly && !trackingBlocked ? (
-          <EditorActivityIndicator projectId={projectId} />
+          <>
+            <ScreenShareTracker projectId={projectId} />
+            <EditorActivityIndicator projectId={projectId} />
+          </>
         ) : null}
         {showStatus && (
           <span

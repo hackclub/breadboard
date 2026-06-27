@@ -1063,6 +1063,37 @@ export const editorTimelapseSnapshots = pgTable(
   (table) => [index("timelapse_snapshots_session_id_idx").on(table.sessionId)],
 );
 
+export const editorScreenEvidenceFrames = pgTable(
+  "editor_screen_evidence_frames",
+  {
+    id: serial("id").primaryKey(),
+    sessionId: integer("session_id")
+      .notNull()
+      .references(() => editorActivitySessions.id, { onDelete: "cascade" }),
+    projectId: integer("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    imageKey: text("image_key").notNull().default(""),
+    pixelChanged: boolean("pixel_changed").notNull(),
+    diffScore: integer("diff_score").notNull().default(0),
+    screenWidth: integer("screen_width").notNull().default(0),
+    screenHeight: integer("screen_height").notNull().default(0),
+    paused: boolean("paused").notNull().default(false),
+  },
+  (table) => [
+    index("screen_evidence_project_idx").on(table.projectId),
+    index("screen_evidence_session_idx").on(table.sessionId),
+    check("screen_evidence_diff_non_negative", sql`${table.diffScore} >= 0`),
+  ],
+);
+
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),

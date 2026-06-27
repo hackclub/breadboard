@@ -1,9 +1,10 @@
-import { and, asc, desc, eq, inArray, lte } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import {
   editorActivitySessions,
+  editorScreenEvidenceFrames,
   editorTimelapseSnapshots,
   projects,
 } from "@/lib/db/schema";
@@ -89,10 +90,33 @@ export async function GET(
       .orderBy(desc(editorTimelapseSnapshots.capturedAt))
       .limit(MAX_STITCHED_FRAMES);
     const snapshots = newestSnapshots.toReversed();
+    const newestScreenFrames = await db
+      .select({
+        id: editorScreenEvidenceFrames.id,
+        sessionId: editorScreenEvidenceFrames.sessionId,
+        capturedAt: editorScreenEvidenceFrames.capturedAt,
+        imageUrl: sql<string>`case when ${editorScreenEvidenceFrames.imageKey} = '' then '' else '/api/editor/projects/' || ${projectId} || '/timelapse/screen-frame/' || ${editorScreenEvidenceFrames.id} end`,
+        pixelChanged: editorScreenEvidenceFrames.pixelChanged,
+        diffScore: editorScreenEvidenceFrames.diffScore,
+        paused: editorScreenEvidenceFrames.paused,
+      })
+      .from(editorScreenEvidenceFrames)
+      .where(
+        until
+          ? and(
+              inArray(editorScreenEvidenceFrames.sessionId, sessionIds),
+              lte(editorScreenEvidenceFrames.capturedAt, until),
+            )
+          : inArray(editorScreenEvidenceFrames.sessionId, sessionIds),
+      )
+      .orderBy(desc(editorScreenEvidenceFrames.capturedAt))
+      .limit(MAX_STITCHED_FRAMES);
+    const screenFrames = newestScreenFrames.toReversed();
 
     return NextResponse.json({
       sessions,
       snapshots,
+      screenFrames,
       truncated: newestSnapshots.length === MAX_STITCHED_FRAMES,
     });
   }

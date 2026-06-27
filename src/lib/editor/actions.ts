@@ -1,13 +1,16 @@
 "use server";
 
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { randomUUID } from "crypto";
 import { canWriteEditorProject, getEditorProject } from "@/lib/editor/access";
 import { db } from "@/lib/db/db";
 import {
   editorActivitySessions,
+  editorScreenEvidenceFrames,
   editorTimelapseSnapshots,
   projectJournals,
 } from "@/lib/db/schema";
+import { putStorageObject } from "@/lib/storage/s3";
 
 const INACTIVITY_TIMEOUT_SECONDS = 60;
 const MIN_HEARTBEAT_GAP_SECONDS = 10;
@@ -255,6 +258,78 @@ export async function storeSnapshot(
   await db.insert(editorTimelapseSnapshots).values({
     sessionId,
     stateData,
+  });
+
+  return { stored: true };
+}
+
+export async function storeScreenEvidenceFrame(
+  projectId: number,
+  sessionId: number,
+  input: {
+    capturedAt: string;
+    imageData: string;
+    pixelChanged: boolean;
+    diffScore: number;
+    screenWidth: number;
+    screenHeight: number;
+    paused: boolean;
+  },
+) {
+  const { session, project } = await getEditorProject(projectId);
+  if (!project || !session) return { stored: false };
+  if (!canWriteEditorProject(project, session)) return { stored: false };
+  if (!Number.isInteger(sessionId) || sessionId < 1) return { stored: false };
+
+  const capturedAt = new Date(input.capturedAt);
+  if (Number.isNaN(capturedAt.getTime())) {
+    return { stored: false, reason: "invalid_captured_at" };
+  }
+  if (typeof input.imageData !== "string") {
+    return { stored: false, reason: "invalid_image" };
+  }
+  const [activitySession] = await db
+    .select({ id: editorActivitySessions.id })
+    .from(editorActivitySessions)
+    .where(
+      and(
+        eq(editorActivitySessions.id, sessionId),
+        eq(editorActivitySessions.projectId, projectId),
+        eq(editorActivitySessions.userId, session.user.id),
+      ),
+    )
+    .limit(1);
+  if (!activitySession) return { stored: false, reason: "invalid_session" };
+
+  let imageKey = "";
+  if (input.imageData) {
+    const match = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(
+      input.imageData,
+    );
+    if (!match) return { stored: false, reason: "invalid_image" };
+    const imageBody = Buffer.from(match[1], "base64");
+    if (imageBody.length < 100 || imageBody.length > 700_000) {
+      return { stored: false, reason: "invalid_image_size" };
+    }
+    imageKey = `editor-screen-evidence/project-${projectId}/session-${sessionId}/${capturedAt.getTime()}-${randomUUID()}.jpg`;
+    await putStorageObject({
+      key: imageKey,
+      contentType: "image/jpeg",
+      body: imageBody,
+    });
+  }
+
+  await db.insert(editorScreenEvidenceFrames).values({
+    sessionId,
+    projectId,
+    userId: session.user.id,
+    capturedAt,
+    imageKey,
+    pixelChanged: Boolean(input.pixelChanged),
+    diffScore: Math.max(0, Math.min(1_000_000, Math.round(input.diffScore))),
+    screenWidth: Math.max(0, Math.min(16_000, Math.round(input.screenWidth))),
+    screenHeight: Math.max(0, Math.min(16_000, Math.round(input.screenHeight))),
+    paused: Boolean(input.paused),
   });
 
   return { stored: true };

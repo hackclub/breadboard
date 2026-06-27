@@ -263,7 +263,7 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
           className="flex items-center gap-1 rounded bg-yellow-950 px-2 py-1 text-xs font-semibold text-yellow-200"
         >
           <Clock className="size-3" />
-          Journal due soon ({fmt(displayUnjournaledSeconds)})
+          Journal due soon
         </button>
       </>
     );
@@ -283,7 +283,6 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
       >
         <span className="inline-block size-2 rounded-full bg-red-400" />
         <Clock className="size-3" />
-        {fmt(trackedSeconds)}
         <PanelRightOpen className="size-3" />
         Journal
       </button>
@@ -299,7 +298,6 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
       >
         <span className="inline-block size-2 rounded-full bg-yellow-400" />
         <Clock className="size-3" />
-        {fmt(displayTrackedSeconds)}
         <PanelRightOpen className="size-3" />
         Journal
       </button>
@@ -309,11 +307,6 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
 
   return (
     <span className="flex items-center gap-2 text-xs text-green-400/70">
-      <span className="flex items-center gap-1">
-        <span className="inline-block size-2 rounded-full bg-green-400" />
-        <Clock className="size-3" />
-        {fmt(displayTrackedSeconds)}
-      </span>
       <button
         type="button"
         onClick={() => setOpen(true)}

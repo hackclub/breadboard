@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { HackClubClaims } from "@/lib/auth/hackclub";
-import { getHackClubClaims } from "@/lib/auth/hackclub";
+import { assertHackClubYswsEligible } from "@/lib/auth/hackclub";
 import { requireSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import { projectJournals, projects } from "@/lib/db/schema";
@@ -303,7 +303,7 @@ export async function shipProjectFromForm(
       screenshotUrl: formData.get("screenshotUrl"),
     });
     const session = await requireSession();
-    const claims = await getHackClubClaims(session.user.id);
+    const claims = await assertHackClubYswsEligible(session.user.id);
     const data = shippingFromClaims(session, claims);
     data.screenshotUrl = parsed.screenshotUrl;
     const [project] = await db

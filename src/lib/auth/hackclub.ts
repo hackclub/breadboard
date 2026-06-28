@@ -7,6 +7,8 @@ export type HackClubClaims = {
   family_name?: string;
   name?: string;
   email?: string;
+  ysws_eligible?: boolean;
+  verification_status?: string;
   birthdate?: string;
   address?: {
     street_address?: string;
@@ -43,6 +45,14 @@ export async function getHackClubClaims(userId: string) {
     if (res.ok) Object.assign(claims, await res.json());
   }
 
+  return claims;
+}
+
+export async function assertHackClubYswsEligible(userId: string) {
+  const claims = await getHackClubClaims(userId);
+  if (claims.ysws_eligible !== true) {
+    throw new Error("You must be YSWS eligible to use Breadboard.");
+  }
   return claims;
 }
 

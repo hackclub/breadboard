@@ -1,4 +1,5 @@
 import { drizzleAdapter } from "@better-auth/drizzle-adapter";
+import { APIError } from "better-auth/api";
 import type { OAuth2Tokens } from "better-auth";
 import { betterAuth } from "better-auth/minimal";
 import { genericOAuth } from "better-auth/plugins";
@@ -49,7 +50,17 @@ export const auth = betterAuth({
                 },
               },
             );
+            if (!res.ok) {
+              throw new APIError("UNAUTHORIZED", {
+                message: "Could not verify your Hack Club account.",
+              });
+            }
             const raw = (await res.json()) as Record<string, unknown>;
+            if (raw.ysws_eligible !== true) {
+              throw new APIError("FORBIDDEN", {
+                message: "You must be YSWS eligible to use Breadboard.",
+              });
+            }
             if (typeof raw.slack_id === "string" && raw.slack_id) {
               await db
                 .update(user)

@@ -2,6 +2,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { audit } from "@/lib/audit";
 import { getSession } from "@/lib/auth/guards";
+import { assertHackClubYswsEligible } from "@/lib/auth/hackclub";
 import { db } from "@/lib/db/db";
 import {
   account,
@@ -384,6 +385,11 @@ export async function POST(
 
   const session = await getSession();
   if (!session) return error("Unauthorized", 401);
+  try {
+    await assertHackClubYswsEligible(session.user.id);
+  } catch (err) {
+    return error(err instanceof Error ? err.message : "Forbidden", 403);
+  }
 
   const [project] = await db
     .select()

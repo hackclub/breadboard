@@ -61,6 +61,7 @@ export interface VlxPayload {
   components: Component[];
   wires: Wire[];
   activeBoardId: string | null;
+  ignoreStock?: boolean;
 }
 
 function serialisableBoard(b: BoardInstance) {
@@ -113,6 +114,7 @@ export function buildVlxPayload(opts: { name?: string } = {}): VlxPayload {
     components: sim.components,
     wires: sim.wires,
     activeBoardId: sim.activeBoardId,
+    ignoreStock: sim.ignoreStock === true,
   };
 }
 

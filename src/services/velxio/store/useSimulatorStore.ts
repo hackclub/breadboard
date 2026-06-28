@@ -845,6 +845,8 @@ interface SimulatorState {
   boards: BoardInstance[];
   activeBoardId: string | null;
   kitType: "arduino" | "esp32";
+  ignoreStock: boolean;
+  setIgnoreStock: (ignoreStock: boolean) => void;
 
   addBoard: (
     boardKind: BoardKind,
@@ -863,6 +865,7 @@ interface SimulatorState {
     wires: Wire[];
     activeBoardId: string | null;
     kitType?: string | null;
+    ignoreStock?: boolean | null;
   }) => void;
   updateBoard: (boardId: string, updates: Partial<BoardInstance>) => void;
   setBoardPosition: (pos: { x: number; y: number }, boardId?: string) => void;
@@ -1121,6 +1124,8 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     boards: [INITIAL_BOARD],
     activeBoardId: INITIAL_BOARD_ID,
     kitType: "arduino",
+    ignoreStock: false,
+    setIgnoreStock: (ignoreStock) => set({ ignoreStock }),
 
     addBoard: (
       boardKind: BoardKind,
@@ -1129,9 +1134,10 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       explicitId?: string,
     ) => {
       const kitType = get().kitType;
-      if (!isKitBoard(boardKind, kitType)) return;
+      const ignoreStock = get().ignoreStock;
+      if (ignoreStock ? !isAnyKitBoard(boardKind) : !isKitBoard(boardKind, kitType)) return;
       const boardCounts = countKitBoards(get().boards);
-      if ((boardCounts[boardKind] ?? 0) >= kitBoardLimit(boardKind, kitType)) return;
+      if (!ignoreStock && (boardCounts[boardKind] ?? 0) >= kitBoardLimit(boardKind, kitType)) return;
 
       let id: string;
       if (explicitId) {
@@ -1409,7 +1415,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
 
     loadProjectState: (payload) => {
       const kitType = normalizeKitType(payload.kitType);
-      set({ kitType });
+      set({ kitType, ignoreStock: payload.ignoreStock === true });
       const {
         stopSimulation,
         removeBoard,
@@ -2509,7 +2515,12 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     addComponent: (component) =>
       set((state) => {
         const metadataId = component.metadataId;
-        if (!metadataId || !isKitComponent(metadataId, state.kitType)) return state;
+        if (!metadataId) return state;
+        if (state.ignoreStock) {
+          if (!isAnyKitComponent(metadataId)) return state;
+          return { components: [...state.components, component] };
+        }
+        if (!isKitComponent(metadataId, state.kitType)) return state;
 
         const counts = countKitComponents(state.components);
         if ((counts[metadataId] ?? 0) >= kitComponentLimit(metadataId, state.kitType)) {
@@ -2567,6 +2578,9 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         const counts: Record<string, number> = {};
         const next = components.filter((component) => {
           const metadataId = component.metadataId;
+          if (state.ignoreStock) {
+            return metadataId ? isAnyKitComponent(metadataId) : false;
+          }
           if (!metadataId || !isKitComponent(metadataId, state.kitType)) return false;
           const count = counts[metadataId] ?? 0;
           if (count >= kitComponentLimit(metadataId, state.kitType)) return false;

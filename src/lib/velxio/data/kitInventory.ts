@@ -178,5 +178,6 @@ export function createInitialKitPayload(kitType?: string | null) {
     components: [],
     wires: [],
     activeBoardId: boardId,
+    ignoreStock: false,
   };
 }

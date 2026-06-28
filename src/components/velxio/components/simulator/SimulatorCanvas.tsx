@@ -23,6 +23,8 @@ import { ComponentRegistry } from "@/services/velxio/services/ComponentRegistry"
 import {
   countKitBoards,
   countKitComponents,
+  isAnyKitBoard,
+  isAnyKitComponent,
   isKitBoard,
   isKitComponent,
   kitBoardLimit,
@@ -141,6 +143,8 @@ export const SimulatorCanvas = ({
     boards,
     activeBoardId,
     kitType,
+    ignoreStock,
+    setIgnoreStock,
     setBoardPosition,
     addBoard,
     components,
@@ -1414,9 +1418,9 @@ export const SimulatorCanvas = ({
   // Handle component selection from modal
   const handleSelectComponent = (metadata: ComponentMetadata) => {
     if (readOnly) return;
-    if (!isKitComponent(metadata.id, kitType)) return;
+    if (ignoreStock ? !isAnyKitComponent(metadata.id) : !isKitComponent(metadata.id, kitType)) return;
     const counts = countKitComponents(components);
-    if ((counts[metadata.id] ?? 0) >= kitComponentLimit(metadata.id, kitType)) return;
+    if (!ignoreStock && (counts[metadata.id] ?? 0) >= kitComponentLimit(metadata.id, kitType)) return;
     // Anchor new components to the visible top-left of the canvas, so they
     // appear in the user's current viewport regardless of pan/zoom (instead
     // of growing off-screen at fixed world coords like (400, 100 + row*250)).
@@ -3142,11 +3146,13 @@ export const SimulatorCanvas = ({
         components={components}
         boards={boards}
         kitType={kitType}
+        ignoreStock={ignoreStock}
+        onIgnoreStockChange={setIgnoreStock}
         onSelectBoard={(kind: BoardKind) => {
           if (readOnly) return;
-          if (!isKitBoard(kind, kitType)) return;
+          if (ignoreStock ? !isAnyKitBoard(kind) : !isKitBoard(kind, kitType)) return;
           const boardCounts = countKitBoards(boards);
-          if ((boardCounts[kind] ?? 0) >= kitBoardLimit(kind, kitType)) return;
+          if (!ignoreStock && (boardCounts[kind] ?? 0) >= kitBoardLimit(kind, kitType)) return;
           trackSelectBoard(kind);
           const sameKind = boards.filter((b) => b.boardKind === kind);
           const newBoardId =

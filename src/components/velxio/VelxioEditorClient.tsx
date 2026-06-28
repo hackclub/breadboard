@@ -374,6 +374,7 @@ export function VelxioNextEditor({
             wires: editorData.wires,
             activeBoardId: editorData.activeBoardId,
             kitType: data.project.kitType,
+            ignoreStock: editorData.ignoreStock,
           });
         }
 

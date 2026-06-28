@@ -22,6 +22,8 @@ import { BOARD_KIND_LABELS } from "@/lib/velxio/types/board";
 import {
   countKitBoards,
   countKitComponents,
+  isAnyKitBoard,
+  isAnyKitComponent,
   isKitBoard,
   kitBoardLimit,
   kitComponentLimit,
@@ -48,6 +50,8 @@ interface ComponentPickerModalProps {
   components?: { metadataId?: string }[];
   boards?: { boardKind?: BoardKind }[];
   kitType?: string | null;
+  ignoreStock?: boolean;
+  onIgnoreStockChange?: (ignoreStock: boolean) => void;
 }
 
 const BOARD_DESCRIPTIONS: Partial<Record<BoardKind, string>> = {
@@ -119,6 +123,8 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
   components = [],
   boards = [],
   kitType,
+  ignoreStock = false,
+  onIgnoreStockChange,
 }) => {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState("");
@@ -127,6 +133,7 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
   >("all");
   const [registry] = useState(() => ComponentRegistry.getInstance());
   const [isLoading, setIsLoading] = useState(true);
+  const [showIgnoreStockWarning, setShowIgnoreStockWarning] = useState(false);
   const componentCounts = useMemo(
     () => countKitComponents(components),
     [components],
@@ -154,10 +161,12 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
       components = components.filter((c) => c.category === selectedCategory);
     }
 
-    return components.filter(
-      (component) => kitComponentLimit(component.id, kitType) > 0,
+    return components.filter((component) =>
+      ignoreStock
+        ? isAnyKitComponent(component.id)
+        : kitComponentLimit(component.id, kitType) > 0,
     );
-  }, [searchQuery, selectedCategory, registry, isLoading, kitType]);
+  }, [searchQuery, selectedCategory, registry, isLoading, kitType, ignoreStock]);
 
   // Get available categories
   const categories = useMemo(() => {
@@ -203,6 +212,26 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
 
         {/* Search Bar */}
         <div className="search-section">
+          <div className="stock-ignore-row">
+            <button
+              type="button"
+              className={`ignore-stock-btn ${ignoreStock ? "active" : ""}`}
+              onClick={() => {
+                if (ignoreStock) {
+                  onIgnoreStockChange?.(false);
+                } else {
+                  setShowIgnoreStockWarning(true);
+                }
+              }}
+            >
+              {ignoreStock ? "Using ignore stock" : "Ignore stock"}
+            </button>
+            {ignoreStock ? (
+              <span className="ignore-stock-note">
+                Showing both kits. Counts are unlimited.
+              </span>
+            ) : null}
+          </div>
           <div className="search-input-wrapper">
             <input
               type="text"
@@ -262,8 +291,9 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
           <div className="components-grid">
             {ALL_BOARDS.filter(
               (kind) =>
-                isKitBoard(kind, kitType) &&
-                (boardCounts[kind] ?? 0) < kitBoardLimit(kind, kitType),
+                (ignoreStock ? isAnyKitBoard(kind) : isKitBoard(kind, kitType)) &&
+                (ignoreStock ||
+                  (boardCounts[kind] ?? 0) < kitBoardLimit(kind, kitType)),
             ).map((kind) => (
               <BoardCard
                 key={kind}
@@ -292,8 +322,9 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
                 >
                   {ALL_BOARDS.filter(
                     (k) =>
-                      isKitBoard(k, kitType) &&
-                      (boardCounts[k] ?? 0) < kitBoardLimit(k, kitType) &&
+                      (ignoreStock ? isAnyKitBoard(k) : isKitBoard(k, kitType)) &&
+                      (ignoreStock ||
+                        (boardCounts[k] ?? 0) < kitBoardLimit(k, kitType)) &&
                       (!searchQuery ||
                         BOARD_KIND_LABELS[k]
                           .toLowerCase()
@@ -339,8 +370,10 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
                       key={component.id}
                       component={component}
                       remaining={
-                        kitComponentLimit(component.id, kitType) -
-                        (componentCounts[component.id] ?? 0)
+                        ignoreStock
+                          ? Number.POSITIVE_INFINITY
+                          : kitComponentLimit(component.id, kitType) -
+                            (componentCounts[component.id] ?? 0)
                       }
                       onSelect={() => {
                         // Pro overlays can intercept clicks on pro_only
@@ -373,6 +406,35 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
             </div>
           </>
         )}
+        {showIgnoreStockWarning ? (
+          <div className="plain-warning-backdrop">
+            <div className="plain-warning-modal" role="alertdialog" aria-modal="true">
+              <h3>Ignore stock?</h3>
+              <p>This lets you add as many parts as you want.</p>
+              <p>It also shows parts from the other kit.</p>
+              <p>Only use this if you checked that you really have the parts.</p>
+              <div className="plain-warning-actions">
+                <button
+                  type="button"
+                  className="plain-warning-cancel"
+                  onClick={() => setShowIgnoreStockWarning(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="plain-warning-confirm"
+                  onClick={() => {
+                    onIgnoreStockChange?.(true);
+                    setShowIgnoreStockWarning(false);
+                  }}
+                >
+                  I checked my parts
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -410,6 +472,7 @@ const ComponentCard: React.FC<ComponentCardProps> = ({
     PASSIVE_TAGS.has(component.tagName) &&
     typeof component.thumbnail === "string" &&
     component.thumbnail.trim().startsWith("<svg");
+  const unlimited = !Number.isFinite(remaining);
   const noneLeft = remaining <= 0;
 
   // Render actual web component as thumbnail
@@ -501,7 +564,9 @@ const ComponentCard: React.FC<ComponentCardProps> = ({
           {component.pinCount > 0 && (
             <span className="card-pins">{component.pinCount} pins</span>
           )}
-          <span className="card-pins">{Math.max(0, remaining)} left</span>
+          <span className="card-pins">
+            {unlimited ? "Unlimited" : `${Math.max(0, remaining)} left`}
+          </span>
         </div>
       </div>
     </button>

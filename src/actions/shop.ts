@@ -13,6 +13,7 @@ import {
   projects,
   userBread,
 } from "@/lib/db/schema";
+import { notifyKitShippingStatus } from "@/lib/slack/tookle";
 import type {
   CheckoutItem,
   OrderStatusFormState,
@@ -395,6 +396,12 @@ export async function updateOrderStatus(
   ) {
     throw new Error("Accepted kit orders are final");
   }
+  const normalizedTracking =
+    trackingInfo !== undefined
+      ? normalizeTrackingInfo(trackingInfo)
+      : (order.trackingInfo ?? "");
+  const normalizedAdminNotes =
+    adminNotes !== undefined ? adminNotes.trim() : (order.adminNotes ?? "");
 
   await db.transaction(async (tx) => {
     let latestAddress = {};
@@ -431,9 +438,11 @@ export async function updateOrderStatus(
           ? { acceptedAt: new Date() }
           : {}),
         ...(trackingInfo !== undefined
-          ? { trackingInfo: normalizeTrackingInfo(trackingInfo) }
+          ? { trackingInfo: normalizedTracking }
           : {}),
-        ...(adminNotes !== undefined ? { adminNotes: adminNotes.trim() } : {}),
+        ...(adminNotes !== undefined
+          ? { adminNotes: normalizedAdminNotes }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(orders.id, id))
@@ -464,6 +473,17 @@ export async function updateOrderStatus(
   revalidatePath("/platform/admin/orders");
   revalidatePath("/platform/admin/fulfillment");
   revalidatePath("/platform/shop/orders");
+
+  if (
+    order.source === "project_kit" &&
+    order.projectId &&
+    (nextStatus === "being_fulfilled" || nextStatus === "sent")
+  ) {
+    await notifyKitShippingStatus(order.projectId, nextStatus, {
+      trackingUrl: normalizedTracking,
+      note: normalizedAdminNotes,
+    });
+  }
 }
 
 export async function updateOrderStatusFromForm(

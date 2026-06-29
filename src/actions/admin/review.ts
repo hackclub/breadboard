@@ -16,6 +16,7 @@ import {
   projects,
   userBread,
 } from "@/lib/db/schema";
+import { notifyProjectStatus, notifyReviewDecision } from "@/lib/slack/tookle";
 
 const REVIEW_TEXT_LIMIT = 2000;
 
@@ -266,6 +267,7 @@ export async function markReviewed(
     justification: reviewJustification,
   });
   revalidateReviewViews(id);
+  await notifyProjectStatus(id, "reviewed", { note: reviewJustification });
 }
 
 export async function approveProject(
@@ -354,6 +356,10 @@ export async function approveProject(
       bread,
     });
     revalidateReviewViews(id);
+    await notifyReviewDecision(id, "demo", "accepted", {
+      bread,
+      note: reviewComment,
+    });
     return;
   }
 
@@ -440,6 +446,9 @@ export async function approveProject(
     userId: creditedUser,
   });
   revalidateReviewViews(id);
+  await notifyReviewDecision(id, "materials", "accepted", {
+    note: reviewComment,
+  });
 }
 
 export async function payOutProject(projectId: number) {
@@ -484,6 +493,7 @@ export async function payOutProject(projectId: number) {
   await audit("admin.user.bread_add", "user", creditedUser, { amount: bread });
   await audit("admin.review.pay_out", "project", String(id), { hours });
   revalidateReviewViews(id);
+  await notifyProjectStatus(id, "paid_out", { bread });
 }
 
 export async function fulfillProject(projectId: number) {
@@ -502,6 +512,7 @@ export async function fulfillProject(projectId: number) {
     throw new Error("Only paid out projects can be fulfilled");
   await audit("admin.review.fulfill", "project", String(id));
   revalidateReviewViews(id);
+  await notifyProjectStatus(id, "fulfilled");
 }
 
 export async function requestChanges(
@@ -556,6 +567,12 @@ export async function requestChanges(
     note: reviewNote,
   });
   revalidateReviewViews(id);
+  await notifyReviewDecision(
+    id,
+    project.status === "demo_review" ? "demo" : "materials",
+    "needs_changes",
+    { note: reviewNote },
+  );
 }
 
 export async function rejectProject(
@@ -609,4 +626,10 @@ export async function rejectProject(
     note: reviewNote,
   });
   revalidateReviewViews(id);
+  await notifyReviewDecision(
+    id,
+    project.status === "demo_review" ? "demo" : "materials",
+    "rejected",
+    { note: reviewNote },
+  );
 }

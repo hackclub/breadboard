@@ -1,8 +1,8 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db/db";
-import { projects, user } from "@/lib/db/schema";
+import { projectEvents, projects, user } from "@/lib/db/schema";
 
 type ReviewPhase = "materials" | "demo";
 type ReviewDecision = "accepted" | "needs_changes" | "rejected";
@@ -10,6 +10,10 @@ type ProjectStatusKind = "reviewed" | "paid_out" | "fulfilled";
 type KitShippingStatus = "being_fulfilled" | "sent";
 
 type SlackBlock = Record<string, unknown>;
+type SlackMessageResult = {
+  channel?: string;
+  ts?: string;
+};
 
 const TOOKLE_NAME = "Tookle";
 
@@ -80,8 +84,8 @@ async function postSlackMessage(input: {
   channel: string;
   text: string;
   blocks: SlackBlock[];
-}) {
-  if (!slackEnabled()) return;
+}): Promise<SlackMessageResult | null> {
+  if (!slackEnabled()) return null;
 
   const response = await fetch("https://slack.com/api/chat.postMessage", {
     method: "POST",
@@ -101,10 +105,13 @@ async function postSlackMessage(input: {
   const result = (await response.json().catch(() => null)) as {
     ok?: boolean;
     error?: string;
+    channel?: string;
+    ts?: string;
   } | null;
   if (!response.ok || !result?.ok) {
     throw new Error(result?.error ?? `Slack HTTP ${response.status}`);
   }
+  return { channel: result.channel, ts: result.ts };
 }
 
 async function openDm(slackId: string) {
@@ -183,6 +190,92 @@ function logSlackError(context: string, error: unknown) {
   );
 }
 
+async function addSlackReaction(input: {
+  channel: string;
+  timestamp: string;
+  name: string;
+}) {
+  if (!slackEnabled()) return;
+
+  const response = await fetch("https://slack.com/api/reactions.add", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+    body: JSON.stringify({
+      channel: input.channel,
+      timestamp: input.timestamp,
+      name: input.name,
+    }),
+  });
+
+  const result = (await response.json().catch(() => null)) as {
+    ok?: boolean;
+    error?: string;
+  } | null;
+  if (result?.error === "already_reacted") return;
+  if (!response.ok || !result?.ok) {
+    throw new Error(result?.error ?? `Slack HTTP ${response.status}`);
+  }
+}
+
+async function storeReviewChannelMessage(input: {
+  projectId: number;
+  phase: ReviewPhase;
+  channel?: string;
+  ts?: string;
+}) {
+  if (!input.channel || !input.ts) return;
+
+  await db.insert(projectEvents).values({
+    projectId: input.projectId,
+    type: input.phase === "demo" ? "demo_submitted" : "materials_submitted",
+    sourceEntityType: "slack_review_channel",
+    sourceEntityId: input.ts,
+    details: {
+      channel: input.channel,
+      ts: input.ts,
+      phase: input.phase,
+    },
+  });
+}
+
+function slackMessageFromEventDetails(details: Record<string, unknown> | null) {
+  const channel = details?.channel;
+  const ts = details?.ts;
+  if (typeof channel !== "string" || typeof ts !== "string") return null;
+  return { channel, ts };
+}
+
+async function addReviewDoneReaction(projectId: number, phase: ReviewPhase) {
+  const [event] = await db
+    .select({ details: projectEvents.details })
+    .from(projectEvents)
+    .where(
+      and(
+        eq(projectEvents.projectId, projectId),
+        eq(
+          projectEvents.type,
+          phase === "demo" ? "demo_submitted" : "materials_submitted",
+        ),
+        eq(projectEvents.sourceEntityType, "slack_review_channel"),
+      ),
+    )
+    .orderBy(desc(projectEvents.createdAt))
+    .limit(1);
+
+  if (!event) return;
+  const message = slackMessageFromEventDetails(event.details ?? null);
+  if (!message) return;
+
+  await addSlackReaction({
+    channel: message.channel,
+    timestamp: message.ts,
+    name: "white_check_mark",
+  });
+}
+
 function reviewDecisionCopy(
   phase: ReviewPhase,
   decision: ReviewDecision,
@@ -227,33 +320,43 @@ export async function notifyReviewSubmitted(
     const reviewUrl = appUrl(reviewPath(projectId, phase));
 
     if (channel) {
-      await postSlackMessage({
-        channel,
-        text: `${TOOKLE_NAME}: new ${label} for ${project.title}`,
-        blocks: [
-          {
-            type: "header",
-            text: { type: "plain_text", text: `New ${label}` },
-          },
-          {
-            type: "section",
-            fields: projectContext(project),
-          },
-          {
-            type: "context",
-            elements: [
-              {
-                type: "mrkdwn",
-                text: `${TOOKLE_NAME} found something ready to review.`,
-              },
-            ],
-          },
-          {
-            type: "actions",
-            elements: [button("Review", reviewUrl)],
-          },
-        ],
-      });
+      try {
+        const message = await postSlackMessage({
+          channel,
+          text: `${TOOKLE_NAME}: new ${label} for ${project.title}`,
+          blocks: [
+            {
+              type: "header",
+              text: { type: "plain_text", text: `New ${label}` },
+            },
+            {
+              type: "section",
+              fields: projectContext(project),
+            },
+            {
+              type: "context",
+              elements: [
+                {
+                  type: "mrkdwn",
+                  text: `${TOOKLE_NAME} found something ready to review.`,
+                },
+              ],
+            },
+            {
+              type: "actions",
+              elements: [button("Review", reviewUrl)],
+            },
+          ],
+        });
+        await storeReviewChannelMessage({
+          projectId,
+          phase,
+          channel: message?.channel ?? channel,
+          ts: message?.ts,
+        });
+      } catch (error) {
+        logSlackError("review channel notification failed", error);
+      }
     }
 
     if (project.ownerSlackId) {
@@ -294,6 +397,8 @@ export async function notifyReviewDecision(
   details?: { note?: string; bread?: number },
 ) {
   try {
+    await addReviewDoneReaction(projectId, phase);
+
     const project = await getProjectWithOwner(projectId);
     if (!project?.ownerSlackId) return;
 

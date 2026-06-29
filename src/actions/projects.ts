@@ -16,6 +16,7 @@ import {
   submitDemoForUser,
   updateProjectBasicsForUser,
 } from "@/lib/projects/mutations";
+import { notifyReviewSubmitted } from "@/lib/slack/tookle";
 import type { DemoInput, ProjectFormState, ShipInput } from "@/types";
 
 const projectBasicsSchema = z.object({
@@ -335,6 +336,7 @@ export async function shipProjectFromForm(
       projectId,
       data,
     );
+    await notifyReviewSubmitted(projectId, "materials");
     revalidatePath("/platform/projects");
     revalidatePath("/platform/admin/review");
 
@@ -390,6 +392,7 @@ export async function submitDemoFromForm(
       projectId,
       data,
     );
+    await notifyReviewSubmitted(projectId, "demo");
     revalidatePath("/platform/projects");
     revalidatePath("/platform/admin/review");
     return {

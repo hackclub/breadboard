@@ -354,14 +354,14 @@ export function VelxioNextEditor({
           isPublic: false,
           visibility: "private",
           editable: data.project.editable,
-          readOnly:
-            serverReadOnly || !data.project.editable || data.version !== null,
+          readOnly: serverReadOnly,
           platformStatus: data.project.status,
           platformVersion: data.version,
           platformProjectId: data.project.id,
         });
-        const locked =
-          serverReadOnly || !data.project.editable || data.version !== null;
+        const canPersist =
+          !serverReadOnly && data.project.editable && data.version === null;
+        const locked = serverReadOnly;
         setReadOnly(locked);
 
         const editorData =
@@ -378,10 +378,10 @@ export function VelxioNextEditor({
           });
         }
 
-        installBreadboardAutosave(projectId, !locked, modules);
+        installBreadboardAutosave(projectId, canPersist, modules);
 
         const trackTime =
-          !locked && !NON_TRACKING_PROJECT_STATUSES.has(data.project.status);
+          canPersist && !NON_TRACKING_PROJECT_STATUSES.has(data.project.status);
 
         if (trackTime) {
           startActivityTracking(projectId, () =>

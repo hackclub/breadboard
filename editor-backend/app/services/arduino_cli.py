@@ -24,6 +24,105 @@ class ArduinoCLIService:
     # Cores to auto-install on startup
     REQUIRED_CORES = ["arduino:avr"]
 
+    # Libraries that should be available in the editor without users opening
+    # the library manager first. Keep names matching Arduino Library Manager.
+    PREINSTALLED_LIBRARIES = [
+        # Breadboard kit / classroom basics
+        "DIYables_LCD_I2C",
+        "LiquidCrystal I2C",
+        "LiquidCrystal_PCF8574",
+        "DHT sensor library",
+        "OneWire",
+        "DallasTemperature",
+        "NewPing",
+        "Keypad",
+        "IRremote",
+        "MFRC522",
+        "RTClib",
+        "HX711",
+        "Encoder",
+        "AccelStepper",
+        "ezButton",
+
+        # LEDs, displays, and UI
+        "Adafruit NeoPixel",
+        "FastLED",
+        "Adafruit GFX Library",
+        "Adafruit SSD1306",
+        "Adafruit SH110X",
+        "Adafruit ILI9341",
+        "Adafruit ST7735 and ST7789 Library",
+        "Adafruit EPD",
+        "Adafruit LED Backpack Library",
+        "Adafruit NeoMatrix",
+        "TFT_eSPI",
+        "U8g2",
+        "LedControl",
+        "MD_MAX72XX",
+        "MD_Parola",
+        "TM1637",
+        "TM1637Display",
+
+        # Adafruit sensors and helpers
+        "Adafruit BusIO",
+        "Adafruit Unified Sensor",
+        "Adafruit BMP280 Library",
+        "Adafruit BME280 Library",
+        "Adafruit BME680 Library",
+        "Adafruit AHTX0",
+        "Adafruit SHT31 Library",
+        "Adafruit TCS34725",
+        "Adafruit TSL2591 Library",
+        "Adafruit INA219",
+        "Adafruit ADS1X15",
+        "Adafruit MPU6050",
+        "Adafruit BNO055",
+        "Adafruit LIS3DH",
+        "Adafruit LSM6DS",
+        "Adafruit VL53L0X",
+        "Adafruit VCNL4040",
+        "Adafruit SGP30",
+        "Adafruit CCS811 Library",
+        "Adafruit MAX31855 library",
+        "Adafruit MAX31865 library",
+
+        # Motors, servos, expanders, and drivers
+        "Adafruit Motor Shield V2 Library",
+        "Adafruit PWM Servo Driver Library",
+        "Adafruit MCP23017 Arduino Library",
+        "Adafruit seesaw Library",
+        "ESP32Servo",
+        "ServoESP32",
+
+        # Connectivity and protocols
+        "ArduinoJson",
+        "PubSubClient",
+        "ArduinoHttpClient",
+        "WebSockets",
+        "NTPClient",
+        "WiFiManager",
+        "ESPAsyncWebServer",
+        "AsyncTCP",
+        "ESPAsyncTCP",
+        "Ethernet",
+        "LoRa",
+        "RadioHead",
+        "RF24",
+        "TinyGPSPlus",
+        "TinyGSM",
+
+        # Popular modules
+        "Adafruit Fingerprint Sensor Library",
+        "Adafruit Thermal Printer Library",
+        "Adafruit PN532",
+        "SparkFun APDS9960 RGB and Gesture Sensor",
+        "SparkFun BME280",
+        "SparkFun MAX3010x Pulse and Proximity Sensor Library",
+        "SparkFun Qwiic Scale NAU7802 Arduino Library",
+        "SparkFun SCD30 Arduino Library",
+        "SparkFun u-blox GNSS Arduino Library",
+    ]
+
     # Cores to install on-demand when a board FQBN is requested.
     # Match order matters: longer / more-specific prefixes first so we don't
     # mis-route (e.g. an FQBN that mentions both vendors).
@@ -49,6 +148,7 @@ class ArduinoCLIService:
         self.cli_path = cli_path
         self._ensure_board_urls()
         self._ensure_core_installed()
+        self._ensure_preinstalled_libraries()
 
     def _ensure_board_urls(self):
         """Register additional board-manager URLs in arduino-cli config."""
@@ -149,6 +249,93 @@ class ArduinoCLIService:
         except Exception as e:
             print(f"Warning: Could not verify cores: {e}")
             print("Please ensure arduino-cli is installed and in PATH")
+
+    def _installed_library_names(self) -> set[str]:
+        """Return installed Arduino library names from arduino-cli."""
+        try:
+            result = subprocess.run(
+                [self.cli_path, "lib", "list", "--format", "json"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                return set()
+
+            import json
+
+            parsed = json.loads(result.stdout)
+            if isinstance(parsed, dict):
+                libraries = (
+                    parsed.get("installed_libraries")
+                    or parsed.get("libraries")
+                    or []
+                )
+            elif isinstance(parsed, list):
+                libraries = parsed
+            else:
+                libraries = []
+
+            names = set()
+            for entry in libraries:
+                library = entry.get("library", entry) if isinstance(entry, dict) else {}
+                name = library.get("name") if isinstance(library, dict) else None
+                if name:
+                    names.add(name.lower())
+            return names
+        except Exception as e:
+            print(f"[arduino-cli] Warning: Could not list installed libraries: {e}")
+            return set()
+
+    def _ensure_preinstalled_libraries(self):
+        """Install common Arduino libraries so editor compiles work out of the box."""
+        try:
+            index_result = subprocess.run(
+                [self.cli_path, "lib", "update-index"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            if index_result.returncode != 0:
+                message = (index_result.stderr or index_result.stdout).strip()
+                print(f"[arduino-cli] Warning: Could not update library index: {message}")
+
+            installed = self._installed_library_names()
+            missing = [
+                name for name in self.PREINSTALLED_LIBRARIES
+                if name.lower() not in installed
+            ]
+            if not missing:
+                print("[arduino-cli] Preinstalled library set already present.")
+                return
+
+            print(f"[arduino-cli] Installing {len(missing)} common Arduino libraries...")
+            for library_name in missing:
+                try:
+                    result = subprocess.run(
+                        [self.cli_path, "lib", "install", library_name],
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                    )
+                    if result.returncode == 0:
+                        print(f"[arduino-cli] Installed library: {library_name}")
+                    else:
+                        message = (result.stderr or result.stdout).strip()
+                        print(
+                            f"[arduino-cli] Warning: Could not install library "
+                            f"{library_name}: {message}"
+                        )
+                except Exception as e:
+                    print(
+                        f"[arduino-cli] Warning: Could not install library "
+                        f"{library_name}: {e}"
+                    )
+        except Exception as e:
+            print(f"[arduino-cli] Warning: Skipping preinstalled libraries: {e}")
 
     def _core_id_for_fqbn(self, fqbn: str) -> str | None:
         """Extract the core ID needed for a given FQBN."""

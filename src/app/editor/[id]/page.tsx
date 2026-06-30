@@ -46,7 +46,9 @@ export default async function ProjectEditorPage({
   if (version !== undefined && (!Number.isInteger(version) || version < 1)) {
     notFound();
   }
-  const readOnly = version !== undefined || !isOwner || !editable;
+  const canPersist = version === undefined && isOwner && editable;
+  const adminPreview = isAdmin && !isOwner;
+  const readOnly = !canPersist && !adminPreview;
   const submissionRows =
     version !== undefined
       ? await db

@@ -28,7 +28,7 @@ class ArduinoCLIService:
     # the library manager first. Keep names matching Arduino Library Manager.
     PREINSTALLED_LIBRARIES = [
         # Breadboard kit / classroom basics
-        "DIYables_LCD_I2C",
+        "DIYables LCD I2C",
         "LiquidCrystal I2C",
         "LiquidCrystal_PCF8574",
         "DHT sensor library",

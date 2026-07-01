@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const colors = ["#e05555", "#4477dd", "#44aa66", "#999", "#e0aa22"];
+const colors = ["#BD0F32", "#4477dd", "#44aa66", "#999", "#e0aa22"];
 const THEMES = {
   light: {
     board: "#f4f1e8",
@@ -21,23 +21,6 @@ const THEMES = {
     hint: "#999",
     activeBorder: "#222",
   },
-  dark: {
-    board: "#2e2e2e",
-    boardStroke: "#222",
-    railBg: "#383838",
-    midGap: "#272727",
-    holeRing: "#888880",
-    holeRingRail: "#c8c0b0",
-    holeDark: "#1e1c18",
-    colLabel: "#555",
-    colLabelMod: "#888",
-    railRed: "#cc3333",
-    railBlue: "#3355cc",
-    btnBorder: "#666",
-    btnText: "#aaa",
-    hint: "#777",
-    activeBorder: "#eee",
-  },
 };
 
 type Wire = { x1: number; y1: number; x2: number; y2: number; color?: string };
@@ -55,13 +38,10 @@ export function BreadboardCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stateRef = useRef({
     activeColor: colors[0],
-    isDark: false,
     clear: () => {},
-    toggle: () => {},
     redraw: () => {},
   });
   const [activeColor, setActiveColor] = useState(colors[0]);
-  const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
     stateRef.current.activeColor = activeColor;
@@ -71,11 +51,11 @@ export function BreadboardCanvas() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    let T = THEMES.light;
+    const T = THEMES.light;
     const P = 24,
       HR = 4.5,
       RING = 3,
-      WW = 5,
+      WW = 10,
       LWW = 10,
       LC = "#BD0F32",
       COLS = 42,
@@ -417,12 +397,6 @@ export function BreadboardCanvas() {
       fromHole = null;
       draw();
     };
-    stateRef.current.toggle = () => {
-      stateRef.current.isDark = !stateRef.current.isDark;
-      T = stateRef.current.isDark ? THEMES.dark : THEMES.light;
-      setIsDark(stateRef.current.isDark);
-      draw();
-    };
     stateRef.current.redraw = draw;
     draw();
     return () => {
@@ -434,7 +408,7 @@ export function BreadboardCanvas() {
     };
   }, []);
 
-  const theme = isDark ? THEMES.dark : THEMES.light;
+  const theme = THEMES.light;
 
   return (
     <div className="font-mono">
@@ -459,14 +433,6 @@ export function BreadboardCanvas() {
         <span className="text-xs" style={{ color: theme.hint }}>
           click hole → click hole
         </span>
-        <button
-          type="button"
-          className="rounded-[20px] border px-3.5 py-1 text-xs"
-          style={{ borderColor: theme.btnBorder, color: theme.btnText }}
-          onClick={() => stateRef.current.toggle()}
-        >
-          {isDark ? "light mode" : "dark mode"}
-        </button>
         <button
           type="button"
           className="rounded-[20px] border px-3.5 py-1 text-xs"

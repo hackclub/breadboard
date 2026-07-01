@@ -9,7 +9,11 @@ import {
 } from "@/lib/auth/hackclub";
 import { getSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
-import { projectJournals, projects } from "@/lib/db/schema";
+import {
+  editorActivitySessions,
+  projectJournals,
+  projects,
+} from "@/lib/db/schema";
 import type { PlatformProject } from "@/types";
 
 const projectColumns = {
@@ -39,6 +43,11 @@ const projectColumns = {
   journalCount: sql<number>`(
     SELECT COUNT(*) FROM ${projectJournals}
     WHERE ${projectJournals.projectId} = ${projects.id}
+  )`.mapWith(Number),
+  trackedSeconds: sql<number>`(
+    SELECT coalesce(sum(${editorActivitySessions.activeSeconds}), 0)::int
+    FROM ${editorActivitySessions}
+    WHERE ${editorActivitySessions.projectId} = ${projects.id}
   )`.mapWith(Number),
 };
 

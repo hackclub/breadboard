@@ -340,7 +340,7 @@ export function ShipProjectModal({
 }: ProjectActionModalProps & {
   onShipped: (patch: ProjectPatch) => void;
 }) {
-  const hasTrackedTime = (project.hoursSpent ?? 0) > 0;
+  const hasTrackedTime = (project.trackedSeconds ?? 0) > 0;
   const hasJournals = (project.journalCount ?? 0) > 0;
   const hasEditorData = hasTrackedTime || hasJournals;
   const [mode, setMode] = useState<ShipMode>(

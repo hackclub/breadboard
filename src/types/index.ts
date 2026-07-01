@@ -93,6 +93,7 @@ export type PlatformProject = ShipInput & {
   hoursSpent: number;
   kitType: "arduino" | "esp32";
   journalCount: number;
+  trackedSeconds: number;
   submissionSource: string;
 };
 

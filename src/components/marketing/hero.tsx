@@ -335,7 +335,7 @@ export function Hero() {
         <div className="flex flex-col gap-12 lg:grid lg:grid-cols-2 lg:items-center lg:gap-10">
           <div className="w-full max-w-2xl lg:justify-self-center lg:text-left">
             <h1 className="text-5xl leading-tight font-bold text-black lg:text-6xl">
-              Design something real. Iterate. Build.
+              Design. Iterate. Build.
             </h1>
           </div>
           <SignupForm />

@@ -16,8 +16,8 @@ export default function FaqPage() {
             @Tanuki
           </a>{" "}
           or email{" "}
-          <a href="mailto:tanishqgoyal590@gmail.com" className="underline">
-            tanishqgoyal590@gmail.com
+          <a href="mailto:tanishq@hackclub.com" className="underline">
+            tanishq@hackclub.com
           </a>
         </p>
       </PageHero>

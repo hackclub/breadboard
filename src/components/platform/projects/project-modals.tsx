@@ -380,83 +380,22 @@ export function ShipProjectModal({
   const hasHowToUse =
     project.howToUse.trim().split(/\s+/).filter(Boolean).length >= 3;
 
-  if (!hasScreenshot) {
-    return (
-      <Modal
-        open
-        onClose={onClose}
-        eyebrow="Submit design"
-        title={project.title}
-        maxWidth="lg"
-        tone="red"
-      >
-        <div className="text-center">
-          <div className="mx-auto grid size-20 place-items-center rounded-full border-2 border-black bg-white shadow-[4px_4px_0_#BD0F32]">
-            <HiPhoto className="size-9 text-[#BD0F32]" />
-          </div>
-          <h2 className="mt-4 text-4xl font-black text-black">No screenshot</h2>
-          <p className="mt-2 max-w-sm mx-auto text-sm font-semibold text-black/55">
-            Open <span className="font-black text-black">Edit details</span> on
-            the project card and upload a screenshot before you can submit.
-          </p>
-          <Button
-            tone="paper"
-            className="mt-6 rounded-full px-8"
-            onClick={onClose}
-          >
-            Got it
-          </Button>
-        </div>
-      </Modal>
-    );
-  }
-
-  if (
+  const editorBlocked =
     isEditor &&
-    (!hasGitHubRepo || !hasTitle || !hasDescription || !hasHowToUse)
-  ) {
-    return (
-      <Modal
-        open
-        onClose={onClose}
-        eyebrow="Submit design"
-        title={project.title}
-        maxWidth="lg"
-        tone="red"
-      >
-        <div className="grid gap-4">
-          <p className="text-sm font-semibold text-black/60">
-            Finish these before submitting your design for review.
-          </p>
-          <SubmitRequirement done={hasTitle} label="Project name is saved" />
-          <SubmitRequirement
-            done={hasDescription}
-            label="Project description is saved"
-          />
-          <SubmitRequirement
-            done={hasGitHubRepo}
-            label="GitHub repo is published from the editor"
-          />
-          <SubmitRequirement
-            done={hasHowToUse}
-            label="How-to-use instructions are published"
-          />
-          <SubmitRequirement
-            done
-            label={`Demo share link will be /share/${project.id}`}
-          />
-          <SubmitRequirement done label="Hack Club Auth address is valid" />
-          <Button
-            tone="paper"
-            className="justify-self-center rounded-full px-8"
-            onClick={onClose}
-          >
-            Got it
-          </Button>
-        </div>
-      </Modal>
-    );
-  }
+    (!hasScreenshot ||
+      !hasGitHubRepo ||
+      !hasTitle ||
+      !hasDescription ||
+      !hasHowToUse);
+  const editorAllGood =
+    isEditor &&
+    hasScreenshot &&
+    hasGitHubRepo &&
+    hasTitle &&
+    hasDescription &&
+    hasHowToUse;
+
+  const externalBlocked = !isEditor && !hasScreenshot;
 
   const submitLabel = isEditor
     ? "Submit design for review"
@@ -471,11 +410,18 @@ export function ShipProjectModal({
       maxWidth="2xl"
       footer={
         <ProjectModalFooter
-          formId={formId}
+          formId={
+            isEditor && editorAllGood
+              ? formId
+              : !isEditor && !externalBlocked
+                ? formId
+                : undefined
+          }
           pending={pending}
           pendingLabel="Submitting"
           submitLabel={submitLabel}
           onClose={onClose}
+          disabled={isEditor ? editorBlocked : externalBlocked}
         />
       }
     >
@@ -548,31 +494,81 @@ export function ShipProjectModal({
             name="screenshotUrl"
             value={project.screenshotUrl}
           />
-          <div className="grid gap-3 rounded-xl border border-black bg-[#f4f4f4] p-4 text-sm font-bold text-black">
-            <SubmitRequirement done label="Project name is saved" />
-            <SubmitRequirement done label="Project description is saved" />
-            <SubmitRequirement
-              done
-              label="How-to-use instructions are published"
-            />
-            <SubmitRequirement done label="Screenshot is uploaded" />
-            <SubmitRequirement done label="GitHub repo is published" />
-            <SubmitRequirement
-              done
-              label={`Demo share link: /share/${project.id}`}
-            />
-            <SubmitRequirement done label="Hack Club Auth address is valid" />
-            <SubmitRequirement
-              done={hasJournals}
-              label="Write at least one journal entry in the editor"
-            />
-          </div>
+          {editorBlocked ? (
+            <div className="grid gap-3 rounded-xl border border-[#BD0F32]/30 bg-[#fff5f7] p-4 text-sm font-bold text-black shadow-[2px_2px_0_#BD0F32]/15">
+              <p className="flex items-center gap-2 text-[#BD0F32]">
+                <HiInformationCircle className="size-4" />
+                <span className="font-black">
+                  Finish these before submitting. Or switch to External tool.
+                </span>
+              </p>
+              <div className="mt-1 grid gap-2">
+                <SubmitRequirement
+                  done={hasTitle}
+                  label="Project name is saved"
+                />
+                <SubmitRequirement
+                  done={hasDescription}
+                  label="Project description is saved"
+                />
+                <SubmitRequirement
+                  done={hasGitHubRepo}
+                  label="GitHub repo is published from the editor"
+                />
+                <SubmitRequirement
+                  done={hasHowToUse}
+                  label="How-to-use instructions are published"
+                />
+                <SubmitRequirement
+                  done={hasScreenshot}
+                  label="Screenshot is uploaded"
+                />
+                <SubmitRequirement
+                  done
+                  label="Hack Club Auth address is valid"
+                />
+                <SubmitRequirement
+                  done={hasJournals}
+                  label="Write at least one journal entry in the editor"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-3 rounded-xl border border-black bg-[#f4f4f4] p-4 text-sm font-bold text-black">
+              <SubmitRequirement done label="Project name is saved" />
+              <SubmitRequirement done label="Project description is saved" />
+              <SubmitRequirement
+                done
+                label="How-to-use instructions are published"
+              />
+              <SubmitRequirement done label="Screenshot is uploaded" />
+              <SubmitRequirement done label="GitHub repo is published" />
+              <SubmitRequirement
+                done
+                label={`Demo share link: /share/${project.id}`}
+              />
+              <SubmitRequirement done label="Hack Club Auth address is valid" />
+              <SubmitRequirement
+                done={hasJournals}
+                label="Write at least one journal entry in the editor"
+              />
+            </div>
+          )}
           <ProjectActionMessage message={state.message} />
         </form>
       ) : (
         <form id={formId} action={externalAction} className="grid gap-4">
           <input type="hidden" name="projectId" value={project.id} />
           <input type="hidden" name="screenshotUrl" value={screenshotUrl} />
+
+          {!hasScreenshot ? (
+            <div className="flex items-start gap-2 rounded-xl border border-[#BD0F32]/30 bg-[#fff5f7] p-3 text-sm text-[#BD0F32] shadow-[2px_2px_0_#BD0F32]/15">
+              <HiInformationCircle className="mt-0.5 size-4 shrink-0" />
+              <span className="font-black">
+                Upload a screenshot before submitting.
+              </span>
+            </div>
+          ) : null}
 
           <FormField label="Git repository URL" id={`custom-git-${project.id}`}>
             <Input
@@ -820,7 +816,7 @@ function ProjectModalFooter({
   onClose,
   disabled = false,
 }: {
-  formId: string;
+  formId: string | undefined;
   pending: boolean;
   pendingLabel: string;
   submitLabel: string;
@@ -833,8 +829,8 @@ function ProjectModalFooter({
         Cancel
       </Button>
       <Button
-        type="submit"
-        form={formId}
+        type={formId ? "submit" : "button"}
+        form={formId || undefined}
         disabled={pending || disabled}
         tone="primary"
         className="rounded-full px-6"

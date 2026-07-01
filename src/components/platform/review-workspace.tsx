@@ -9,9 +9,11 @@ import {
   HiCodeBracket,
   HiExclamationTriangle,
   HiFilm,
+  HiInformationCircle,
   HiPencilSquare,
   HiPhoto,
   HiPlay,
+  HiWrenchScrewdriver,
   HiXCircle,
 } from "react-icons/hi2";
 import {
@@ -37,7 +39,13 @@ type ReviewProject = {
   howToUse: string;
   firstName: string;
   lastName: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  region: string;
   country: string;
+  postalCode: string;
+  birthday: string;
   hoursSpent: number;
   overrideHoursSpent: number | null;
   overrideHoursSpentJustification: string;
@@ -52,6 +60,7 @@ type ReviewProject = {
   userEmail: string;
   userId: string;
   kitType: string;
+  submissionSource: string | null;
 };
 
 type Journal = {
@@ -184,6 +193,7 @@ export function ReviewWorkspace({
   );
   const [userComment, setUserComment] = useState("");
   const [pending, startTransition] = useTransition();
+  const isManual = initial.submissionSource === "manual";
   const screenshot = safeUrl(initial.screenshotUrl);
   const playable = safeUrl(initial.playableUrl);
   const demoVideo = safeUrl(initial.demoVideoUrl);
@@ -221,6 +231,12 @@ export function ReviewWorkspace({
               >
                 {statusLabel(initial.status)}
               </span>
+              {initial.submissionSource === "manual" ? (
+                <span className="inline-flex items-center gap-1 rounded-full border-2 border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-black text-amber-700 uppercase">
+                  <HiWrenchScrewdriver className="size-3.5" />
+                  External tool
+                </span>
+              ) : null}
               <span className="inline-flex items-center gap-1.5 rounded-full border-2 border-black bg-black px-3 py-1.5 text-xs font-black text-white uppercase">
                 {initial.kitType === "esp32"
                   ? "Kit B · ESP32"
@@ -256,27 +272,31 @@ export function ReviewWorkspace({
                 label="Screenshot"
                 icon={HiPhoto}
               />
-              <EvidenceButton
-                href={
-                  initial.editorVersionNumber
-                    ? `/editor/${initial.id}?version=${initial.editorVersionNumber}`
-                    : `/editor/${initial.id}`
-                }
-                label="Editor"
-                icon={HiPencilSquare}
-              />
-              <EvidenceButton
-                href={`/platform/admin/projects/${initial.id}/versions`}
-                label="Versions"
-                icon={HiClock}
-              />
-              <EvidenceButton
-                href={`/platform/admin/projects/${initial.id}/timelapse?until=${encodeURIComponent(
-                  initial.shippedAt?.toISOString() ?? "",
-                )}`}
-                label="Timelapse"
-                icon={HiFilm}
-              />
+              {!isManual ? (
+                <>
+                  <EvidenceButton
+                    href={
+                      initial.editorVersionNumber
+                        ? `/editor/${initial.id}?version=${initial.editorVersionNumber}`
+                        : `/editor/${initial.id}`
+                    }
+                    label="Editor"
+                    icon={HiPencilSquare}
+                  />
+                  <EvidenceButton
+                    href={`/platform/admin/projects/${initial.id}/versions`}
+                    label="Versions"
+                    icon={HiClock}
+                  />
+                  <EvidenceButton
+                    href={`/platform/admin/projects/${initial.id}/timelapse?until=${encodeURIComponent(
+                      initial.shippedAt?.toISOString() ?? "",
+                    )}`}
+                    label="Timelapse"
+                    icon={HiFilm}
+                  />
+                </>
+              ) : null}
             </div>
           </div>
           <div className="relative hidden h-28 w-52 shrink-0 overflow-hidden rounded-[12px] border border-black bg-white lg:block">
@@ -287,12 +307,63 @@ export function ReviewWorkspace({
           </div>
         </div>
 
-        <div className="border-t border-black/10 p-5">
-          <h3 className="text-lg font-black text-black">How to use</h3>
-          <p className="mt-2 whitespace-pre-wrap rounded-xl border border-black bg-[#fffaf1] p-4 text-sm font-semibold leading-relaxed text-black/75 shadow-[2px_2px_0_#000]">
-            {initial.howToUse || "No instructions provided."}
-          </p>
-        </div>
+        {isManual ? (
+          <div className="border-t border-black/10 p-5">
+            <h3 className="text-lg font-black text-black">
+              Submission details
+            </h3>
+            <p className="mt-1 text-xs font-semibold text-black/40">
+              Submitted via external tool — all info below is user-provided.
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <DetailRow label="Git repository" value={code} link />
+              <DetailRow
+                label="Hours declared"
+                value={`${initial.hoursSpent}h`}
+              />
+              <DetailRow label="Email" value={initial.email} />
+              <DetailRow label="Birthday" value={initial.birthday} />
+              <DetailRow
+                label="Name"
+                value={`${initial.firstName} ${initial.lastName}`.trim()}
+              />
+              <DetailRow label="Country" value={initial.country} />
+              <DetailRow label="Address" value={initial.addressLine1} />
+              <DetailRow label="Address line 2" value={initial.addressLine2} />
+              <DetailRow label="City" value={initial.city} />
+              <DetailRow label="State / Province" value={initial.region} />
+              <DetailRow label="ZIP / Postal code" value={initial.postalCode} />
+            </div>
+            {initial.description ? (
+              <div className="mt-4">
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-black/40">
+                  Description
+                </p>
+                <p className="mt-1.5 rounded-xl border border-black bg-[#fffaf1] p-4 text-sm font-semibold leading-relaxed text-black/75 shadow-[2px_2px_0_#000]">
+                  {initial.description}
+                </p>
+              </div>
+            ) : null}
+            <div className="mt-4">
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-black/40">
+                Screenshot
+              </p>
+              <div className="relative mt-1.5 aspect-[4/3] w-full max-w-lg overflow-hidden rounded-xl border border-black bg-zinc-100 shadow-[2px_2px_0_#000]">
+                <ReviewScreenshotPreview
+                  screenshot={screenshot}
+                  title={initial.title}
+                />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="border-t border-black/10 p-5">
+            <h3 className="text-lg font-black text-black">How to use</h3>
+            <p className="mt-2 whitespace-pre-wrap rounded-xl border border-black bg-[#fffaf1] p-4 text-sm font-semibold leading-relaxed text-black/75 shadow-[2px_2px_0_#000]">
+              {initial.howToUse || "No instructions provided."}
+            </p>
+          </div>
+        )}
 
         <div className="p-5">
           <div className="space-y-5">
@@ -422,7 +493,12 @@ export function ReviewWorkspace({
               </span>
             </div>
             <div className="flex justify-between">
-              <span>Hours tracked</span>
+              <span>
+                Hours
+                {initial.submissionSource === "manual"
+                  ? " declared"
+                  : " tracked"}
+              </span>
               <span className="font-black text-white">
                 {initial.hoursSpent}h
               </span>
@@ -454,6 +530,25 @@ export function ReviewWorkspace({
             ) : null}
           </div>
         </section>
+
+        {initial.submissionSource === "manual" ? (
+          <section className="rounded-[16px] border border-amber-200 bg-amber-50 p-4 shadow-[2px_2px_0_#000]/10">
+            <div className="flex items-start gap-2">
+              <HiInformationCircle className="mt-0.5 size-5 shrink-0 text-amber-600" />
+              <div>
+                <h3 className="text-sm font-black text-amber-800">
+                  Manual submission
+                </h3>
+                <p className="mt-1.5 text-xs font-semibold text-amber-700/80">
+                  This project was submitted with an external tool (KiCad,
+                  Eagle, etc.). Hours are user-declared and not tracked via the
+                  editor. Verify the git repo, schematic, and README manually
+                  before approving.
+                </p>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         <section className="rounded-[16px] border border-black bg-white p-4 shadow-[4px_4px_0_#000]">
           <h3 className="text-sm font-black text-black">Journals</h3>
@@ -501,8 +596,9 @@ export function ReviewWorkspace({
               <BreadAmount amount={initial.hoursSpent * breadPerHour} />
             </p>
             <p className="text-[10px] font-bold text-black/35">
-              Server-tracked hours. This value will be the default for demo
-              review.
+              {isManual
+                ? "User-declared hours. This value will be the default for demo review."
+                : "Server-tracked hours. This value will be the default for demo review."}
             </p>
           </div>
         </section>
@@ -543,5 +639,47 @@ export function ReviewWorkspace({
         </section>
       </aside>
     </article>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+  link,
+}: {
+  label: string;
+  value: string | null;
+  link?: boolean;
+}) {
+  const display = (value ?? "").trim();
+  if (!display) {
+    return (
+      <div>
+        <p className="text-[10px] font-black uppercase tracking-[0.12em] text-black/30">
+          {label}
+        </p>
+        <p className="text-sm font-semibold text-black/25">—</p>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <p className="text-[10px] font-black uppercase tracking-[0.12em] text-black/40">
+        {label}
+      </p>
+      {link ? (
+        <a
+          href={display.startsWith("http") ? display : `https://${display}`}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-sm font-bold text-[#BD0F32] underline break-all"
+        >
+          {display}
+          <HiArrowTopRightOnSquare className="size-3 shrink-0" />
+        </a>
+      ) : (
+        <p className="text-sm font-bold text-black break-all">{display}</p>
+      )}
+    </div>
   );
 }

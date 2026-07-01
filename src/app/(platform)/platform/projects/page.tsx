@@ -35,6 +35,7 @@ const projectColumns = {
   status: projects.status,
   reviewNote: projects.reviewNote,
   kitType: projects.kitType,
+  submissionSource: projects.submissionSource,
   journalCount: sql<number>`(
     SELECT COUNT(*) FROM ${projectJournals}
     WHERE ${projectJournals.projectId} = ${projects.id}
@@ -48,6 +49,7 @@ function normalizeProjectRow(project: ProjectRow): PlatformProject {
     ...project,
     kitType: project.kitType === "esp32" ? "esp32" : "arduino",
     journalCount: project.journalCount ?? 0,
+    submissionSource: project.submissionSource ?? "editor",
   };
 }
 

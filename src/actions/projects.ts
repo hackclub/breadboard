@@ -12,12 +12,18 @@ import {
   archiveProjectForUser,
   confirmKitReceivedForUser,
   createProjectForUser,
+  shipCustomProjectForUser,
   shipProjectForUser,
   submitDemoForUser,
   updateProjectBasicsForUser,
 } from "@/lib/projects/mutations";
 import { notifyReviewSubmitted } from "@/lib/slack/tookle";
-import type { DemoInput, ProjectFormState, ShipInput } from "@/types";
+import type {
+  CustomShipInput,
+  DemoInput,
+  ProjectFormState,
+  ShipInput,
+} from "@/types";
 
 const projectBasicsSchema = z.object({
   title: z.string().trim().min(1, "Project title is required"),
@@ -332,6 +338,130 @@ export async function shipProjectFromForm(
     data.codeUrl = project.codeUrl;
     await assertMaterialsRepoReady(data.codeUrl);
     const tracked = await shipProjectForUser(
+      { userId: session.user.id, email: session.user.email },
+      projectId,
+      data,
+    );
+    await notifyReviewSubmitted(projectId, "materials");
+    revalidatePath("/platform/projects");
+    revalidatePath("/platform/admin/review");
+
+    return {
+      success: true,
+      project: {
+        id: projectId,
+        ...data,
+        hoursSpent: tracked.hoursSpent,
+        status: "materials_review",
+        reviewNote: "",
+      },
+    };
+  } catch (error) {
+    return projectFormError(error);
+  }
+}
+
+const customShipSchema = z.object({
+  gitUrl: z
+    .string()
+    .trim()
+    .min(1, "Git URL is required")
+    .max(2048)
+    .refine((value) => {
+      try {
+        const url = new URL(value);
+        return url.protocol === "https:";
+      } catch {
+        return false;
+      }
+    }, "Enter a valid HTTPS git URL (e.g. https://github.com/...)."),
+  hoursSpent: z.coerce
+    .number()
+    .int()
+    .min(0, "Hours must be at least 0")
+    .max(999, "Hours seems unreasonably high"),
+  screenshotUrl: z.string().trim().min(1, "Screenshot is required").max(2048),
+  email: z.string().trim().email().optional(),
+  addressLine1: z.string().trim().optional(),
+  addressLine2: z.string().trim().optional(),
+  city: z.string().trim().optional(),
+  region: z.string().trim().optional(),
+  country: z.string().trim().optional(),
+  postalCode: z.string().trim().optional(),
+  birthday: z.string().trim().optional(),
+  firstName: z.string().trim().optional(),
+  lastName: z.string().trim().optional(),
+});
+
+function orEmpty(value: string | undefined | null) {
+  return (value ?? "").trim();
+}
+
+async function assertCustomGitRepoReady(gitUrl: string) {
+  const { owner, repo } = parseGitHubRepoUrl(gitUrl);
+  const readme = await fetchGitHubText(owner, repo, "README.md");
+  if (!readme.trim())
+    throw new Error(
+      "Your repo must have a README.md file. Add one before submitting.",
+    );
+  const journal = await fetchGitHubText(owner, repo, "journal.md");
+  if (!journal.trim())
+    throw new Error(
+      "Your repo must have a journal.md file with build notes. Journaling is required.",
+    );
+}
+
+export async function submitCustomProjectFromForm(
+  _previousState: ProjectFormState,
+  formData: FormData,
+): Promise<ProjectFormState> {
+  try {
+    const projectId = Number(formData.get("projectId"));
+    if (!Number.isInteger(projectId)) throw new Error("Invalid project.");
+
+    const parsed = customShipSchema.parse({
+      gitUrl: formData.get("gitUrl"),
+      hoursSpent: formData.get("hoursSpent"),
+      screenshotUrl: formData.get("screenshotUrl"),
+      email: formData.get("email"),
+      addressLine1: formData.get("addressLine1"),
+      addressLine2: formData.get("addressLine2"),
+      city: formData.get("city"),
+      region: formData.get("region"),
+      country: formData.get("country"),
+      postalCode: formData.get("postalCode"),
+      birthday: formData.get("birthday"),
+      firstName: formData.get("firstName"),
+      lastName: formData.get("lastName"),
+    });
+    const session = await requireSession();
+    const claims = await assertHackClubYswsEligible(session.user.id);
+    const shipping = shippingFromClaims(session, claims);
+    const data: CustomShipInput = {
+      gitUrl: parsed.gitUrl,
+      screenshotUrl: parsed.screenshotUrl,
+      hoursSpent: parsed.hoursSpent,
+      email: orEmpty(parsed.email) || shipping.email,
+      addressLine1: orEmpty(parsed.addressLine1) || shipping.addressLine1,
+      addressLine2: orEmpty(parsed.addressLine2) || shipping.addressLine2,
+      city: orEmpty(parsed.city) || shipping.city,
+      region: orEmpty(parsed.region) || shipping.region,
+      country: orEmpty(parsed.country) || shipping.country,
+      postalCode: orEmpty(parsed.postalCode) || shipping.postalCode,
+      birthday: orEmpty(parsed.birthday) || shipping.birthday,
+      firstName: orEmpty(parsed.firstName) || shipping.firstName,
+      lastName: orEmpty(parsed.lastName) || shipping.lastName,
+    };
+    const [project] = await db
+      .select({ title: projects.title })
+      .from(projects)
+      .where(
+        and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
+      )
+      .limit(1);
+    if (!project) throw new Error("Project not found.");
+    await assertCustomGitRepoReady(data.gitUrl);
+    const tracked = await shipCustomProjectForUser(
       { userId: session.user.id, email: session.user.email },
       projectId,
       data,

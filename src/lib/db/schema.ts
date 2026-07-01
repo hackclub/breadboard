@@ -623,6 +623,7 @@ export const projects = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
     archived: boolean("archived").notNull().default(false),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
+    submissionSource: text("submission_source").notNull().default("editor"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -787,6 +788,7 @@ export const projectSubmissions = pgTable(
     internalNote: text("internal_note").notNull().default(""),
     userComment: text("user_comment").notNull().default(""),
     breadAmount: integer("bread_amount").notNull().default(0),
+    submissionSource: text("submission_source").notNull().default("editor"),
     submittedAt: timestamp("submitted_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

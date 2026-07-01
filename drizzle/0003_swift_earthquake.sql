@@ -1,0 +1,2 @@
+ALTER TABLE "project_submissions" ADD COLUMN "submission_source" text DEFAULT 'editor' NOT NULL;--> statement-breakpoint
+ALTER TABLE "projects" ADD COLUMN "submission_source" text DEFAULT 'editor' NOT NULL;

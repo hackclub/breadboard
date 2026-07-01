@@ -49,6 +49,7 @@ export function ProjectCard({
   );
   const editable = canEditProjectCard(project.status);
   const shippable = canShipProjectCard(project.status);
+  const isManual = project.submissionSource === "manual";
   const stepMeta = projectStepMeta(project.status);
   const statusTone =
     project.status === "materials_review" ||
@@ -188,7 +189,7 @@ export function ProjectCard({
         </p>
 
         <div className="mt-auto grid gap-2 pt-4">
-          {editable ? (
+          {editable && !isManual ? (
             <Link
               href={`/editor/${project.id}`}
               className={buttonClass({ tone: "ink" })}
@@ -198,7 +199,7 @@ export function ProjectCard({
                 : "Open editor"}
             </Link>
           ) : null}
-          {isAfterKitApproved(project.status) && editable ? (
+          {isAfterKitApproved(project.status) && editable && !isManual ? (
             <p className="text-center text-[11px] font-bold text-black/45">
               Editing stays open. Extra editor time is not tracked after kit
               approval.

@@ -9,7 +9,12 @@ import {
   projects,
 } from "@/lib/db/schema";
 import { clean } from "@/lib/utils";
-import type { DemoInput, PlatformProject, ShipInput } from "@/types";
+import type {
+  CustomShipInput,
+  DemoInput,
+  PlatformProject,
+  ShipInput,
+} from "@/types";
 
 type ProjectOwner = {
   userId: string;
@@ -251,6 +256,78 @@ export async function shipProjectForUser(
       );
 
     return { hoursSpent, activeSeconds };
+  });
+}
+
+export async function shipCustomProjectForUser(
+  owner: ProjectOwner,
+  projectId: number,
+  data: CustomShipInput,
+) {
+  await assertProjectCanShip(owner.userId, projectId);
+
+  return await db.transaction(async (tx) => {
+    const latest = await tx
+      .select({ submissionNumber: max(projectSubmissions.submissionNumber) })
+      .from(projectSubmissions)
+      .where(eq(projectSubmissions.projectId, projectId));
+    const submissionNumber = (latest[0]?.submissionNumber ?? 0) + 1;
+    const hoursSpent = Math.max(0, Math.floor(data.hoursSpent || 0));
+    const now = new Date();
+    const codeUrl = clean(data.gitUrl);
+    if (!codeUrl)
+      throw new Error("Git URL is required for custom submissions.");
+
+    await tx.insert(projectSubmissions).values({
+      projectId,
+      userId: owner.userId,
+      submissionNumber,
+      email: clean(data.email),
+      codeUrl,
+      screenshotUrl: clean(data.screenshotUrl),
+      addressLine1: clean(data.addressLine1),
+      addressLine2: clean(data.addressLine2),
+      city: clean(data.city),
+      region: clean(data.region),
+      country: clean(data.country),
+      postalCode: clean(data.postalCode),
+      birthday: clean(data.birthday),
+      firstName: clean(data.firstName),
+      lastName: clean(data.lastName),
+      hoursSpent,
+      submissionSource: "manual",
+      status: "pending_review",
+      submittedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await tx
+      .update(projects)
+      .set({
+        email: clean(data.email),
+        codeUrl,
+        screenshotUrl: clean(data.screenshotUrl),
+        addressLine1: clean(data.addressLine1),
+        addressLine2: clean(data.addressLine2),
+        city: clean(data.city),
+        region: clean(data.region),
+        country: clean(data.country),
+        postalCode: clean(data.postalCode),
+        birthday: clean(data.birthday),
+        firstName: clean(data.firstName),
+        lastName: clean(data.lastName),
+        hoursSpent,
+        submissionSource: "manual",
+        status: "materials_review",
+        reviewNote: "",
+        updatedAt: now,
+      })
+      .where(
+        and(eq(projects.id, projectId), eq(projects.userId, owner.userId)),
+      );
+
+    return { hoursSpent };
   });
 }
 

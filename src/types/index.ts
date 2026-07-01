@@ -59,6 +59,22 @@ export type DemoInput = {
   demoVideoUrl: string;
 };
 
+export type CustomShipInput = {
+  gitUrl: string;
+  screenshotUrl: string;
+  hoursSpent: number;
+  email: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  region: string;
+  country: string;
+  postalCode: string;
+  birthday: string;
+  firstName: string;
+  lastName: string;
+};
+
 export type ProjectFormState = {
   success: boolean;
   message?: string;
@@ -77,6 +93,7 @@ export type PlatformProject = ShipInput & {
   hoursSpent: number;
   kitType: "arduino" | "esp32";
   journalCount: number;
+  submissionSource: string;
 };
 
 export type ShippingAddress = {

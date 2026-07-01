@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
-import { requireSession } from "@/lib/auth/guards";
+import { requireAdminSession, requireSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import { projects } from "@/lib/db/schema";
 import { createPresignedPutUrl } from "@/lib/storage/s3";
@@ -71,4 +71,17 @@ export async function createProjectDemoVideoUpload(
     contentType: safeContentType,
   });
   return { ...upload, publicUrl: `/demo/${demoPath}` };
+}
+
+export async function createProductImageUpload(contentType: string) {
+  const session = await requireAdminSession();
+  const safeContentType = normalizeContentType(contentType);
+  const extension = imageContentTypes.get(safeContentType);
+  if (!extension) throw new Error("Upload a PNG, JPEG, or WebP image.");
+
+  const key = `product-images/${session.user.id}/${randomUUID()}.${extension}`;
+  return {
+    uploadUrl: `/api/uploads/${key}`,
+    publicUrl: `/api/uploads/${key}`,
+  };
 }

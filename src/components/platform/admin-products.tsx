@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useState } from "react";
+import { HiArrowUpTray, HiPhoto } from "react-icons/hi2";
 import { BreadAmount } from "@/components/shared/bread-amount";
 import {
   addProduct,
@@ -9,6 +10,7 @@ import {
   toggleProduct,
   updateProduct,
 } from "@/actions/shop";
+import { createProductImageUpload } from "@/actions/uploads";
 
 type ProductFormState = {
   name: string;
@@ -35,6 +37,29 @@ function ProductFields({
   value: ProductFormState;
   onChange: (value: ProductFormState) => void;
 }) {
+  const [uploading, setUploading] = useState(false);
+
+  const uploadImage = async (file: File | null) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      const { uploadUrl, publicUrl } = await createProductImageUpload(
+        file.type,
+      );
+      const res = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!res.ok) throw new Error("Upload failed. Try again.");
+      onChange({ ...value, imageUrl: publicUrl });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Upload failed.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <label className="flex flex-col gap-1">
@@ -76,15 +101,60 @@ function ProductFields({
         />
       </label>
       <label className="flex flex-col gap-1 sm:col-span-2">
-        <span className="text-xs font-bold text-black/60">Image URL</span>
-        <input
-          type="url"
-          value={value.imageUrl}
-          onChange={(event) =>
-            onChange({ ...value, imageUrl: event.target.value })
-          }
-          className="rounded-[10px] border border-black bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-[#BD0F32]/20"
-        />
+        <span className="text-xs font-bold text-black/60">Product image</span>
+        <input type="hidden" name="imageUrl" value={value.imageUrl} readOnly />
+        {value.imageUrl ? (
+          <div className="flex items-center gap-4">
+            <div className="relative size-28 shrink-0 overflow-hidden rounded-[12px] border border-black bg-[#f4f4f4]">
+              <Image
+                src={value.imageUrl}
+                alt="Product preview"
+                fill
+                sizes="112px"
+                className="object-contain p-3"
+              />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-xs font-bold text-black/45">
+                {value.imageUrl}
+              </p>
+              <label className="mt-2 inline-flex cursor-pointer items-center gap-1.5 rounded border border-black bg-white px-3 py-1.5 text-xs font-semibold transition hover:bg-black hover:text-white">
+                <HiArrowUpTray className="size-3.5" />
+                {uploading ? "Uploading..." : "Replace image"}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  disabled={uploading}
+                  onChange={(event) =>
+                    void uploadImage(event.target.files?.[0] ?? null)
+                  }
+                  className="sr-only"
+                />
+              </label>
+            </div>
+          </div>
+        ) : (
+          <label className="flex cursor-pointer flex-col items-center gap-2 rounded-[12px] border-2 border-dashed border-black/25 bg-[#f4f4f4] px-4 py-6 transition hover:border-[#BD0F32] hover:bg-[#fff5f7]">
+            <div className="grid size-12 place-items-center rounded-full border border-black/30 bg-white">
+              <HiPhoto className="size-6 text-black/30" />
+            </div>
+            <span className="text-sm font-black text-black/50">
+              {uploading ? "Uploading..." : "Upload product image"}
+            </span>
+            <span className="text-xs font-semibold text-black/35">
+              PNG, JPEG, or WebP
+            </span>
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              disabled={uploading}
+              onChange={(event) =>
+                void uploadImage(event.target.files?.[0] ?? null)
+              }
+              className="sr-only"
+            />
+          </label>
+        )}
       </label>
       <label className="flex flex-col gap-1 sm:col-span-2">
         <span className="text-xs font-bold text-black/60">Description</span>
@@ -274,9 +344,6 @@ export function ProductAdminCard({
             </div>
             <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-black/60">
               {product.description || "No description yet."}
-            </p>
-            <p className="mt-2 truncate text-xs text-black/40">
-              {product.imageUrl}
             </p>
           </div>
           <div className="flex flex-wrap gap-2 lg:justify-end">

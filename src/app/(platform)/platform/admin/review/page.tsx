@@ -42,6 +42,7 @@ export default async function AdminReviewPage() {
       screenshotUrl: projectSubmissions.screenshotUrl,
       status: projectSubmissions.status,
       submissionType: projectSubmissions.type,
+      submissionSource: projectSubmissions.submissionSource,
       shippedAt: projectSubmissions.submittedAt,
       userEmail: user.email,
       kitType: projects.kitType,

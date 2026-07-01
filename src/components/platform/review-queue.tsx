@@ -19,6 +19,7 @@ type ReviewProject = {
   screenshotUrl: string;
   status: string;
   submissionType: string;
+  submissionSource?: string | null;
   shippedAt: Date | null;
   userEmail: string;
   versionCount: number;
@@ -180,7 +181,11 @@ export function ReviewQueue({ projects }: { projects: ReviewProject[] }) {
                   {project.title}
                 </p>
                 <p className="mt-0.5 text-xs font-semibold text-black/40">
-                  {project.submissionType === "demo" ? "Demo" : "Design"} ·{" "}
+                  {project.submissionType === "demo" ? "Demo" : "Design"}
+                  {project.submissionSource === "manual"
+                    ? " · External tool"
+                    : ""}
+                  {" · "}
                   {project.kitType === "esp32" ? "ESP32" : "Arduino"}
                 </p>
                 <p className="mt-1 text-xs text-black/40">

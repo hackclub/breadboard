@@ -1,0 +1,18 @@
+display_information:
+  name: Tookle
+  description: Cute, plain Breadboard project status nudges.
+  background_color: "#BD0F32"
+features:
+  bot_user:
+    display_name: Tookle
+    always_online: false
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - im:write
+      - reactions:write
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

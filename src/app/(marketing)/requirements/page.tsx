@@ -88,37 +88,37 @@ export default function RequirementsPage() {
             <strong>Cool input.</strong> Give people a real way to interact with
             your project. A single push button is not allowed, and one input on
             its own isn't enough. You must combine several ways for people to
-            control your project: a keypad, a joystick, a rotary encoder, an RFID
-            reader, an IR remote, and the like.
+            control your project: a keypad, a joystick, a rotary encoder, an
+            RFID reader, an IR remote, and the like.
           </li>
           <li>
             <strong>Cool output.</strong> One blinking LED is the floor and
-            won't pass on its own. Combine outputs like a screen, an addressable LED matrix, a
-            motor, a servo, or a stepper. Make it move, display, or react in a
-            way that's fun to watch!
+            won't pass on its own. Combine outputs like a screen, an addressable
+            LED matrix, a motor, a servo, or a stepper. Make it move, display,
+            or react in a way that's fun to watch!
           </li>
           <li>
             <strong>Cool sensors.</strong> Your project should sense multiple
             aspects from the real world and react to it. Things like motion,
-            distance, weight, orientation, sound, light, temperature are examples
-            of things that can be sensed.
+            distance, weight, orientation, sound, light, temperature are
+            examples of things that can be sensed.
           </li>
           <li>
             <strong>A real purpose.</strong> There should be a clear reason your
             project exists, and you should be able to say in one sentence why it
             needs a microcontroller at all. For instance, a puzzle box that
             releases its servo latch only after you present the right RFID card,
-            type a keypad code, and give it a secret tilt-and-tap, dropping hints
-            on a small screen as you go might be an interesting idea!
+            type a keypad code, and give it a secret tilt-and-tap, dropping
+            hints on a small screen as you go might be an interesting idea!
           </li>
           <li>
             <strong>It makes a decision.</strong> Your code has to actually
             think. Reacting to one reading isn't enough, like turning on a light
-            just because it got dark. A real decision weighs more than one thing:
-            it looks at several inputs, remembers what happened before, or acts
-            differently over time. For example, unlock the door only if the right
-            RFID card is tapped and then the correct keypad code is typed in
-            time.
+            just because it got dark. A real decision weighs more than one
+            thing: it looks at several inputs, remembers what happened before,
+            or acts differently over time. For example, unlock the door only if
+            the right RFID card is tapped and then the correct keypad code is
+            typed in time.
           </li>
           <li>
             <strong>Unique firmware.</strong> The code has to be yours, and it
@@ -126,14 +126,14 @@ export default function RequirementsPage() {
             doesn't count. "Real work" means at least one of these:
             <ul>
               <li>
-                <strong>A state machine:</strong> your project has distinct modes
-                (say "idle", "armed", and "alarm") with rules for when it moves
-                between them.
+                <strong>A state machine:</strong> your project has distinct
+                modes (say "idle", "armed", and "alarm") with rules for when it
+                moves between them.
               </li>
               <li>
                 <strong>A control loop:</strong> it keeps reading an input and
-                adjusting an output to hit a target, the way a thermostat holds a
-                temperature.
+                adjusting an output to hit a target, the way a thermostat holds
+                a temperature.
               </li>
               <li>
                 <strong>Cleaning up sensor readings:</strong> smoothing or
@@ -160,8 +160,8 @@ export default function RequirementsPage() {
                 ).
               </li>
               <li>
-                <strong>Speaking a protocol:</strong> talking to a part over I2C,
-                SPI, or serial.
+                <strong>Speaking a protocol:</strong> talking to a part over
+                I2C, SPI, or serial.
               </li>
             </ul>
             New to these terms? That's fine! So was I ;) The two examples linked
@@ -261,15 +261,17 @@ export default function RequirementsPage() {
             <span aria-hidden className="text-green-600">
               ✓
             </span>
-            <span>A BOM (Bill of Materials) as a CSV, with links to every part.</span>
+            <span>
+              A BOM (Bill of Materials) as a CSV, with links to every part.
+            </span>
           </li>
           <li className="flex gap-2">
             <span aria-hidden className="text-green-600">
               ✓
             </span>
             <span>
-              If you use KiCad or other platforms that support this, your
-              wiring diagram or schematic file.
+              If you use KiCad or other platforms that support this, your wiring
+              diagram or schematic file.
             </span>
           </li>
           <li className="flex gap-2">

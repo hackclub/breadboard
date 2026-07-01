@@ -194,13 +194,24 @@ function PushButton({
 }) {
   const router = useRouter();
 
+  const handleClick = () => {
+    try {
+      const click = new Audio("/minecraft-click.mp3");
+      click.volume = 0.5;
+      void click.play().catch(() => {});
+    } catch {
+      // Ignore audio playback failures.
+    }
+    router.push(href);
+  };
+
   return (
     <div className="flex flex-col items-center justify-center gap-2 py-8 text-center text-black">
       <button
         type="button"
         className="group cursor-pointer border-0 bg-transparent p-0"
         aria-label={`${label} red pushbutton`}
-        onClick={() => router.push(href)}
+        onClick={handleClick}
       >
         <svg
           viewBox="0 0 80 80"

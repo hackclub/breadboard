@@ -13,6 +13,7 @@ type DocLink = {
 const topLevelItems: DocLink[] = [
   { label: "Start here!", href: "/get-started" },
   { label: "FAQ", href: "/faq" },
+  { label: "Requirements", href: "/requirements" },
 ];
 
 const guideItems: DocLink[] = [
@@ -20,11 +21,6 @@ const guideItems: DocLink[] = [
   { label: "LED Workshop", href: "/workshop", sub: true },
   { label: "Firmware Guide", href: "/guides/firmware", sub: true },
 ];
-
-const requirementsItem: DocLink = {
-  label: "Requirements",
-  href: "/requirements",
-};
 
 const projectResourceItems: DocLink[] = [
   {
@@ -157,27 +153,6 @@ export function BreadboardSidebar() {
             </Link>
           );
         })}
-
-        <Link
-          href={requirementsItem.href}
-          onClick={() => setOpen(false)}
-          className={`flex items-center gap-2.5 px-3.5 py-1.5 text-lg transition-colors hover:bg-[#BD0F32]/8 ${linkUnderline} ${
-            pathname === requirementsItem.href
-              ? "bg-[#BD0F32] text-white after:scale-x-100"
-              : "text-[#111]"
-          }`}
-        >
-          <span className="flex size-[18px] shrink-0 items-center justify-center">
-            <span
-              className={`flex size-4 items-center justify-center border-[1.5px] bg-[#f0f0f0] ${pathname === requirementsItem.href ? "border-white" : "border-[#111]"}`}
-            >
-              <span
-                className={`size-2 rounded-full ${pathname === requirementsItem.href ? "bg-white" : "bg-[#BD0F32]"}`}
-              />
-            </span>
-          </span>
-          {requirementsItem.label}
-        </Link>
 
         <div className="mx-3.5 mt-2.5 mb-0 border-t border-dashed border-[#bbb] pt-2 pb-1 text-[13.5px] tracking-[0.12em] uppercase text-[#999]">
           Project resources

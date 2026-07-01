@@ -97,100 +97,103 @@ export default function FaqPage() {
                 Kit B: ESP32 Starter Kit
               </a>
             </h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>Component</th>
-                  <th>Qty</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>ESP32 Development Board</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>0.96&quot; OLED Display</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>DHT11 Temperature &amp; Humidity Module</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>HC-SR501 PIR Motion Sensor</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Obstacle Avoidance Module</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Photosensitive Resistor Module</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Resistors (220Ω / 1K / 10K)</td>
-                  <td>30</td>
-                </tr>
-                <tr>
-                  <td>Potentiometer 10K</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Passive Buzzer</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Active Buzzer</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>5V 2-Channel Relay Module</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Button Switch</td>
-                  <td>6</td>
-                </tr>
-                <tr>
-                  <td>Red LED</td>
-                  <td>5</td>
-                </tr>
-                <tr>
-                  <td>Yellow LED</td>
-                  <td>5</td>
-                </tr>
-                <tr>
-                  <td>Green LED</td>
-                  <td>5</td>
-                </tr>
-                <tr>
-                  <td>RGB LED</td>
-                  <td>2</td>
-                </tr>
-                <tr>
-                  <td>830 Tie-Point Breadboard</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>F-M DuPont Cable</td>
-                  <td>10</td>
-                </tr>
-                <tr>
-                  <td>F-F DuPont Cable</td>
-                  <td>10</td>
-                </tr>
-                <tr>
-                  <td>M-M DuPont Cable</td>
-                  <td>10</td>
-                </tr>
-                <tr>
-                  <td>Micro-USB Cable</td>
-                  <td>1</td>
-                </tr>
-              </tbody>
-            </table>
+            <details>
+              <summary className="cursor-pointer font-bold">Components</summary>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Component</th>
+                    <th>Qty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>ESP32 Development Board</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>0.96&quot; OLED Display</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>DHT11 Temperature &amp; Humidity Module</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>HC-SR501 PIR Motion Sensor</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Obstacle Avoidance Module</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Photosensitive Resistor Module</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Resistors (220Ω / 1K / 10K)</td>
+                    <td>30</td>
+                  </tr>
+                  <tr>
+                    <td>Potentiometer 10K</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Passive Buzzer</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Active Buzzer</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>5V 2-Channel Relay Module</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Button Switch</td>
+                    <td>6</td>
+                  </tr>
+                  <tr>
+                    <td>Red LED</td>
+                    <td>5</td>
+                  </tr>
+                  <tr>
+                    <td>Yellow LED</td>
+                    <td>5</td>
+                  </tr>
+                  <tr>
+                    <td>Green LED</td>
+                    <td>5</td>
+                  </tr>
+                  <tr>
+                    <td>RGB LED</td>
+                    <td>2</td>
+                  </tr>
+                  <tr>
+                    <td>830 Tie-Point Breadboard</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>F-M DuPont Cable</td>
+                    <td>10</td>
+                  </tr>
+                  <tr>
+                    <td>F-F DuPont Cable</td>
+                    <td>10</td>
+                  </tr>
+                  <tr>
+                    <td>M-M DuPont Cable</td>
+                    <td>10</td>
+                  </tr>
+                  <tr>
+                    <td>Micro-USB Cable</td>
+                    <td>1</td>
+                  </tr>
+                </tbody>
+              </table>
+            </details>
           </div>
 
           <div className="min-w-0 flex-1">
@@ -199,176 +202,179 @@ export default function FaqPage() {
                 Kit A: Arduino UNO Starter Kit
               </a>
             </h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>Component</th>
-                  <th>Qty</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>UNO MEGA328P R3</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>MB-102 Breadboard</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>LCD1602 (blue)</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>LCD1602 I2C Adapter</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>DHT11 Module</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>LM35DZ</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Thermistor</td>
-                  <td>3</td>
-                </tr>
-                <tr>
-                  <td>RC522 RFID Module</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Water Level Module</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Infrared Transmitter</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Infrared Receiver</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Remote Control</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Remote Control LED Module</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Resistance 1/6W 220R</td>
-                  <td>8</td>
-                </tr>
-                <tr>
-                  <td>Resistance 1/6W 1K</td>
-                  <td>5</td>
-                </tr>
-                <tr>
-                  <td>Resistance 1/6W 10K</td>
-                  <td>6</td>
-                </tr>
-                <tr>
-                  <td>Potentiometer 5K</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Passive Buzzer</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>5V Buzzer</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>74HC595N Shift Register</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>HDX Vibration Switch</td>
-                  <td>2</td>
-                </tr>
-                <tr>
-                  <td>Tact Switch 12x12</td>
-                  <td>4</td>
-                </tr>
-                <tr>
-                  <td>4x4 Button Module</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Rocker (5-pin)</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>LED Yellow F5</td>
-                  <td>5</td>
-                </tr>
-                <tr>
-                  <td>LED Red F5</td>
-                  <td>5</td>
-                </tr>
-                <tr>
-                  <td>LED Blue F5</td>
-                  <td>5</td>
-                </tr>
-                <tr>
-                  <td>Dot Matrix Module 8x8</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>ULN2003 Module</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>SG90 Servo</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Stepper Motor</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Microphone Module</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>5V 1-Way Relay Module</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>1-Digit Digital Tube</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>4-Digit Digital Tube</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>DS1302 RTC Module</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Dupont Line 20cm M-F</td>
-                  <td>10</td>
-                </tr>
-                <tr>
-                  <td>9V Battery Connector</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>USB Cable</td>
-                  <td>1</td>
-                </tr>
-                <tr>
-                  <td>Breadboard Wires</td>
-                  <td>1</td>
-                </tr>
-              </tbody>
-            </table>
+            <details>
+              <summary className="cursor-pointer font-bold">Components</summary>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Component</th>
+                    <th>Qty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>UNO MEGA328P R3</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>MB-102 Breadboard</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>LCD1602 (blue)</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>LCD1602 I2C Adapter</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>DHT11 Module</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>LM35DZ</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Thermistor</td>
+                    <td>3</td>
+                  </tr>
+                  <tr>
+                    <td>RC522 RFID Module</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Water Level Module</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Infrared Transmitter</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Infrared Receiver</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Remote Control</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Remote Control LED Module</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Resistance 1/6W 220R</td>
+                    <td>8</td>
+                  </tr>
+                  <tr>
+                    <td>Resistance 1/6W 1K</td>
+                    <td>5</td>
+                  </tr>
+                  <tr>
+                    <td>Resistance 1/6W 10K</td>
+                    <td>6</td>
+                  </tr>
+                  <tr>
+                    <td>Potentiometer 5K</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Passive Buzzer</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>5V Buzzer</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>74HC595N Shift Register</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>HDX Vibration Switch</td>
+                    <td>2</td>
+                  </tr>
+                  <tr>
+                    <td>Tact Switch 12x12</td>
+                    <td>4</td>
+                  </tr>
+                  <tr>
+                    <td>4x4 Button Module</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Rocker (5-pin)</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>LED Yellow F5</td>
+                    <td>5</td>
+                  </tr>
+                  <tr>
+                    <td>LED Red F5</td>
+                    <td>5</td>
+                  </tr>
+                  <tr>
+                    <td>LED Blue F5</td>
+                    <td>5</td>
+                  </tr>
+                  <tr>
+                    <td>Dot Matrix Module 8x8</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>ULN2003 Module</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>SG90 Servo</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Stepper Motor</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Microphone Module</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>5V 1-Way Relay Module</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>1-Digit Digital Tube</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>4-Digit Digital Tube</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>DS1302 RTC Module</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Dupont Line 20cm M-F</td>
+                    <td>10</td>
+                  </tr>
+                  <tr>
+                    <td>9V Battery Connector</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>USB Cable</td>
+                    <td>1</td>
+                  </tr>
+                  <tr>
+                    <td>Breadboard Wires</td>
+                    <td>1</td>
+                  </tr>
+                </tbody>
+              </table>
+            </details>
           </div>
         </div>
 

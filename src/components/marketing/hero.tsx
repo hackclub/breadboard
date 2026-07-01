@@ -341,10 +341,10 @@ export function Hero() {
           <SignupForm />
         </div>
         <div className="mt-10 max-w-3xl">
-          <p className="text-base leading-relaxed text-black">
+          <p className="text-xl leading-relaxed text-black">
             Design a complete breadboard project.
           </p>
-          <p className="mt-1 text-base leading-relaxed text-black">
+          <p className="mt-1 text-xl leading-relaxed text-black">
             We send you the kit to build it.
           </p>
         </div>

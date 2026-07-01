@@ -13,7 +13,7 @@ export default function MarketingLayout({ children }: { children: ReactNode }) {
     <div className={`${pageGridClass} min-h-screen`}>
       <Header isSticky />
       <BreadboardSidebar />
-      <main className="min-h-screen px-6 pt-24 pb-16 md:pt-28 md:pr-8 md:pb-16 md:pl-[234px]">
+      <main className="min-h-screen px-6 pt-8 pb-16 md:pt-5.5 md:pr-8 md:pb-16 md:pl-[234px]">
         {children}
       </main>
       <Footer />

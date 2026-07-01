@@ -81,7 +81,7 @@ export function FAQCards() {
             key={card.title}
             onPointerMove={handleCardMove}
             onPointerLeave={resetCard}
-            className={`faq-card group relative overflow-hidden rounded-[45px] border-2 border-[#191A23] bg-[radial-gradient(circle_at_0%_0%,rgba(255,255,255,.25),transparent_40%),linear-gradient(130deg,rgba(255,255,255,.18),rgba(255,255,255,.02))] p-10 text-center shadow-[4px_4px_0_#191A23] [--mx:50%] [--my:50%] [backdrop-filter:blur(4px)] [transform-style:preserve-3d] transition-shadow duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] before:pointer-events-none before:absolute before:inset-0 before:bg-[radial-gradient(circle_140px_at_var(--mx)_var(--my),rgba(255,255,255,0.38),transparent_70%)] before:opacity-0 before:transition-opacity before:duration-300 after:pointer-events-none after:absolute after:inset-px after:rounded-[42px] after:border after:border-white/35 hover:shadow-[12px_16px_30px_rgba(25,26,35,.22),0_22px_45px_rgba(25,26,35,.2)] hover:before:opacity-100 ${card.tone === "red" ? "bg-[#BD0F32] text-white" : "bg-[#F3F3F3] text-black"}`}
+            className={`faq-card group relative overflow-hidden rounded-[45px] border-2 border-[#191A23] bg-[radial-gradient(circle_at_0%_0%,rgba(255,255,255,.25),transparent_40%),linear-gradient(130deg,rgba(255,255,255,.18),rgba(255,255,255,.02))] p-10 text-center shadow-[4px_4px_0_#191A23] [--mx:50%] [--my:50%] [backdrop-filter:blur(4px)] [transform-style:preserve-3d] transition-shadow duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] after:pointer-events-none after:absolute after:inset-px after:rounded-[42px] after:border after:border-white/35 hover:shadow-[12px_16px_30px_rgba(25,26,35,.22),0_22px_45px_rgba(25,26,35,.2)] ${card.tone === "red" ? "bg-[#BD0F32] text-white" : "bg-[#F3F3F3] text-black before:pointer-events-none before:absolute before:inset-0 before:bg-[radial-gradient(circle_140px_at_var(--mx)_var(--my),rgba(255,255,255,0.38),transparent_70%)] before:opacity-0 before:transition-opacity before:duration-300 hover:before:opacity-100"}`}
             style={{
               animationDelay: `${i * 120}ms`,
             }}
@@ -89,7 +89,7 @@ export function FAQCards() {
             <h3 className="relative z-1 mb-6 text-[30px] font-black tracking-[.02em] transition-transform duration-300 ease-[cubic-bezier(.2,.8,.2,1)] [transform:translateY(0)_translateZ(24px)] group-hover:[transform:translateY(-2px)_translateZ(28px)]">
               {card.title}
             </h3>
-            <p className="relative z-1 text-sm leading-normal opacity-95 transition-transform duration-300 ease-[cubic-bezier(.2,.8,.2,1)] [transform:translateY(0)_translateZ(16px)] group-hover:[transform:translateY(-1px)_translateZ(20px)]">
+            <p className="relative z-1 text-lg leading-normal opacity-95 transition-transform duration-300 ease-[cubic-bezier(.2,.8,.2,1)] [transform:translateY(0)_translateZ(16px)] group-hover:[transform:translateY(-1px)_translateZ(20px)]">
               {card.content}
             </p>
           </div>

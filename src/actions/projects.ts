@@ -6,8 +6,12 @@ import type { HackClubClaims } from "@/lib/auth/hackclub";
 import { assertHackClubYswsEligible } from "@/lib/auth/hackclub";
 import { requireSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
-import { projectJournals, projects } from "@/lib/db/schema";
-import { and, count, eq } from "drizzle-orm";
+import {
+  editorActivitySessions,
+  projectJournals,
+  projects,
+} from "@/lib/db/schema";
+import { and, count, eq, sql } from "drizzle-orm";
 import {
   archiveProjectForUser,
   confirmKitReceivedForUser,
@@ -17,6 +21,8 @@ import {
   submitDemoForUser,
   updateProjectBasicsForUser,
 } from "@/lib/projects/mutations";
+import { fetchHackatimeProjectSeconds } from "@/lib/hackatime";
+import { offPlatformBuilds } from "@/flags";
 import { notifyReviewSubmitted } from "@/lib/slack/tookle";
 import type {
   CustomShipInput,
@@ -480,6 +486,196 @@ export async function submitCustomProjectFromForm(
         reviewNote: "",
       },
     };
+  } catch (error) {
+    return projectFormError(error);
+  }
+}
+
+const externalDraftSchema = z.object({
+  title: z.string().trim().min(1, "Project title is required"),
+  description: z.string().trim().max(2000).default(""),
+  kitType: z.enum(["arduino", "esp32", "own"]).default("arduino"),
+});
+
+// Off-platform builds are created as ordinary drafts so they accrue tracked
+// time, screen evidence, and journals through the same pipeline as the editor
+// before they're submitted for review.
+export async function createExternalDraftFromForm(
+  _previousState: ProjectFormState,
+  formData: FormData,
+): Promise<ProjectFormState> {
+  try {
+    if (!(await offPlatformBuilds())) {
+      throw new Error("Off-platform builds aren't available right now.");
+    }
+    const { title, description, kitType } = externalDraftSchema.parse({
+      title: formData.get("title"),
+      description: formData.get("description") ?? "",
+      kitType: formData.get("kitType") ?? "arduino",
+    });
+    const session = await requireSession();
+    const projectId = await createProjectForUser(
+      { userId: session.user.id, email: session.user.email },
+      { title, description, kitType },
+    );
+    await db
+      .update(projects)
+      .set({ submissionSource: "manual", updatedAt: new Date() })
+      .where(
+        and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
+      );
+    revalidatePath("/platform/projects");
+    return { success: true, project: { id: projectId } };
+  } catch (error) {
+    return projectFormError(error);
+  }
+}
+
+async function trackedSecondsFor(projectId: number, userId: string) {
+  const rows = await db
+    .select({
+      total: sql<number>`coalesce(sum(${editorActivitySessions.activeSeconds}), 0)::int`,
+    })
+    .from(editorActivitySessions)
+    .where(
+      and(
+        eq(editorActivitySessions.projectId, projectId),
+        eq(editorActivitySessions.userId, userId),
+      ),
+    );
+  return rows[0]?.total ?? 0;
+}
+
+const hackatimeConnectSchema = z.object({
+  projectId: z.coerce.number().int().positive(),
+  apiKey: z.string().trim().min(1, "Enter your Hackatime API key."),
+  username: z.string().trim().min(1, "Enter your Hackatime username."),
+  projectName: z.string().trim().min(1, "Enter the Hackatime project name."),
+});
+
+// Pulls the linked Hackatime project's tracked seconds and stores them (never
+// the API key). Lapse time syncs into Hackatime, so this covers both tools.
+export async function connectHackatimeFromForm(
+  _previousState: ProjectFormState,
+  formData: FormData,
+): Promise<ProjectFormState> {
+  try {
+    if (!(await offPlatformBuilds())) {
+      throw new Error("Off-platform builds aren't available right now.");
+    }
+    const parsed = hackatimeConnectSchema.parse({
+      projectId: formData.get("projectId"),
+      apiKey: formData.get("apiKey"),
+      username: formData.get("username"),
+      projectName: formData.get("projectName"),
+    });
+    const session = await requireSession();
+    const [project] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(
+        and(
+          eq(projects.id, parsed.projectId),
+          eq(projects.userId, session.user.id),
+        ),
+      )
+      .limit(1);
+    if (!project) throw new Error("Project not found.");
+
+    const pull = await fetchHackatimeProjectSeconds(
+      parsed.apiKey,
+      parsed.username,
+      parsed.projectName,
+    );
+    await db
+      .update(projects)
+      .set({
+        hackatimeUsername: pull.username,
+        hackatimeProjectName: pull.projectName,
+        hackatimeSeconds: pull.seconds,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(projects.id, parsed.projectId),
+          eq(projects.userId, session.user.id),
+        ),
+      );
+    revalidatePath(`/platform/projects/${parsed.projectId}/track`);
+    return {
+      success: true,
+      project: { id: parsed.projectId, hoursSpent: Math.ceil(pull.seconds / 3600) },
+    };
+  } catch (error) {
+    return projectFormError(error);
+  }
+}
+
+const externalSubmitSchema = z.object({
+  projectId: z.coerce.number().int().positive(),
+  gitUrl: customShipSchema.shape.gitUrl,
+  screenshotUrl: customShipSchema.shape.screenshotUrl,
+});
+
+export async function submitExternalProjectFromForm(
+  _previousState: ProjectFormState,
+  formData: FormData,
+): Promise<ProjectFormState> {
+  try {
+    if (!(await offPlatformBuilds())) {
+      throw new Error("Off-platform builds aren't available right now.");
+    }
+    const parsed = externalSubmitSchema.parse({
+      projectId: formData.get("projectId"),
+      gitUrl: formData.get("gitUrl"),
+      screenshotUrl: formData.get("screenshotUrl"),
+    });
+    const session = await requireSession();
+    const claims = await assertHackClubYswsEligible(session.user.id);
+    const shipping = shippingFromClaims(session, claims);
+
+    const [project] = await db
+      .select({ hackatimeSeconds: projects.hackatimeSeconds })
+      .from(projects)
+      .where(
+        and(
+          eq(projects.id, parsed.projectId),
+          eq(projects.userId, session.user.id),
+        ),
+      )
+      .limit(1);
+    if (!project) throw new Error("Project not found.");
+
+    await assertCustomGitRepoReady(parsed.gitUrl);
+
+    // Hours are measured, not self-reported: tracked editor/screen-share time
+    // plus the linked Hackatime project's time.
+    const tracked = await trackedSecondsFor(parsed.projectId, session.user.id);
+    const totalSeconds = tracked + (project.hackatimeSeconds ?? 0);
+    const hoursSpent = Math.max(0, Math.ceil(totalSeconds / 3600));
+
+    const owner = { userId: session.user.id, email: session.user.email };
+    const data: CustomShipInput = {
+      gitUrl: parsed.gitUrl,
+      screenshotUrl: parsed.screenshotUrl,
+      hoursSpent,
+      email: shipping.email,
+      addressLine1: shipping.addressLine1,
+      addressLine2: shipping.addressLine2,
+      city: shipping.city,
+      region: shipping.region,
+      country: shipping.country,
+      postalCode: shipping.postalCode,
+      birthday: shipping.birthday,
+      firstName: shipping.firstName,
+      lastName: shipping.lastName,
+    };
+    await shipCustomProjectForUser(owner, parsed.projectId, data);
+    await notifyReviewSubmitted(parsed.projectId, "materials");
+    revalidatePath("/platform/projects");
+    revalidatePath("/platform/admin/review");
+
+    return { success: true, project: { id: parsed.projectId } };
   } catch (error) {
     return projectFormError(error);
   }

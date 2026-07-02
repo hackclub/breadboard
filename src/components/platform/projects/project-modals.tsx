@@ -2,13 +2,16 @@
 
 import { useActionState, useEffect, useState } from "react";
 import {
+  HiArrowRight,
   HiArrowUpTray,
   HiClock,
   HiCodeBracket,
   HiInformationCircle,
   HiPhoto,
+  HiWrenchScrewdriver,
 } from "react-icons/hi2";
 import Image from "next/image";
+import Link from "next/link";
 import {
   createProjectFromForm,
   shipProjectFromForm,
@@ -36,9 +39,11 @@ type ProjectActionModalProps = {
 export function NewProjectModal({
   onCreated,
   onClose,
+  offPlatformEnabled = false,
 }: {
   onCreated: (project: Project) => void;
   onClose: () => void;
+  offPlatformEnabled?: boolean;
 }) {
   const [kitType, setKitType] = useState<"arduino" | "esp32">("arduino");
   const [state, formAction, pending] = useActionState(
@@ -142,20 +147,26 @@ export function NewProjectModal({
             ))}
           </div>
         </fieldset>
-        <div className="flex items-start gap-1.5 rounded-lg border border-black/15 bg-zinc-50 p-3 text-xs text-black/60">
-          <HiInformationCircle className="mt-0.5 size-3.5 shrink-0 text-black/40" />
-          <div>
-            <p className="font-black text-black">
-              You must journal your build process.
-            </p>
-            <p className="mt-0.5">
-              Use the online editor to write journal entries, or if using
-              external tools (KiCad, Eagle, etc.), keep a{" "}
-              <span className="font-black">journal.md</span> in your git repo.
-              Journaling is required for your submission to be approved.
-            </p>
-          </div>
-        </div>
+        {offPlatformEnabled ? (
+          <Link
+            href="/platform/submit-external"
+            className="flex items-center justify-between gap-3 rounded-[12px] border border-black bg-zinc-50 p-3 text-left transition hover:bg-white"
+          >
+            <div className="flex items-start gap-2">
+              <HiWrenchScrewdriver className="mt-0.5 size-4 shrink-0 text-[#BD0F32]" />
+              <div>
+                <p className="text-sm font-black text-black">
+                  Building off-platform?
+                </p>
+                <p className="mt-0.5 text-xs text-black/55">
+                  Using KiCad, Eagle, or another tool? Start and track it on its
+                  own page instead.
+                </p>
+              </div>
+            </div>
+            <HiArrowRight className="size-4 shrink-0 text-black/40" />
+          </Link>
+        ) : null}
         <ProjectActionMessage message={state.message} />
       </form>
     </Modal>

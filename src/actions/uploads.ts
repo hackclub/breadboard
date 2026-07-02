@@ -52,6 +52,20 @@ export async function createProjectScreenshotUpload(
   };
 }
 
+export async function createExternalScreenshotUpload(contentType: string) {
+  const session = await requireSession();
+
+  const safeContentType = normalizeContentType(contentType);
+  const extension = imageContentTypes.get(safeContentType);
+  if (!extension) throw new Error("Upload a PNG, JPEG, or WebP image.");
+
+  const key = `project-screenshots/${session.user.id}/external/${randomUUID()}.${extension}`;
+  return {
+    uploadUrl: `/api/uploads/${key}`,
+    publicUrl: `/api/uploads/${key}`,
+  };
+}
+
 export async function createProjectDemoVideoUpload(
   projectId: number,
   contentType: string,

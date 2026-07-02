@@ -624,6 +624,9 @@ export const projects = pgTable(
     archived: boolean("archived").notNull().default(false),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     submissionSource: text("submission_source").notNull().default("editor"),
+    hackatimeUsername: text("hackatime_username").notNull().default(""),
+    hackatimeProjectName: text("hackatime_project_name").notNull().default(""),
+    hackatimeSeconds: integer("hackatime_seconds").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

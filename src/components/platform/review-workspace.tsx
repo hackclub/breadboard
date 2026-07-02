@@ -240,7 +240,9 @@ export function ReviewWorkspace({
               <span className="inline-flex items-center gap-1.5 rounded-full border-2 border-black bg-black px-3 py-1.5 text-xs font-black text-white uppercase">
                 {initial.kitType === "esp32"
                   ? "Kit B · ESP32"
-                  : "Kit A · Arduino"}
+                  : initial.kitType === "own"
+                    ? "Own parts"
+                    : "Kit A · Arduino"}
               </span>
             </div>
             <h2 className="mt-2 text-4xl font-black leading-tight text-black">

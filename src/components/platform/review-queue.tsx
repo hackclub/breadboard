@@ -186,7 +186,11 @@ export function ReviewQueue({ projects }: { projects: ReviewProject[] }) {
                     ? " · External tool"
                     : ""}
                   {" · "}
-                  {project.kitType === "esp32" ? "ESP32" : "Arduino"}
+                  {project.kitType === "esp32"
+                    ? "ESP32"
+                    : project.kitType === "own"
+                      ? "Own parts"
+                      : "Arduino"}
                 </p>
                 <p className="mt-1 text-xs text-black/40">
                   {daysAgo(project.shippedAt)}

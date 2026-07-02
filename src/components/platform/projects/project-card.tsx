@@ -32,9 +32,11 @@ type ProjectPatch = Partial<Project> & Pick<Project, "id">;
 export function ProjectCard({
   project,
   onProjectChange,
+  offPlatformEnabled = false,
 }: {
   project: Project;
   onProjectChange: (patch: ProjectPatch) => void;
+  offPlatformEnabled?: boolean;
 }) {
   const [editOpen, setEditOpen] = useState(false);
   const [shipOpen, setShipOpen] = useState(false);
@@ -131,7 +133,11 @@ export function ProjectCard({
               {projectStatusLabel(project.status)}
             </Badge>
             <Badge tone="ink">
-              {project.kitType === "esp32" ? "ESP32" : "Arduino"}
+              {project.kitType === "esp32"
+                ? "ESP32"
+                : project.kitType === "own"
+                  ? "Own parts"
+                  : "Arduino"}
             </Badge>
           </div>
           <span className="rounded-full border border-black bg-[#f4f4f4] px-2.5 py-1 text-xs font-black text-black shadow-[1px_1px_0_#000]">
@@ -205,6 +211,14 @@ export function ProjectCard({
               approval.
             </p>
           ) : null}
+          {project.status === "draft" && isManual && offPlatformEnabled ? (
+            <Link
+              href={`/platform/projects/${project.id}/track`}
+              className={buttonClass({ tone: "ink" })}
+            >
+              Continue building &amp; tracking
+            </Link>
+          ) : null}
           {editable ? (
             <Button tone="paper" onClick={() => setEditOpen(true)}>
               Edit details
@@ -229,7 +243,7 @@ export function ProjectCard({
               </button>
             </form>
           ) : null}
-          {shippable ? (
+          {shippable && !isManual ? (
             <Button tone="primary" onClick={() => setShipOpen(true)}>
               {project.status === "needs_changes"
                 ? "Submit again"
@@ -310,7 +324,7 @@ export function ProjectCard({
                 </p>
               ) : null}
             </form>
-          ) : (
+          ) : isManual && project.status === "draft" ? null : (
             <Button tone="paper" disabled className="gap-2">
               <HiLockClosed className="size-4" />
               {project.status === "materials_review" ||

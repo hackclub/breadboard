@@ -398,45 +398,52 @@ export async function approveProject(
     if (!updatedSubmission)
       throw new Error("Only pending snapshots can be approved");
 
+    // "own parts" builders already have their components, so there's no kit to
+    // fulfill or ship. Move them straight into building instead.
+    const usesOwnParts = project.kitType === "own";
+
     await tx
       .update(projects)
       .set({
-        status: "kit_fulfillment",
+        status: usesOwnParts ? "building" : "kit_fulfillment",
         overrideHoursSpent: hours,
         overrideHoursSpentJustification: reviewJustification,
         reviewNote: reviewComment,
         kitApprovedAt: new Date(),
+        packageReceivedAt: usesOwnParts ? new Date() : undefined,
         updatedAt: new Date(),
       })
       .where(eq(projects.id, id));
 
-    const kitProductId = await getOrCreateKitProduct(tx, project.kitType);
-    const [kitOrder] = await tx
-      .insert(orders)
-      .values({
-        userId: project.userId,
-        totalCost: 0,
-        shippingName: `${project.firstName} ${project.lastName}`.trim(),
-        shippingLine1: project.addressLine1,
-        shippingLine2: project.addressLine2,
-        shippingCity: project.city,
-        shippingRegion: project.region,
-        shippingPostalCode: project.postalCode,
-        shippingCountry: project.country,
-        source: "project_kit",
-        projectId: id,
-      })
-      .returning({ id: orders.id });
-    await tx.insert(orderItems).values({
-      orderId: kitOrder.id,
-      productId: kitProductId,
-      quantity: 1,
-      unitPrice: 0,
-    });
-    await tx
-      .update(projects)
-      .set({ kitOrderId: kitOrder.id, updatedAt: new Date() })
-      .where(eq(projects.id, id));
+    if (!usesOwnParts) {
+      const kitProductId = await getOrCreateKitProduct(tx, project.kitType);
+      const [kitOrder] = await tx
+        .insert(orders)
+        .values({
+          userId: project.userId,
+          totalCost: 0,
+          shippingName: `${project.firstName} ${project.lastName}`.trim(),
+          shippingLine1: project.addressLine1,
+          shippingLine2: project.addressLine2,
+          shippingCity: project.city,
+          shippingRegion: project.region,
+          shippingPostalCode: project.postalCode,
+          shippingCountry: project.country,
+          source: "project_kit",
+          projectId: id,
+        })
+        .returning({ id: orders.id });
+      await tx.insert(orderItems).values({
+        orderId: kitOrder.id,
+        productId: kitProductId,
+        quantity: 1,
+        unitPrice: 0,
+      });
+      await tx
+        .update(projects)
+        .set({ kitOrderId: kitOrder.id, updatedAt: new Date() })
+        .where(eq(projects.id, id));
+    }
 
     return updatedSubmission.userId;
   });

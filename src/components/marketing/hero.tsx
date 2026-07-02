@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   useActionState,
@@ -339,6 +340,14 @@ export function Hero() {
             <span className="text-sm text-black/50">
               click a hole, then click another to place a wire
             </span>
+          </div>
+          <div className="mt-2 flex items-center justify-center">
+            <Link
+              href="/team"
+              className="inline-block bg-[linear-gradient(#BD0F32,#BD0F32)] bg-[length:0%_2px] bg-left-bottom bg-no-repeat pb-0.5 text-base text-[#BD0F32] no-underline transition-[background-size] duration-300 hover:bg-[length:100%_2px] focus-visible:bg-[length:100%_2px]"
+            >
+              By Tanishq
+            </Link>
           </div>
         </div>
       </section>

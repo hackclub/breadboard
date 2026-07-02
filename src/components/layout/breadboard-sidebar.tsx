@@ -185,7 +185,28 @@ export function BreadboardSidebar() {
           );
         })}
 
-        <div className="mt-auto flex gap-1.25 flex-wrap border-t border-dashed border-[#ccc] px-3.5 py-2.5">
+        <Link
+          href="/team"
+          onClick={() => setOpen(false)}
+          className={`mt-auto flex items-center gap-2.5 border-t border-dashed border-[#bbb] px-3.5 py-1.5 text-lg transition-colors hover:bg-[#BD0F32]/8 ${linkUnderline} ${
+            pathname === "/team"
+              ? "bg-[#BD0F32] text-white after:scale-x-100"
+              : "text-[#111]"
+          }`}
+        >
+          <span className="flex size-[18px] shrink-0 items-center justify-center">
+            <span
+              className={`flex size-4 items-center justify-center border-[1.5px] bg-[#f0f0f0] ${pathname === "/team" ? "border-white" : "border-[#111]"}`}
+            >
+              <span
+                className={`size-2 rounded-full ${pathname === "/team" ? "bg-white" : "bg-[#BD0F32]"}`}
+              />
+            </span>
+          </span>
+          Team
+        </Link>
+
+        <div className="flex gap-1.25 flex-wrap border-t border-dashed border-[#ccc] px-3.5 py-2.5">
           {breadboardHoles.map((hole) => (
             <span
               key={hole.id}

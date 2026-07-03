@@ -7,6 +7,7 @@ import {
   countryFromHackClubClaims,
   getHackClubClaims,
 } from "@/lib/auth/hackclub";
+import { offPlatformBuilds } from "@/flags";
 import { getSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import {
@@ -56,7 +57,12 @@ type ProjectRow = Omit<PlatformProject, "kitType"> & { kitType: string };
 function normalizeProjectRow(project: ProjectRow): PlatformProject {
   return {
     ...project,
-    kitType: project.kitType === "esp32" ? "esp32" : "arduino",
+    kitType:
+      project.kitType === "esp32"
+        ? "esp32"
+        : project.kitType === "own"
+          ? "own"
+          : "arduino",
     journalCount: project.journalCount ?? 0,
     submissionSource: project.submissionSource ?? "editor",
   };
@@ -107,6 +113,12 @@ export default async function ProjectsPage() {
     // Country is nice-to-have here; submit still refreshes and validates it.
   }
   const userProjects = projectRows.map(normalizeProjectRow);
+  const offPlatformEnabled = await offPlatformBuilds();
 
-  return <ProjectsBoard projects={userProjects} />;
+  return (
+    <ProjectsBoard
+      projects={userProjects}
+      offPlatformEnabled={offPlatformEnabled}
+    />
+  );
 }

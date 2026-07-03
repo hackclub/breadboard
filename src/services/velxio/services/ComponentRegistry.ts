@@ -13,6 +13,53 @@ import type {
 } from "@/lib/velxio/types/component-metadata";
 import { filterAnyKitComponents } from "@/lib/velxio/data/kitInventory";
 
+// One-line picker descriptions for entries whose generated metadata ships
+// without one. Fallbacks only: a description already present in
+// components-metadata.json wins, so regenerating the JSON with real
+// descriptions retires these automatically.
+const DESCRIPTION_FALLBACKS: Record<string, string> = {
+  "arduino-uno":
+    "Arduino Uno R3 (ATmega328P) with 14 digital and 6 analog pins, the main board of the starter kit.",
+  "esp32-devkit-v1":
+    "ESP32 DevKit v1 board with built-in Wi-Fi and Bluetooth.",
+  lcd1602:
+    "16x2 character LCD wired in classic HD44780 parallel mode.",
+  "lcd1602-i2c":
+    "16x2 character LCD with an I2C backpack, needs only SDA, SCL and power.",
+  "ssd1306-i2c":
+    "128x64 monochrome OLED display on I2C address 0x3C.",
+  "membrane-keypad":
+    "4x4 membrane keypad read by scanning its row and column pins.",
+  potentiometer:
+    "Rotary potentiometer, turn the knob to change the voltage on SIG.",
+  pushbutton:
+    "Momentary tact switch that conducts while pressed.",
+  "stepper-motor":
+    "28BYJ-48 style 5V stepper motor, usually driven through the ULN2003 board.",
+  "7segment":
+    "Single-digit 7-segment LED display with A-G and DP segment pins.",
+  "analog-joystick":
+    "Two-axis analog joystick with a center pushbutton.",
+  "rgb-led":
+    "Four-leg RGB LED, mix colors by driving R, G and B with PWM.",
+  "ir-receiver":
+    "38 kHz infrared receiver that decodes NEC remote-control signals.",
+  "ir-remote":
+    "Infrared remote control, click its buttons to send NEC codes to the IR receiver.",
+  resistor:
+    "Resistor with a configurable value for current limiting, pull-ups and dividers.",
+  "resistor-220":
+    "220 ohm resistor, the usual pick for LED current limiting.",
+  "resistor-1k":
+    "1 kOhm resistor for current limiting and voltage dividers.",
+  "resistor-10k":
+    "10 kOhm resistor, commonly used as a pull-up or pull-down.",
+  "photoresistor-sensor":
+    "Light-dependent resistor module whose analog output tracks brightness.",
+  "pir-motion-sensor":
+    "PIR motion sensor that drives OUT high when movement is detected.",
+};
+
 export class ComponentRegistry {
   private static instance: ComponentRegistry;
   private metadata: Map<string, ComponentMetadata> = new Map();
@@ -156,6 +203,24 @@ export class ComponentRegistry {
         tags: ["raspberry", "pi", "rp5", "board", "qemu", "linux"],
       });
 
+      // Kit A's "remote control supporting LED module" — a KY-016-style
+      // common-cathode RGB LED module. Velxio-local element, so no
+      // auto-generated metadata; injected here like the entries above.
+      data.components.push({
+        id: "remote-led-module",
+        tagName: "velxio-remote-led-module",
+        name: "RGB LED Module",
+        category: "output",
+        description:
+          "Common-cathode RGB LED module (KY-016 style) — the LED module paired with the IR remote in the starter kit. Drive R/G/B with digitalWrite or analogWrite; GND to ground.",
+        thumbnail:
+          '<svg width="64" height="64" xmlns="http://www.w3.org/2000/svg"><rect x="8" y="6" width="48" height="46" rx="4" fill="#7f1d1d" stroke="#450a0a" stroke-width="2"/><circle cx="32" cy="24" r="10" fill="#e5e5e5" stroke="#999"/><circle cx="32" cy="24" r="6" fill="#a855f7"/><text x="32" y="46" text-anchor="middle" font-size="7" fill="#fecaca">RGB LED</text><rect x="14" y="52" width="4" height="8" fill="#d6b25e"/><rect x="26" y="52" width="4" height="8" fill="#d6b25e"/><rect x="38" y="52" width="4" height="8" fill="#d6b25e"/><rect x="50" y="52" width="4" height="8" fill="#d6b25e"/></svg>',
+        properties: [],
+        defaultValues: {},
+        pinCount: 4,
+        tags: ["led", "rgb", "module", "remote", "ir", "ky-016", "kit"],
+      });
+
       // Inject SPICE probe instruments — these are Velxio-specific React
       // components (not wokwi web elements), so they have no auto-generated
       // metadata but still need a registry entry so the picker can offer
@@ -258,6 +323,20 @@ export class ComponentRegistry {
           "z80",
         ],
       });
+
+      for (const component of data.components) {
+        if (!component.description?.trim()) {
+          const fallback = DESCRIPTION_FALLBACKS[component.id];
+          if (fallback) component.description = fallback;
+        }
+      }
+      // The generated servo entry carries a leaked property doc ("The angle
+      // of the servo (0-180 degrees)") instead of a part description.
+      const servo = data.components.find((c) => c.id === "servo");
+      if (servo) {
+        servo.description =
+          "SG90 micro servo, sweeps its arm 0 to 180 degrees from a PWM signal.";
+      }
 
       this.processMetadata(filterAnyKitComponents(data.components));
       this.loaded = true;

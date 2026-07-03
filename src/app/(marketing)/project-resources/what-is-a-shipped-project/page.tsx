@@ -64,36 +64,17 @@ export default function ShippedProjectPage() {
         </ul>
 
         <div className="not-prose my-6 rounded-[10px] border-[1.1px] border-black bg-white p-6 shadow-[3px_3px_0_#000]">
-          <p className="mb-3 text-sm font-bold uppercase tracking-wide text-black">
-            For this program, shipping means both of these:
+          <p className="mb-2 text-sm font-bold uppercase tracking-wide text-black">
+            So what counts as shipped here?
           </p>
-          <ul className="space-y-3 text-sm text-black">
-            <li className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[1.1px] border-black bg-black text-xs text-white">
-                1
-              </span>
-              <span>
-                <strong>
-                  Firmware, if your project has a microcontroller.
-                </strong>{" "}
-                Even if it&apos;s untested, it needs to exist and be in your
-                repo. A microcontroller with no code is just a paperweight.
-              </span>
-            </li>
-            <li className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[1.1px] border-black bg-black text-xs text-white">
-                2
-              </span>
-              <span>
-                <strong>
-                  A working physical build with a demo (in the build
-                  submission!).
-                </strong>{" "}
-                You built it, you proved it works. A video showing it doing its
-                thing is required.
-              </span>
-            </li>
-          </ul>
+          <p className="text-sm leading-relaxed text-black">
+            We&apos;ve laid out exactly what a shipped project looks like over
+            on the{" "}
+            <a href="/requirements" className="font-bold underline">
+              requirements
+            </a>{" "}
+            page, so give it a read!
+          </p>
         </div>
 
         <hr />

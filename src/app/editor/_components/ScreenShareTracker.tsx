@@ -106,7 +106,13 @@ function stopStream(stream: MediaStream | null) {
   });
 }
 
-export function ScreenShareTracker({ projectId }: { projectId: number }) {
+export function ScreenShareTracker({
+  projectId,
+  promptOnMount = true,
+}: {
+  projectId: number;
+  promptOnMount?: boolean;
+}) {
   const [sharing, setSharing] = useState(false);
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState("");
@@ -114,7 +120,9 @@ export function ScreenShareTracker({ projectId }: { projectId: number }) {
   const [outsideSite, setOutsideSite] = useState(false);
   const [queuedCount, setQueuedCount] = useState(0);
   const [setupOpen, setSetupOpen] = useState(false);
-  const [setupDismissed, setSetupDismissed] = useState(false);
+  // Off-platform pages defer the share prompt until the user starts tracking
+  // themselves (promptOnMount={false}); the editor keeps prompting on load.
+  const [setupDismissed, setSetupDismissed] = useState(!promptOnMount);
   const [dismissCountdown, setDismissCountdown] = useState(5);
   const [warningOpen, setWarningOpen] = useState(false);
   const [trackedSeconds, setTrackedSeconds] = useState(0);
@@ -430,15 +438,13 @@ export function ScreenShareTracker({ projectId }: { projectId: number }) {
             : "bg-[#2a2a2a] text-green-200 hover:bg-[#3a3a3a]"
           : "bg-[#BD0F32] text-white hover:bg-[#d71943]";
   const pillLabel = paused
-    ? "Paused"
+    ? "Paused · Resume"
     : error
       ? "Tracking issue"
       : trackingStatus === "blocked"
         ? "Journal needed"
         : sharing
-          ? outsideSite
-            ? "Tracking outside"
-            : "Tracking ready"
+          ? "Pause"
           : "Set up tracking";
 
   return (
@@ -453,10 +459,18 @@ export function ScreenShareTracker({ projectId }: { projectId: number }) {
           setPaused((value) => !value);
         }}
         className={`flex items-center gap-1.5 rounded px-2 py-1 text-xs font-black transition-colors ${pillTone}`}
-        title="One tracking control. Click to pause/resume. If setup is needed, it opens the private whole-screen sharing prompt."
+        title={
+          paused
+            ? "Paused. Click to resume time tracking."
+            : sharing
+              ? "Tracking. Click to pause."
+              : "Click to set up whole-screen tracking."
+        }
       >
         {paused ? (
           <Play className="size-3" />
+        ) : sharing && !error && trackingStatus !== "blocked" ? (
+          <Pause className="size-3" />
         ) : (
           <MonitorUp className="size-3" />
         )}
@@ -465,7 +479,7 @@ export function ScreenShareTracker({ projectId }: { projectId: number }) {
         {queuedCount > 0 ? <span>· {queuedCount} queued</span> : null}
       </button>
 
-      {warningOpen && (error || !sharing || queuedCount > 0) && !paused ? (
+      {warningOpen && (error || !sharing) && !paused ? (
         <div className="fixed top-14 right-4 z-[60] w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl border border-[#333] bg-[#181818] p-4 text-[#ddd] shadow-lg motion-safe:animate-[slideInFromRight_220ms_ease-out]">
           <div className="flex items-start gap-3">
             <MonitorUp className="mt-0.5 size-5 shrink-0 text-[#BD0F32]" />
@@ -473,9 +487,7 @@ export function ScreenShareTracker({ projectId }: { projectId: number }) {
               <p className="text-sm font-black">Tracking needs attention</p>
               <p className="mt-1 text-xs font-semibold leading-relaxed text-[#aaa]">
                 {error ||
-                  (sharing
-                    ? `${queuedCount} private evidence frame${queuedCount === 1 ? "" : "s"} queued. Breadboard will retry automatically.`
-                    : "Screen sharing is off. Outside-site work cannot be verified until you share your whole screen again.")}
+                  "Screen sharing is off. Outside-site work cannot be verified until you share your whole screen again."}
               </p>
               <button
                 type="button"
@@ -504,23 +516,24 @@ export function ScreenShareTracker({ projectId }: { projectId: number }) {
               Time tracking
             </p>
             <h2 className="mt-2 text-3xl font-black leading-tight">
-              Please share your whole screen.
+              Share your screen so all your time counts.
             </h2>
-            <div className="mt-4 space-y-3 text-sm font-semibold leading-6 text-black/70">
+            <div className="mt-4 space-y-3 text-sm font-medium leading-6 text-black/70">
               <p>
-                Breadboard tracks time in the editor normally. When you leave
-                the site to read docs, use GitHub, or work in another tab,
-                whole-screen sharing lets us verify that work time.
+                We track your time in the editor automatically. Sharing your
+                screen counts the time you spend outside it too, on docs,
+                GitHub, or another tab, and counted time earns you{" "}
+                <strong>5 bread per hour</strong> of approved work to spend in
+                the shop.
               </p>
               <p>
-                Share your entire screen, not just this tab. Outside-site frames
-                are private, never public, and only shown to reviewers for hour
-                verification.
+                Share your whole screen, not just this tab. Anything outside
+                Breadboard stays private and is only ever seen by a reviewer
+                confirming your hours.
               </p>
               <p>
-                Use the tracking pill to pause when you are not working. If you
-                do not pause while idle, reviewers may deduct more time
-                manually.
+                Taking a break? Tap the tracking pill to pause, so your hours
+                stay accurate.
               </p>
             </div>
             {likelyInactive ? (
@@ -532,13 +545,6 @@ export function ScreenShareTracker({ projectId }: { projectId: number }) {
             {error ? (
               <p className="mt-4 rounded-lg border border-[#BD0F32] bg-red-50 p-3 text-sm font-bold text-[#BD0F32]">
                 {error}
-              </p>
-            ) : null}
-            {queuedCount > 0 ? (
-              <p className="mt-4 rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-sm font-bold text-yellow-950">
-                {queuedCount} private evidence frame
-                {queuedCount === 1 ? "" : "s"} queued. Breadboard will keep
-                retrying automatically.
               </p>
             ) : null}
             <div className="mt-6 flex flex-col gap-2 sm:flex-row">

@@ -2,13 +2,16 @@
 
 import { useActionState, useEffect, useState } from "react";
 import {
+  HiArrowRight,
   HiArrowUpTray,
   HiClock,
   HiCodeBracket,
   HiInformationCircle,
   HiPhoto,
+  HiWrenchScrewdriver,
 } from "react-icons/hi2";
 import Image from "next/image";
+import Link from "next/link";
 import {
   createProjectFromForm,
   shipProjectFromForm,
@@ -36,9 +39,11 @@ type ProjectActionModalProps = {
 export function NewProjectModal({
   onCreated,
   onClose,
+  offPlatformEnabled = false,
 }: {
   onCreated: (project: Project) => void;
   onClose: () => void;
+  offPlatformEnabled?: boolean;
 }) {
   const [kitType, setKitType] = useState<"arduino" | "esp32">("arduino");
   const [state, formAction, pending] = useActionState(
@@ -142,20 +147,26 @@ export function NewProjectModal({
             ))}
           </div>
         </fieldset>
-        <div className="flex items-start gap-1.5 rounded-lg border border-black/15 bg-zinc-50 p-3 text-xs text-black/60">
-          <HiInformationCircle className="mt-0.5 size-3.5 shrink-0 text-black/40" />
-          <div>
-            <p className="font-black text-black">
-              You must journal your build process.
-            </p>
-            <p className="mt-0.5">
-              Use the online editor to write journal entries, or if using
-              external tools (KiCad, Eagle, etc.), keep a{" "}
-              <span className="font-black">journal.md</span> in your git repo.
-              Journaling is required for your submission to be approved.
-            </p>
-          </div>
-        </div>
+        {offPlatformEnabled ? (
+          <Link
+            href="/platform/submit-external"
+            className="flex items-center justify-between gap-3 rounded-[12px] border border-black bg-zinc-50 p-3 text-left transition hover:bg-white"
+          >
+            <div className="flex items-start gap-2">
+              <HiWrenchScrewdriver className="mt-0.5 size-4 shrink-0 text-[#BD0F32]" />
+              <div>
+                <p className="text-sm font-black text-black">
+                  Building off-platform?
+                </p>
+                <p className="mt-0.5 text-xs text-black/55">
+                  Using KiCad, Eagle, or another tool? Start and track it on its
+                  own page instead.
+                </p>
+              </div>
+            </div>
+            <HiArrowRight className="size-4 shrink-0 text-black/40" />
+          </Link>
+        ) : null}
         <ProjectActionMessage message={state.message} />
       </form>
     </Modal>
@@ -166,14 +177,20 @@ export function EditProjectModal({
   project,
   onSaved,
   onClose,
+  offPlatformEnabled = false,
 }: ProjectActionModalProps & {
   onSaved: (patch: ProjectPatch) => void;
+  offPlatformEnabled?: boolean;
 }) {
   const [state, formAction, pending] = useActionState(
     updateProjectBasicsFromForm,
     initialProjectFormState,
   );
   const [screenshotUrl, setScreenshotUrl] = useState(project.screenshotUrl);
+  const initialShipType =
+    project.submissionSource === "manual" ? "build" : "editor";
+  const [shipType, setShipType] = useState<"editor" | "build">(initialShipType);
+  const canSwitchShipType = offPlatformEnabled && project.status === "draft";
 
   useEffect(() => {
     if (!state.success || !state.project) return;
@@ -225,6 +242,70 @@ export function EditProjectModal({
           value={screenshotUrl}
           onChange={setScreenshotUrl}
         />
+        {canSwitchShipType ? (
+          <fieldset className="grid gap-2">
+            <legend className="mb-1 text-xs font-black uppercase tracking-[0.14em] text-black/45">
+              How are you building this?
+            </legend>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label
+                className={cn(
+                  "flex cursor-pointer items-center gap-3 rounded-[12px] border-2 p-4 transition",
+                  shipType === "editor"
+                    ? "border-[#BD0F32] bg-[#fff5f7]"
+                    : "border-black bg-white hover:bg-zinc-50",
+                )}
+              >
+                <input
+                  type="radio"
+                  name="shipType"
+                  value="editor"
+                  checked={shipType === "editor"}
+                  onChange={() => setShipType("editor")}
+                  className="size-4 accent-[#BD0F32]"
+                />
+                <div>
+                  <p className="text-sm font-black text-black">Editor ship</p>
+                  <p className="text-xs text-black/50">
+                    Design the schematic and code in the online editor.
+                  </p>
+                </div>
+              </label>
+              <label
+                className={cn(
+                  "flex cursor-pointer items-center gap-3 rounded-[12px] border-2 p-4 transition",
+                  shipType === "build"
+                    ? "border-[#BD0F32] bg-[#fff5f7]"
+                    : "border-black bg-white hover:bg-zinc-50",
+                )}
+              >
+                <input
+                  type="radio"
+                  name="shipType"
+                  value="build"
+                  checked={shipType === "build"}
+                  onChange={() => setShipType("build")}
+                  className="size-4 accent-[#BD0F32]"
+                />
+                <div>
+                  <p className="text-sm font-black text-black">Build ship</p>
+                  <p className="text-xs text-black/50">
+                    Build off-platform with your own tools and parts. Earns gold
+                    bread — no kit ships.
+                  </p>
+                </div>
+              </label>
+            </div>
+            {shipType !== initialShipType ? (
+              <p className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-xs font-semibold text-zinc-600">
+                <HiInformationCircle className="size-3.5 shrink-0" />
+                {shipType === "build"
+                  ? "Everything carries over — tracked time, journals, all of it. You'll build and track on this project's own page, and shipping it needs the build submission requirements (photos of the finished circuit and a working demo video). Approved builds earn gold bread instead of bread, and no kit ships."
+                  : "Everything carries over — tracked time, journals, all of it. You'll design and track in the online editor again, and approved design work earns regular bread."}
+              </p>
+            ) : null}
+          </fieldset>
+        ) : null}
         <ProjectActionMessage message={state.message} />
       </form>
     </Modal>
@@ -343,8 +424,11 @@ export function ShipProjectModal({
   const hasTrackedTime = (project.trackedSeconds ?? 0) > 0;
   const hasJournals = (project.journalCount ?? 0) > 0;
   const hasEditorData = hasTrackedTime || hasJournals;
+  // Default to how the project was set up (its submission source), not a
+  // tracked-time heuristic — builds also accrue tracked time and journals, so
+  // the heuristic mislabeled them.
   const [mode, setMode] = useState<ShipMode>(
-    hasEditorData ? "editor" : "external",
+    project.submissionSource === "manual" ? "external" : "editor",
   );
 
   const [editorState, editorAction, editorPending] = useActionState(
@@ -772,12 +856,14 @@ export function ShipProjectModal({
           <div className="rounded-xl border border-black/15 bg-zinc-50 p-4 text-sm text-black/60 shadow-[2px_2px_0_#000]/5">
             <p className="font-black text-black">What happens next?</p>
             <ol className="mt-2 ml-4 list-decimal space-y-1 text-xs font-semibold">
-              <li>A reviewer checks your design, code, and README.</li>
-              <li>If approved, we send you the kit to build it physically.</li>
               <li>
-                You record a demo video of the working project and submit it.
+                A reviewer checks your build: repo, photos of the finished
+                circuit, and a demo video of it working.
               </li>
-              <li>After final approval, you earn Bread (currency).</li>
+              <li>
+                If approved, you earn gold bread for your hours. No kit ships —
+                you already built it.
+              </li>
             </ol>
             <p className="mt-3 flex items-center gap-1.5 font-black text-black">
               <HiCodeBracket className="size-3.5" />

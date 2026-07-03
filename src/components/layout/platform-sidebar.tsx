@@ -15,6 +15,7 @@ import {
   HiUsers,
 } from "react-icons/hi2";
 import { authClient } from "@/lib/auth/client";
+import { BREAD_PER_HOUR, GOLD_BREAD_PER_HOUR } from "@/lib/constants";
 import { slackPfpUrl } from "@/lib/utils/slack-pfp";
 import { BreadAmount } from "@/components/shared/bread-amount";
 
@@ -23,6 +24,9 @@ type SidebarUser = {
   email?: string | null;
   slackId?: string | null;
   breadBalance?: number | null;
+  goldBreadBalance?: number | null;
+  pendingBreadEstimate?: number | null;
+  pendingGoldBreadEstimate?: number | null;
 };
 
 type SidebarLink = {
@@ -195,7 +199,33 @@ export function PlatformSidebar({
               <p className="truncate text-sm font-medium text-zinc-950">
                 {user.name ?? "Signed in"}
               </p>
-              <BreadAmount amount={user.breadBalance ?? 0} size="sm" />
+              <span className="flex items-center gap-3">
+                <BreadAmount amount={user.breadBalance ?? 0} size="sm" />
+                {(user.goldBreadBalance ?? 0) > 0 ||
+                (user.pendingGoldBreadEstimate ?? 0) > 0 ? (
+                  <BreadAmount
+                    amount={user.goldBreadBalance ?? 0}
+                    size="sm"
+                    gold
+                  />
+                ) : null}
+              </span>
+              {(user.pendingBreadEstimate ?? 0) > 0 ? (
+                <p
+                  className="mt-0.5 text-xs font-medium text-zinc-500"
+                  title={`Estimate based on your tracked time (${BREAD_PER_HOUR} bread per hour of work). You officially earn bread when a reviewer approves your work.`}
+                >
+                  ~{user.pendingBreadEstimate} more est. after review
+                </p>
+              ) : null}
+              {(user.pendingGoldBreadEstimate ?? 0) > 0 ? (
+                <p
+                  className="mt-0.5 text-xs font-medium text-zinc-500"
+                  title={`Estimate based on tracked time on your build ships (${GOLD_BREAD_PER_HOUR} gold bread per hour of work). You officially earn gold bread when a reviewer approves your build.`}
+                >
+                  ~{user.pendingGoldBreadEstimate} gold est. after review
+                </p>
+              ) : null}
             </div>
             <button
               type="button"

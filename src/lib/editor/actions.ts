@@ -3,6 +3,10 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { canWriteEditorProject, getEditorProject } from "@/lib/editor/access";
+import {
+  getUnjournaledSeconds,
+  JOURNAL_MIN_SECONDS,
+} from "@/lib/editor/journal-time";
 import { db } from "@/lib/db/db";
 import {
   editorActivitySessions,
@@ -15,35 +19,8 @@ import { putStorageObject } from "@/lib/storage/s3";
 const INACTIVITY_TIMEOUT_SECONDS = 60;
 const MIN_HEARTBEAT_GAP_SECONDS = 10;
 const MAX_HEARTBEAT_CREDIT_SECONDS = 60;
-const JOURNAL_MIN_SECONDS = 10 * 60;
 const JOURNAL_REMINDER_SECONDS = 50 * 60;
 const JOURNAL_BLOCK_SECONDS = 60 * 60;
-
-async function getUnjournaledSeconds(projectId: number, userId: string) {
-  const latestJournal = await db
-    .select({ createdAt: projectJournals.createdAt })
-    .from(projectJournals)
-    .where(
-      and(
-        eq(projectJournals.projectId, projectId),
-        eq(projectJournals.userId, userId),
-      ),
-    )
-    .orderBy(desc(projectJournals.createdAt))
-    .limit(1);
-  const since = latestJournal[0]?.createdAt ?? new Date(0);
-  const rows = await db
-    .select({ total: sql<number>`coalesce(sum(${editorActivitySessions.activeSeconds}), 0)::int` })
-    .from(editorActivitySessions)
-    .where(
-      and(
-        eq(editorActivitySessions.projectId, projectId),
-        eq(editorActivitySessions.userId, userId),
-        sql`${editorActivitySessions.startedAt} > ${since}`,
-      ),
-    );
-  return rows[0]?.total ?? 0;
-}
 
 export async function sendHeartbeat(projectId: number) {
   const { session, project } = await getEditorProject(projectId);
@@ -194,13 +171,16 @@ export async function addProjectJournal(projectId: number, content: string) {
   if (activeSecondsCovered < JOURNAL_MIN_SECONDS) {
     throw new Error("You need at least 10 minutes of tracked work before journaling.");
   }
-  await db.insert(projectJournals).values({
-    projectId,
-    userId: session.user.id,
-    content: text,
-    activeSecondsCovered,
-  });
-  return { ok: true };
+  const [inserted] = await db
+    .insert(projectJournals)
+    .values({
+      projectId,
+      userId: session.user.id,
+      content: text,
+      activeSecondsCovered,
+    })
+    .returning({ id: projectJournals.id });
+  return { ok: true, journalId: inserted.id };
 }
 
 export async function storeSnapshot(

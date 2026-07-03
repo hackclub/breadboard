@@ -1,9 +1,13 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 import { VelxioNextEditor } from "@/components/velxio/VelxioEditorClient";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
-import { projectSubmissions, projects } from "@/lib/db/schema";
+import {
+  editorActivitySessions,
+  projectSubmissions,
+  projects,
+} from "@/lib/db/schema";
 import { EditorHeader } from "../_components/EditorHeader";
 import { audit } from "@/lib/audit";
 
@@ -66,6 +70,21 @@ export default async function ProjectEditorPage({
     ? `Shipped snapshot #${submissionRows[0].submissionNumber}`
     : undefined;
 
+  const [tracked] = isOwner
+    ? await db
+        .select({
+          total: sql<number>`coalesce(sum(${editorActivitySessions.activeSeconds}), 0)::int`,
+        })
+        .from(editorActivitySessions)
+        .where(
+          and(
+            eq(editorActivitySessions.projectId, projectId),
+            eq(editorActivitySessions.userId, session.user.id),
+          ),
+        )
+    : [];
+  const trackedSeconds = tracked?.total ?? 0;
+
   void audit("editor.access", "project", String(projectId));
 
   return (
@@ -81,6 +100,7 @@ export default async function ProjectEditorPage({
         version={version}
         readOnly={readOnly}
         reviewLabel={reviewLabel}
+        trackedSeconds={trackedSeconds}
       />
       <div className="flex-1 relative">
         <VelxioNextEditor

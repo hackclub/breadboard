@@ -11,7 +11,13 @@ import type { PlatformProject } from "@/types";
 type Project = PlatformProject;
 type ProjectPatch = Partial<Project> & Pick<Project, "id">;
 
-export function ProjectsBoard({ projects }: { projects: Project[] }) {
+export function ProjectsBoard({
+  projects,
+  offPlatformEnabled = false,
+}: {
+  projects: Project[];
+  offPlatformEnabled?: boolean;
+}) {
   const [createOpen, setCreateOpen] = useState(false);
   const [items, setItems] = useState(projects);
 
@@ -47,6 +53,7 @@ export function ProjectsBoard({ projects }: { projects: Project[] }) {
         <NewProjectModal
           onCreated={addProject}
           onClose={() => setCreateOpen(false)}
+          offPlatformEnabled={offPlatformEnabled}
         />
       ) : null}
 
@@ -56,6 +63,7 @@ export function ProjectsBoard({ projects }: { projects: Project[] }) {
             key={project.id}
             project={project}
             onProjectChange={(patch) => updateProject(project.id, patch)}
+            offPlatformEnabled={offPlatformEnabled}
           />
         ))}
         {items.length === 0 ? (

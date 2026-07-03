@@ -1,26 +1,26 @@
 export function projectStatusCopy(status: string) {
   if (status === "draft")
-    return "Step 1 of 8 — Build your schematic, write code, and journal. Submit your design when ready.";
+    return "Build your schematic, write code, and journal. Submit your design when ready.";
   if (status === "materials_review")
-    return "Step 3 of 8 — A reviewer is checking your design. You'll hear back soon.";
+    return "A reviewer is checking your design. You'll hear back soon.";
   if (status === "kit_fulfillment")
-    return "Step 4 of 8 — Your kit is being prepared and shipped. Track it in fulfillment.";
+    return "Your kit is being prepared and shipped. Track it in fulfillment.";
   if (status === "kit_sent")
-    return "Step 4 of 8 — Kit is on the way. Confirm receipt, then build the physical project.";
+    return "Kit is on the way. Confirm receipt, then build the physical project.";
   if (status === "building")
-    return "Step 5 of 8 — Build your kit. Take photos and video of it working, then submit your demo.";
+    return "Build your kit. Take photos and video of it working, then submit your demo.";
   if (status === "demo_review")
-    return "Step 7 of 8 — Demo submitted for final review. Almost done!";
+    return "Demo submitted for final review. Almost done!";
   if (status === "done")
-    return "Step 8 of 8 — Done. Currency awarded. Spend it in the shop!";
+    return "Done. Currency awarded. Spend it in the shop!";
   if (status === "shipped")
     return "Snapshot in review. Keep editing, ship again after a decision.";
   if (status === "needs_changes")
-    return "Step 2 of 8 — Reviewer requested changes. Fix your design and submit again.";
+    return "Reviewer requested changes. Fix your design and submit again.";
   if (status === "reviewed")
     return "Approved. Keep building and ship more hours anytime.";
   if (status === "paid_out")
-    return "Step 8 of 8 — Currency awarded. Spend it in the shop!";
+    return "Currency awarded. Spend it in the shop!";
   if (status === "fulfilled")
     return "Kit sent. Future progress can still be shipped.";
   if (status === "approved")

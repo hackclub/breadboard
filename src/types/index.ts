@@ -91,7 +91,7 @@ export type PlatformProject = ShipInput & {
   reviewNote: string;
   demoVideoUrl: string;
   hoursSpent: number;
-  kitType: "arduino" | "esp32";
+  kitType: "arduino" | "esp32" | "own";
   journalCount: number;
   trackedSeconds: number;
   submissionSource: string;

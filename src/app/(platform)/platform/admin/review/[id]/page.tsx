@@ -9,6 +9,7 @@ import {
   projectSubmissions,
   projectJournals,
   projects,
+  projectTimelapses,
   user,
 } from "@/lib/db/schema";
 import { ReviewWorkspace } from "@/components/platform/review-workspace";
@@ -121,6 +122,27 @@ export default async function AdminReviewProjectPage({
     .where(eq(projectJournals.projectId, projectId))
     .orderBy(asc(projectJournals.createdAt));
 
+  const timelapseRows = await db
+    .select({
+      id: projectTimelapses.id,
+      name: projectTimelapses.name,
+      playbackUrl: projectTimelapses.playbackUrl,
+      thumbnailUrl: projectTimelapses.thumbnailUrl,
+      durationSeconds: projectTimelapses.durationSeconds,
+      recordedAt: projectTimelapses.recordedAt,
+    })
+    .from(projectTimelapses)
+    .where(eq(projectTimelapses.projectId, projectId))
+    .orderBy(desc(projectTimelapses.recordedAt));
+  const timelapses = timelapseRows.map((entry) => ({
+    id: entry.id,
+    name: entry.name,
+    playbackUrl: entry.playbackUrl,
+    thumbnailUrl: entry.thumbnailUrl,
+    durationSeconds: entry.durationSeconds,
+    recordedAt: entry.recordedAt ? entry.recordedAt.toISOString() : null,
+  }));
+
   return (
     <main className="space-y-4">
       <Link
@@ -133,6 +155,7 @@ export default async function AdminReviewProjectPage({
       <ReviewWorkspace
         project={project}
         journals={journals}
+        timelapses={timelapses}
         breadPerHour={BREAD_PER_HOUR}
       />
     </main>

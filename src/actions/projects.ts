@@ -3,11 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { HackClubClaims } from "@/lib/auth/hackclub";
-import { assertHackClubYswsEligible } from "@/lib/auth/hackclub";
+import { assertHackClubYswsEligible, ensureSlackId } from "@/lib/auth/hackclub";
 import { requireSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
-import { projectJournals, projects } from "@/lib/db/schema";
-import { and, count, eq } from "drizzle-orm";
+import {
+  editorActivitySessions,
+  projectJournals,
+  projects,
+  projectTimelapses,
+  user,
+} from "@/lib/db/schema";
+import { and, count, eq, inArray, sql } from "drizzle-orm";
 import {
   archiveProjectForUser,
   confirmKitReceivedForUser,
@@ -17,6 +23,22 @@ import {
   submitDemoForUser,
   updateProjectBasicsForUser,
 } from "@/lib/projects/mutations";
+import {
+  getUnjournaledSeconds,
+  JOURNAL_MIN_SECONDS,
+} from "@/lib/editor/journal-time";
+import {
+  fetchTimelapsesForUser,
+  lapseProgramKeyConfigured,
+  queryLapseUserByHandle,
+} from "@/lib/lapse";
+import { resolveLapseUserId, storeLapseIdentity } from "@/lib/lapse-identity";
+import {
+  parseYouTubeVideoIds,
+  youtubeThumbnail,
+  youtubeWatchUrl,
+} from "@/lib/youtube";
+import { offPlatformBuilds } from "@/flags";
 import { notifyReviewSubmitted } from "@/lib/slack/tookle";
 import type {
   CustomShipInput,
@@ -29,6 +51,7 @@ const projectBasicsSchema = z.object({
   title: z.string().trim().min(1, "Project title is required"),
   description: z.string().trim().max(2000).default(""),
   screenshotUrl: z.string().trim().max(2048).default(""),
+  shipType: z.enum(["editor", "build"]).optional(),
 });
 
 const createProjectSchema = projectBasicsSchema
@@ -270,11 +293,13 @@ export async function updateProjectBasicsFromForm(
 ): Promise<ProjectFormState> {
   try {
     const projectId = Number(formData.get("projectId"));
-    const { title, description, screenshotUrl } = projectBasicsSchema.parse({
-      title: formData.get("title"),
-      description: formData.get("description") ?? "",
-      screenshotUrl: formData.get("screenshotUrl") ?? "",
-    });
+    const { title, description, screenshotUrl, shipType } =
+      projectBasicsSchema.parse({
+        title: formData.get("title"),
+        description: formData.get("description") ?? "",
+        screenshotUrl: formData.get("screenshotUrl") ?? "",
+        shipType: formData.get("shipType") ?? undefined,
+      });
 
     if (!Number.isInteger(projectId)) throw new Error("Invalid project.");
     const session = await requireSession();
@@ -282,6 +307,41 @@ export async function updateProjectBasicsFromForm(
       { userId: session.user.id, email: session.user.email },
       { projectId, title, description, screenshotUrl },
     );
+
+    let submissionSource: string | undefined;
+    if (shipType) {
+      const requestedSource = shipType === "build" ? "manual" : "editor";
+      const [current] = await db
+        .select({
+          status: projects.status,
+          submissionSource: projects.submissionSource,
+        })
+        .from(projects)
+        .where(
+          and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
+        )
+        .limit(1);
+      if (!current) throw new Error("Project not found.");
+      if (requestedSource !== current.submissionSource) {
+        if (current.status !== "draft") {
+          throw new Error("Only drafts can switch ship type.");
+        }
+        if (requestedSource === "manual" && !(await offPlatformBuilds())) {
+          throw new Error("Off-platform builds aren't available right now.");
+        }
+        await db
+          .update(projects)
+          .set({ submissionSource: requestedSource, updatedAt: new Date() })
+          .where(
+            and(
+              eq(projects.id, projectId),
+              eq(projects.userId, session.user.id),
+              eq(projects.status, "draft"),
+            ),
+          );
+        submissionSource = requestedSource;
+      }
+    }
     revalidatePath("/platform/projects");
 
     return {
@@ -291,6 +351,7 @@ export async function updateProjectBasicsFromForm(
         title: title || "Untitled project",
         description,
         screenshotUrl,
+        ...(submissionSource ? { submissionSource } : {}),
       },
     };
   } catch (error) {
@@ -480,6 +541,399 @@ export async function submitCustomProjectFromForm(
         reviewNote: "",
       },
     };
+  } catch (error) {
+    return projectFormError(error);
+  }
+}
+
+const externalDraftSchema = z.object({
+  title: z.string().trim().min(1, "Project title is required"),
+  description: z.string().trim().max(2000).default(""),
+  kitType: z.enum(["arduino", "esp32", "own"]).default("arduino"),
+});
+
+// Off-platform builds are created as ordinary drafts so they accrue tracked
+// time, screen evidence, and journals through the same pipeline as the editor
+// before they're submitted for review.
+export async function createExternalDraftFromForm(
+  _previousState: ProjectFormState,
+  formData: FormData,
+): Promise<ProjectFormState> {
+  try {
+    if (!(await offPlatformBuilds())) {
+      throw new Error("Off-platform builds aren't available right now.");
+    }
+    const { title, description, kitType } = externalDraftSchema.parse({
+      title: formData.get("title"),
+      description: formData.get("description") ?? "",
+      kitType: formData.get("kitType") ?? "arduino",
+    });
+    const session = await requireSession();
+    const projectId = await createProjectForUser(
+      { userId: session.user.id, email: session.user.email },
+      { title, description, kitType },
+    );
+    await db
+      .update(projects)
+      .set({ submissionSource: "manual", updatedAt: new Date() })
+      .where(
+        and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
+      );
+    revalidatePath("/platform/projects");
+    return { success: true, project: { id: projectId } };
+  } catch (error) {
+    return projectFormError(error);
+  }
+}
+
+async function trackedSecondsFor(projectId: number, userId: string) {
+  const rows = await db
+    .select({
+      total: sql<number>`coalesce(sum(${editorActivitySessions.activeSeconds}), 0)::int`,
+    })
+    .from(editorActivitySessions)
+    .where(
+      and(
+        eq(editorActivitySessions.projectId, projectId),
+        eq(editorActivitySessions.userId, userId),
+      ),
+    );
+  return rows[0]?.total ?? 0;
+}
+
+export type AvailableTimelapse = {
+  id: string;
+  name: string;
+  playbackUrl: string;
+  thumbnailUrl: string;
+  durationSeconds: number;
+  recordedAt: string | null;
+};
+
+async function clearLapseToken(userId: string) {
+  await db
+    .update(user)
+    .set({ lapseAccessToken: null, updatedAt: new Date() })
+    .where(eq(user.id, userId));
+}
+
+// The user's Lapse timelapses via their OAuth token when connected, otherwise
+// the program key with their resolved Lapse id. [] when neither works.
+async function fetchSessionUserTimelapses(session: {
+  user: { id: string; email: string };
+}) {
+  const [account] = await db
+    .select({ token: user.lapseAccessToken })
+    .from(user)
+    .where(eq(user.id, session.user.id))
+    .limit(1);
+  const token = account?.token ?? null;
+  const lapseUserId = token ? null : await resolveLapseUserId(session.user);
+  try {
+    return await fetchTimelapsesForUser({ accessToken: token, lapseUserId });
+  } catch (error) {
+    if (error instanceof Error && error.message === "LAPSE_REAUTH") {
+      await clearLapseToken(session.user.id);
+    }
+    return [];
+  }
+}
+
+const lapseHandleSchema = z.object({
+  handle: z.string().trim().min(1, "Enter your Lapse handle."),
+});
+
+// Fallback when email auto-match fails (Lapse account under a different
+// email). Ownership is verified, not self-attested: the Lapse account's Slack
+// id must match the signed-in user's Slack id from Hack Club auth, so nobody
+// can link (and claim timelapses from) someone else's account.
+export async function connectLapseHandleFromForm(
+  _previousState: ProjectFormState,
+  formData: FormData,
+): Promise<ProjectFormState> {
+  try {
+    if (!(await offPlatformBuilds())) {
+      throw new Error("Off-platform builds aren't available right now.");
+    }
+    if (!lapseProgramKeyConfigured()) {
+      throw new Error("Lapse isn't enabled on this deployment.");
+    }
+    const { handle } = lapseHandleSchema.parse({
+      handle: formData.get("handle"),
+    });
+    const session = await requireSession();
+    // Backfills from stored Hack Club auth tokens when the sign-in-time write
+    // missed it, so long-lived sessions don't have to re-log in.
+    const slackId = await ensureSlackId(session.user.id);
+    if (!slackId) {
+      throw new Error(
+        "We can't verify Lapse ownership without a Slack account on your profile. Log out and back in with Hack Club, or use YouTube links instead.",
+      );
+    }
+    const matched = await queryLapseUserByHandle(handle);
+    if (!matched) {
+      throw new Error(
+        `No Lapse account found for handle "${handle}". Check the handle shown in your Lapse profile.`,
+      );
+    }
+    if (!matched.slackId || matched.slackId !== slackId) {
+      throw new Error(
+        "That Lapse account belongs to a different Slack account, so we can't link it to you.",
+      );
+    }
+    await storeLapseIdentity(session.user.id, matched);
+    const projectId = Number(formData.get("projectId"));
+    if (Number.isInteger(projectId) && projectId > 0) {
+      revalidatePath(`/platform/projects/${projectId}/track`);
+    }
+    return { success: true };
+  } catch (error) {
+    return projectFormError(error);
+  }
+}
+
+// Lists the user's published Lapse timelapses that aren't already attached to a
+// journal entry, so the journal composer can offer them (fallout's model).
+export async function listAvailableTimelapses(
+  projectId: number,
+): Promise<AvailableTimelapse[]> {
+  if (!(await offPlatformBuilds())) return [];
+  const session = await requireSession();
+  const [owned] = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.userId, session.user.id)))
+    .limit(1);
+  if (!owned) return [];
+
+  const all = await fetchSessionUserTimelapses(session);
+  if (!all.length) return [];
+
+  const claimed = await db
+    .select({ lapseId: projectTimelapses.lapseId })
+    .from(projectTimelapses)
+    .where(eq(projectTimelapses.userId, session.user.id));
+  const claimedIds = new Set(claimed.map((row) => row.lapseId));
+
+  return all
+    .filter((entry) => entry.playbackUrl && !claimedIds.has(entry.id))
+    .map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      playbackUrl: entry.playbackUrl,
+      thumbnailUrl: entry.thumbnailUrl,
+      durationSeconds: entry.durationSeconds,
+      recordedAt: entry.recordedAt ? entry.recordedAt.toISOString() : null,
+    }));
+}
+
+// Creates a journal entry. Every entry must carry a recording, one of: 10+
+// minutes of on-platform screen tracking, a Lapse timelapse, or a YouTube link.
+export async function addExternalJournalFromForm(
+  _previousState: ProjectFormState,
+  formData: FormData,
+): Promise<ProjectFormState> {
+  try {
+    if (!(await offPlatformBuilds())) {
+      throw new Error("Off-platform builds aren't available right now.");
+    }
+    const projectId = Number(formData.get("projectId"));
+    if (!Number.isInteger(projectId)) throw new Error("Invalid project.");
+    const content = String(formData.get("content") ?? "").trim();
+    if (content.length < 10) throw new Error("Journal entry is too short.");
+    if (content.length > 4000) throw new Error("Journal entry is too long.");
+    const timelapseIds = formData
+      .getAll("timelapseIds")
+      .map((value) => String(value))
+      .filter(Boolean);
+    const youtubeIds = parseYouTubeVideoIds(
+      String(formData.get("youtubeUrls") ?? ""),
+    );
+
+    const session = await requireSession();
+    const [owned] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(
+        and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
+      )
+      .limit(1);
+    if (!owned) throw new Error("Project not found.");
+
+    // Resolve the Lapse timelapses the user picked (owned + unclaimed).
+    let lapseToInsert: Awaited<
+      ReturnType<typeof fetchSessionUserTimelapses>
+    > = [];
+    if (timelapseIds.length) {
+      const all = await fetchSessionUserTimelapses(session);
+      const claimed = await db
+        .select({ lapseId: projectTimelapses.lapseId })
+        .from(projectTimelapses)
+        .where(eq(projectTimelapses.userId, session.user.id));
+      const claimedIds = new Set(claimed.map((row) => row.lapseId));
+      lapseToInsert = all.filter(
+        (entry) =>
+          timelapseIds.includes(entry.id) &&
+          entry.playbackUrl &&
+          !claimedIds.has(entry.id),
+      );
+    }
+
+    // Resolve fresh YouTube videos (a video is claimed by one entry globally).
+    let youtubeFresh: string[] = [];
+    if (youtubeIds.length) {
+      const existing = await db
+        .select({ lapseId: projectTimelapses.lapseId })
+        .from(projectTimelapses)
+        .where(inArray(projectTimelapses.lapseId, youtubeIds));
+      const takenGlobally = new Set(existing.map((row) => row.lapseId));
+      youtubeFresh = youtubeIds.filter((id) => !takenGlobally.has(id));
+    }
+
+    // On-platform screen recording backs the entry once 10+ minutes are tracked
+    // since the last entry (same gate as the editor's journaling rule).
+    const unjournaledSeconds = await getUnjournaledSeconds(
+      projectId,
+      session.user.id,
+    );
+    const hasScreenRecording = unjournaledSeconds >= JOURNAL_MIN_SECONDS;
+
+    if (!hasScreenRecording && !lapseToInsert.length && !youtubeFresh.length) {
+      throw new Error(
+        "Add a recording to this entry: 10+ minutes of screen tracking, a Lapse timelapse, or a YouTube link.",
+      );
+    }
+
+    const [journal] = await db
+      .insert(projectJournals)
+      .values({
+        projectId,
+        userId: session.user.id,
+        content,
+        activeSecondsCovered: unjournaledSeconds,
+      })
+      .returning({ id: projectJournals.id });
+
+    if (lapseToInsert.length) {
+      await db
+        .insert(projectTimelapses)
+        .values(
+          lapseToInsert.map((entry) => ({
+            projectId,
+            journalEntryId: journal.id,
+            userId: session.user.id,
+            lapseId: entry.id,
+            name: entry.name,
+            playbackUrl: entry.playbackUrl,
+            thumbnailUrl: entry.thumbnailUrl,
+            durationSeconds: entry.durationSeconds,
+            hackatimeProject: entry.hackatimeProject,
+            recordedAt: entry.recordedAt,
+            syncedAt: new Date(),
+          })),
+        )
+        .onConflictDoNothing();
+    }
+
+    if (youtubeFresh.length) {
+      await db
+        .insert(projectTimelapses)
+        .values(
+          youtubeFresh.map((videoId) => ({
+            projectId,
+            journalEntryId: journal.id,
+            userId: session.user.id,
+            lapseId: videoId,
+            name: "YouTube video",
+            playbackUrl: youtubeWatchUrl(videoId),
+            thumbnailUrl: youtubeThumbnail(videoId),
+            durationSeconds: 0,
+            hackatimeProject: "",
+            recordedAt: null,
+            syncedAt: new Date(),
+          })),
+        )
+        .onConflictDoNothing();
+    }
+
+    revalidatePath(`/platform/projects/${projectId}/track`);
+    return { success: true, project: { id: projectId } };
+  } catch (error) {
+    return projectFormError(error);
+  }
+}
+
+const externalSubmitSchema = z.object({
+  projectId: z.coerce.number().int().positive(),
+  gitUrl: customShipSchema.shape.gitUrl,
+  screenshotUrl: customShipSchema.shape.screenshotUrl,
+});
+
+export async function submitExternalProjectFromForm(
+  _previousState: ProjectFormState,
+  formData: FormData,
+): Promise<ProjectFormState> {
+  try {
+    if (!(await offPlatformBuilds())) {
+      throw new Error("Off-platform builds aren't available right now.");
+    }
+    const parsed = externalSubmitSchema.parse({
+      projectId: formData.get("projectId"),
+      gitUrl: formData.get("gitUrl"),
+      screenshotUrl: formData.get("screenshotUrl"),
+    });
+    const session = await requireSession();
+    const claims = await assertHackClubYswsEligible(session.user.id);
+    const shipping = shippingFromClaims(session, claims);
+
+    const [project] = await db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(
+        and(
+          eq(projects.id, parsed.projectId),
+          eq(projects.userId, session.user.id),
+        ),
+      )
+      .limit(1);
+    if (!project) throw new Error("Project not found.");
+
+    await assertCustomGitRepoReady(parsed.gitUrl);
+
+    // Hours are measured, not self-reported: on-platform tracked time plus the
+    // durations of the recordings attached to this build.
+    const tracked = await trackedSecondsFor(parsed.projectId, session.user.id);
+    const [recordingRow] = await db
+      .select({
+        total: sql<number>`coalesce(sum(${projectTimelapses.durationSeconds}), 0)::int`,
+      })
+      .from(projectTimelapses)
+      .where(eq(projectTimelapses.projectId, parsed.projectId));
+    const totalSeconds = tracked + (recordingRow?.total ?? 0);
+    const hoursSpent = Math.max(0, Math.ceil(totalSeconds / 3600));
+
+    const owner = { userId: session.user.id, email: session.user.email };
+    const data: CustomShipInput = {
+      gitUrl: parsed.gitUrl,
+      screenshotUrl: parsed.screenshotUrl,
+      hoursSpent,
+      email: shipping.email,
+      addressLine1: shipping.addressLine1,
+      addressLine2: shipping.addressLine2,
+      city: shipping.city,
+      region: shipping.region,
+      country: shipping.country,
+      postalCode: shipping.postalCode,
+      birthday: shipping.birthday,
+      firstName: shipping.firstName,
+      lastName: shipping.lastName,
+    };
+    await shipCustomProjectForUser(owner, parsed.projectId, data);
+    await notifyReviewSubmitted(parsed.projectId, "materials");
+    revalidatePath("/platform/projects");
+    revalidatePath("/platform/admin/review");
+
+    return { success: true, project: { id: parsed.projectId } };
   } catch (error) {
     return projectFormError(error);
   }

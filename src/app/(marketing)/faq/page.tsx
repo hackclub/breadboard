@@ -87,6 +87,79 @@ export default function FaqPage() {
           each stage needs.
         </p>
 
+        <h2>When is the deadline?</h2>
+        <p>
+          <strong>July 15th, 2026 at 11:59 PM EDT.</strong> Your design
+          submission needs to be in by then. Don&apos;t wait until the last
+          minute! Build submissions get an extension past this date, since you
+          can&apos;t control when your kit arrives. Just build and submit
+          promptly once it does.
+        </p>
+
+        <h2>Which kit should I pick?</h2>
+        <p>
+          Whichever fits your idea! The Arduino kit has more parts, but more
+          isn&apos;t always better: the ESP32 is more compact and has WiFi and
+          Bluetooth, which you need for anything IoT. Full component lists are
+          below.
+        </p>
+
+        <h2>Can I use my own components or work off-platform?</h2>
+        <p>
+          Yes! An off-platform project counts as a <strong>build</strong>{" "}
+          submission: you skip the design stage and build the real thing with
+          your own parts, timelapsing and journaling everything as you go. No
+          simulation needed, since you&apos;re testing it in real life, and
+          building earns you <strong>golden bread</strong>. If you&apos;re
+          designing off-platform in KiCad or another tool <em>without</em>{" "}
+          building yet, that&apos;s still a design submission, and you need to
+          fully simulate your circuit and code (with a tool like Wokwi), just
+          like the editor does for you automatically. Heads up: if you build
+          entirely with your own parts, we won&apos;t ship you a kit for that
+          project.
+        </p>
+
+        <h2>Can I build my project before the kit arrives?</h2>
+        <p>
+          Yes! If you already have the parts, you can build off-platform and
+          submit that. Track your time, journal, and timelapse as you go, and
+          make sure you meet all the <a href="/requirements">requirements</a>.
+        </p>
+
+        <h2>Do I need a GitHub repo?</h2>
+        <p>
+          Yes, your submission lives in a repo with your README, schematic,
+          firmware, and BOM. If you use the editor, it can publish your project
+          to GitHub in one click.
+        </p>
+
+        <h2>Is there a minimum time requirement?</h2>
+        <p>
+          Nope! Just meet the <a href="/requirements">requirements</a>.
+          However, for time spent, you get <strong>bread</strong> to spend in
+          the shop!
+        </p>
+
+        <h2>Can I submit multiple projects?</h2>
+        <p>
+          Yes! After your first ship, the shop unlocks and you can submit more
+          projects and redeem additional kits and components. You pay for those
+          with <strong>bread</strong>, which you earn as you work: design work
+          pays 5 bread per hour approved, and actually building your project
+          earns <strong>golden bread</strong>, which gets you shop items
+          cheaper. The more you build, the more you can redeem. See the{" "}
+          <a href="/requirements">requirements</a> for details.
+        </p>
+
+        <h2>When does the shop open?</h2>
+        <p>
+          The shop unlocks after your first ship. Keep an eye on{" "}
+          <a href="https://hackclub.enterprise.slack.com/archives/C09EB0AE68M">
+            #breadboard
+          </a>{" "}
+          for what&apos;s in it.
+        </p>
+
         <h2>What will I get?</h2>
         <p>You&apos;ll choose one of two component kits:</p>
 
@@ -385,11 +458,6 @@ export default function FaqPage() {
             have WiFi and Bluetooth capabilities.
           </p>
         </blockquote>
-
-        <p>
-          After your first ship, there will be a shop where you can submit more
-          projects and redeem additional kits and components.
-        </p>
 
         <h2>Who runs this?</h2>
         <p>

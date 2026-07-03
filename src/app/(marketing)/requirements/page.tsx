@@ -41,41 +41,17 @@ export default function RequirementsPage() {
           Stuck? Ask in <a href="https://hackclub.slack.com">#breadboard</a>.
         </p>
 
-        <div className="not-prose my-6 rounded-[10px] border-[1.1px] border-black bg-white p-6 shadow-[3px_3px_0_#000]">
-          <p className="mb-3 text-sm font-bold tracking-wide text-black uppercase">
-            A shipped design means both of these:
-          </p>
-          <ul className="space-y-3 text-sm text-black">
-            <li className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[1.1px] border-black bg-black text-xs text-white">
-                1
-              </span>
-              <span>
-                <strong>
-                  Firmware, if your project has a microcontroller.
-                </strong>{" "}
-                Even if it's untested, it needs to exist and be in your repo. A
-                microcontroller with no code is just a paperweight.
-              </span>
-            </li>
-            <li className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[1.1px] border-black bg-black text-xs text-white">
-                2
-              </span>
-              <span>
-                <strong>A working physical build with a demo.</strong> You built
-                it, you proved it works. A video showing it doing its thing is
-                required at the build stage!
-              </span>
-            </li>
-          </ul>
-        </div>
-
         <h2>Stage 1: Design Submission</h2>
         <p>
           This is what you submit before we send you anything. It should prove
           that you've thought your project through and that someone else could
           understand and replicate it.
+        </p>
+        <p>
+          The design stage also earns you <strong>bread</strong>, the currency
+          you spend in the shop. You get <strong>5 bread per hour</strong> of
+          approved design work, so the time you put into planning and wiring up
+          your design actually pays off.
         </p>
 
         <h3>Your Design</h3>
@@ -304,6 +280,11 @@ export default function RequirementsPage() {
           <li>Photos of the finished breadboard circuit, fully assembled</li>
           <li>A demo video showing it actually working</li>
         </ul>
+        <p>
+          This is where the real reward kicks in. Once you actually build a
+          project, you earn <strong>golden bread</strong>, which gets you items
+          from the shop for cheaper! The more you build, the more you save.
+        </p>
 
         <h2>Things That Will Get You Rejected</h2>
         <ul>

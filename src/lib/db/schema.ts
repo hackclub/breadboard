@@ -22,6 +22,16 @@ export const user = pgTable("user", {
   admin: boolean("admin").notNull().default(false),
   image: text("image"),
   slackId: text("slack_id"),
+  lapseAccessToken: text("lapse_access_token"),
+  lapseRefreshToken: text("lapse_refresh_token"),
+  lapseTokenExpiresAt: timestamp("lapse_token_expires_at", {
+    withTimezone: true,
+  }),
+  lapseConnectedAt: timestamp("lapse_connected_at", { withTimezone: true }),
+  // Resolved Lapse identity for program-key reads. Auto-matched by email when
+  // possible, otherwise set once via the "enter your Lapse handle" fallback.
+  lapseUserId: text("lapse_user_id"),
+  lapseHandle: text("lapse_handle"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -265,6 +275,7 @@ export const userBread = pgTable("user_bread", {
     .references(() => user.id, { onDelete: "cascade" })
     .unique(),
   balance: integer("balance").notNull().default(0),
+  goldBalance: integer("gold_balance").notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -1431,3 +1442,43 @@ export const auditLogs = pgTable(
 
 export type EmailSignup = typeof emailSignups.$inferSelect;
 export type NewEmailSignup = typeof emailSignups.$inferInsert;
+
+// Lapse timelapses attached to a journal entry (fallout's model) so reviewers
+// can watch every one. Each timelapse is claimed once per user.
+export const projectTimelapses = pgTable(
+  "project_timelapses",
+  {
+    id: serial("id").primaryKey(),
+    projectId: integer("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    journalEntryId: integer("journal_entry_id").references(
+      () => projectJournals.id,
+      { onDelete: "cascade" },
+    ),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    lapseId: text("lapse_id").notNull(),
+    name: text("name").notNull().default(""),
+    playbackUrl: text("playback_url").notNull().default(""),
+    thumbnailUrl: text("thumbnail_url").notNull().default(""),
+    durationSeconds: integer("duration_seconds").notNull().default(0),
+    hackatimeProject: text("hackatime_project").notNull().default(""),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }),
+    syncedAt: timestamp("synced_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    // A Lapse timelapse can be claimed by only one journal entry per user.
+    uniqueIndex("project_timelapses_user_lapse_idx").on(
+      table.userId,
+      table.lapseId,
+    ),
+    index("project_timelapses_project_id_idx").on(table.projectId),
+    index("project_timelapses_journal_entry_idx").on(table.journalEntryId),
+  ],
+);
+
+export type ProjectTimelapse = typeof projectTimelapses.$inferSelect;

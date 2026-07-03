@@ -25,3 +25,10 @@ export const shopOpen = flag<boolean>({
   defaultValue: false,
   identify,
 });
+
+export const offPlatformBuilds = flag<boolean>({
+  key: "off-platform-builds",
+  adapter: growthbookAdapter.feature<boolean>(),
+  defaultValue: false,
+  identify,
+});

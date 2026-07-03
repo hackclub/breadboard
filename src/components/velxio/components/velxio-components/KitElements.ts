@@ -76,21 +76,36 @@ class DotMatrix8x8Element extends HTMLElement {
     ...Array.from({ length: 8 }, (_, i) => pin(String(i + 1), 10 + i * 10, 4)),
     ...Array.from({ length: 8 }, (_, i) => pin(String(16 - i), 10 + i * 10, 94)),
   ];
+  private _values: number[] = Array(64).fill(0);
   constructor() {
     super();
     const dots = Array.from({ length: 64 }, (_, i) => {
       const x = 12 + (i % 8) * 9;
       const y = 20 + Math.floor(i / 8) * 8;
-      return `<circle cx="${x}" cy="${y}" r="2.6" fill="#370606" stroke="#701111" stroke-width=".5"/>`;
+      return `<circle class="dot" data-i="${i}" cx="${x}" cy="${y}" r="2.6" fill="#370606" stroke="#701111" stroke-width=".5"/>`;
     }).join("");
     this.attachShadow({ mode: "open" }).innerHTML = `
-      <style>:host{display:inline-block}svg{overflow:visible}</style>
+      <style>:host{display:inline-block}svg{overflow:visible}.dot.on{fill:#ff2d1f;filter:drop-shadow(0 0 3px #ff2d1f)}</style>
       <svg width="92" height="100" viewBox="0 0 92 100" xmlns="http://www.w3.org/2000/svg">
         <rect x="5" y="9" width="82" height="78" rx="5" fill="#151515" stroke="#333" stroke-width="2"/>
         ${dots}
         ${this.pinInfo.map((p) => `<circle cx="${p.x}" cy="${p.y}" r="2" fill="#bbb"/>`).join("")}
         <text x="46" y="83" text-anchor="middle" font-size="6" fill="#777">8x8 DOT MATRIX</text>
       </svg>`;
+  }
+  /** Row-major array of 64 (index = row*8 + col); truthy = dot lit. */
+  set values(values: number[]) {
+    if (!Array.isArray(values)) return;
+    const dots = this.shadowRoot?.querySelectorAll(".dot");
+    if (!dots) return;
+    for (let i = 0; i < 64; i++) {
+      const on = Boolean(values[i]);
+      if (Boolean(this._values[i]) !== on) dots[i]?.classList.toggle("on", on);
+    }
+    this._values = values.slice(0, 64);
+  }
+  get values() {
+    return this._values;
   }
 }
 
@@ -185,7 +200,52 @@ class SingleRelayModuleElement extends HTMLElement {
   set relay(value: boolean) { this.shadowRoot?.querySelector(".relay")?.classList.toggle("on", Boolean(value)); }
 }
 
+/**
+ * KY-016-style RGB LED module — the "remote control supporting LED module"
+ * from the UNO starter kit. Common cathode: R/G/B driven HIGH (or PWM) light
+ * the channels, GND to ground. Exposes the same ledRed/ledGreen/ledBlue
+ * (0-255) property API as wokwi-rgb-led so the rgb-led simulation logic can
+ * drive it unchanged.
+ */
+class RemoteLedModuleElement extends HTMLElement {
+  readonly pinInfo = [
+    pin("R", 13, 78), pin("G", 28, 78), pin("B", 43, 78), pin("GND", 58, 78),
+  ];
+  private _rgb = [0, 0, 0];
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" }).innerHTML = `
+      <style>:host{display:inline-block}svg{overflow:visible}</style>
+      <svg width="72" height="84" viewBox="0 0 72 84" xmlns="http://www.w3.org/2000/svg">
+        <rect x="4" y="4" width="64" height="64" rx="4" fill="#7f1d1d" stroke="#450a0a" stroke-width="2"/>
+        <circle cx="36" cy="30" r="13" fill="#e5e5e5" stroke="#999" stroke-width="1.5"/>
+        <circle class="led" cx="36" cy="30" r="9" fill="#d4d4d4"/>
+        <text x="36" y="56" text-anchor="middle" font-size="7" fill="#fecaca">RGB LED</text>
+        ${this.pinInfo.map((p) => `<line x1="${p.x}" y1="68" x2="${p.x}" y2="78" stroke="#d6b25e" stroke-width="2"/><circle cx="${p.x}" cy="${p.y}" r="2.4" fill="#d6b25e"/><text x="${p.x}" y="66" text-anchor="middle" font-size="5" fill="#fff">${p.name}</text>`).join("")}
+      </svg>`;
+  }
+  private paint() {
+    const [r, g, b] = this._rgb;
+    const led = this.shadowRoot?.querySelector(".led");
+    if (!led) return;
+    if (r || g || b) {
+      led.setAttribute("fill", `rgb(${r},${g},${b})`);
+      led.setAttribute("style", `filter:drop-shadow(0 0 6px rgb(${r},${g},${b}))`);
+    } else {
+      led.setAttribute("fill", "#d4d4d4");
+      led.removeAttribute("style");
+    }
+  }
+  set ledRed(value: number) { this._rgb[0] = Math.max(0, Math.min(255, Number(value) || 0)); this.paint(); }
+  get ledRed() { return this._rgb[0]; }
+  set ledGreen(value: number) { this._rgb[1] = Math.max(0, Math.min(255, Number(value) || 0)); this.paint(); }
+  get ledGreen() { return this._rgb[1]; }
+  set ledBlue(value: number) { this._rgb[2] = Math.max(0, Math.min(255, Number(value) || 0)); this.paint(); }
+  get ledBlue() { return this._rgb[2]; }
+}
+
 defineElement("velxio-ir-transmitter", IrTransmitterElement);
+defineElement("velxio-remote-led-module", RemoteLedModuleElement);
 defineElement("velxio-thermistor", ThermistorElement);
 defineElement("velxio-kit-buzzer", KitBuzzerElement);
 defineElement("velxio-dot-matrix-8x8", DotMatrix8x8Element);

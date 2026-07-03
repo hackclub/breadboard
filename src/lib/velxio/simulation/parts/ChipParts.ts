@@ -5,6 +5,7 @@
  * Implements:
  *  - 74HC595 8-bit Serial-to-Parallel Shift Register
  *  - wokwi-7segment display (driven by 74HC595 outputs)
+ *  - 8×8 dot matrix (bare 788BS, direct row/col multiplex)
  */
 
 import { PartSimulationRegistry } from "@/lib/velxio/simulation/parts/PartSimulationRegistry";
@@ -467,3 +468,142 @@ const sevenSegmentLogic = PartSimulationRegistry.get("7segment");
 if (sevenSegmentLogic) {
   PartSimulationRegistry.register("7segment-4digit", sevenSegmentLogic);
 }
+
+// ─── 8×8 dot matrix (bare 788BS, row-anode) ──────────────────────────────────
+//
+// The kit part is a bare 16-pin matrix with no driver IC. Physical pin →
+// row/col mapping follows the 788BS datasheet — the same table every kit
+// tutorial ships:
+//   rows 1-8 (anodes):   pins 9, 14, 8, 12, 1, 7, 2, 5
+//   cols 1-8 (cathodes): pins 13, 3, 4, 10, 6, 11, 15, 16
+//
+// A dot (r,c) conducts while its row pin is HIGH and its col pin is LOW.
+// Sketches multiplex fast (one row or column enabled at a time), so a dot
+// stays visually lit for DM_PERSIST_MS after it last conducted — standing in
+// for the persistence-of-vision the eye provides on real hardware. Unlike
+// the 7-segment latch model, the decay approach works for both row-scan and
+// column-scan sketches.
+
+const DM_ROW_PINS = ["9", "14", "8", "12", "1", "7", "2", "5"];
+const DM_COL_PINS = ["13", "3", "4", "10", "6", "11", "15", "16"];
+const DM_PERSIST_MS = 200;
+
+interface DotMatrixState {
+  rowHigh: boolean[]; // anode pin level; row enabled when HIGH
+  colHigh: boolean[]; // cathode pin level; column conducts when LOW
+  lastLit: number[]; // per dot (row*8+col), timestamp of last conduction
+  shown: number[]; // what the element currently displays
+}
+
+const dotMatrixState = new WeakMap<HTMLElement, DotMatrixState>();
+
+function getDotMatrixState(element: HTMLElement): DotMatrixState {
+  let s = dotMatrixState.get(element);
+  if (!s) {
+    s = {
+      rowHigh: Array(8).fill(false),
+      colHigh: Array(8).fill(false),
+      lastLit: Array(64).fill(0),
+      shown: Array(64).fill(0),
+    };
+    dotMatrixState.set(element, s);
+  }
+  return s;
+}
+
+function refreshDotMatrix(element: HTMLElement, s: DotMatrixState) {
+  const now = Date.now();
+  const next: number[] = Array(64);
+  let changed = false;
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const i = r * 8 + c;
+      const conducting = s.rowHigh[r] && !s.colHigh[c];
+      if (conducting) s.lastLit[i] = now;
+      const on =
+        conducting || now - s.lastLit[i] < DM_PERSIST_MS ? 1 : 0;
+      next[i] = on;
+      if (on !== s.shown[i]) changed = true;
+    }
+  }
+  if (changed) {
+    s.shown = next;
+    (element as unknown as { values: number[] }).values = next;
+  }
+}
+
+PartSimulationRegistry.register("dot-matrix-8x8", {
+  attachEvents: (
+    element,
+    simulator,
+    getArduinoPinHelper,
+    _componentId,
+    getPinResolver,
+  ) => {
+    const pinManager = (simulator as any).pinManager;
+    const useResolver = typeof getPinResolver === "function";
+    if (!pinManager && !useResolver) return () => {};
+
+    const s = getDotMatrixState(element);
+    const unsubscribers: (() => void)[] = [];
+
+    const subscribe = (
+      pinName: string,
+      apply: (high: boolean) => void,
+    ): boolean => {
+      if (useResolver) {
+        const resolver = getPinResolver!(pinName);
+        if (resolver) {
+          apply(resolver.getCurrentState() === "HIGH");
+          unsubscribers.push(
+            resolver.onChange((state) => {
+              apply(state === "HIGH");
+              refreshDotMatrix(element, s);
+            }),
+          );
+          return true;
+        }
+      }
+      const pin = getArduinoPinHelper(pinName);
+      if (pin === null || !pinManager) return false;
+      unsubscribers.push(
+        pinManager.onPinChange(pin, (_: number, state: boolean) => {
+          apply(state);
+          refreshDotMatrix(element, s);
+        }),
+      );
+      return true;
+    };
+
+    for (let r = 0; r < 8; r++) {
+      subscribe(DM_ROW_PINS[r], (high) => (s.rowHigh[r] = high));
+    }
+    for (let c = 0; c < 8; c++) {
+      const wired = subscribe(DM_COL_PINS[c], (high) => (s.colHigh[c] = high));
+      // Cathode not driven by a GPIO → treat as tied to GND (conducting), so
+      // simple row-only demos (columns hard-wired to ground through
+      // resistors) still light their rows.
+      if (!wired) s.colHigh[c] = false;
+    }
+    refreshDotMatrix(element, s);
+
+    // Persistence decay — clears dots whose row/col scan has moved on.
+    const timer = setInterval(() => refreshDotMatrix(element, s), 50);
+
+    return () => {
+      clearInterval(timer);
+      unsubscribers.forEach((u) => u());
+    };
+  },
+  // QEMU-backed boards (no local pinManager) dispatch by component pin name.
+  // No decay timer on this path — the display updates on each pin event.
+  onPinStateChange: (pinName: string, state: boolean, element: HTMLElement) => {
+    const s = getDotMatrixState(element);
+    const r = DM_ROW_PINS.indexOf(pinName);
+    const c = DM_COL_PINS.indexOf(pinName);
+    if (r < 0 && c < 0) return;
+    if (r >= 0) s.rowHigh[r] = state;
+    if (c >= 0) s.colHigh[c] = state;
+    refreshDotMatrix(element, s);
+  },
+});

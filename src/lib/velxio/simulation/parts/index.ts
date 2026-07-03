@@ -34,6 +34,9 @@ aliasPart("buzzer-passive", "buzzer");
 aliasPart("buzzer-active", "buzzer");
 aliasPart("thermistor", "ntc-temperature-sensor");
 aliasPart("74hc595", "74hc595");
+// The kit's IR-remote companion RGB LED module shares the rgb-led logic —
+// same R/G/B pin names, same ledRed/ledGreen/ledBlue element API.
+aliasPart("remote-led-module", "rgb-led");
 
 PartSimulationRegistry.register("ir-transmitter", {
   attachEvents: (

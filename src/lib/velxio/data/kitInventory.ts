@@ -39,6 +39,7 @@ export const KIT_A_COMPONENT_LIMITS: Record<string, number> = {
   "stepper-motor": 1,
   "dot-matrix-8x8": 1,
   ds1302: 1,
+  "remote-led-module": 1,
 };
 
 export const KIT_B_COMPONENT_LIMITS: Record<string, number> = {
@@ -82,7 +83,6 @@ export const ALL_KIT_BOARD_LIMITS: Partial<Record<BoardKind, number>> = {
 
 export const MISSING_KIT_A_PARTS = [
   "Tact switch 12x12 distinct from generic pushbutton",
-  "Remote control supporting LED module",
   "Dupont/battery/USB/bread pan wires as placeable parts",
 ];
 

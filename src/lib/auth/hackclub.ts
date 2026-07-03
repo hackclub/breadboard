@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db/db";
-import { account } from "@/lib/db/schema";
+import { account, user } from "@/lib/db/schema";
 
 export type HackClubClaims = {
   given_name?: string;
@@ -10,6 +10,7 @@ export type HackClubClaims = {
   ysws_eligible?: boolean;
   verification_status?: string;
   birthdate?: string;
+  slack_id?: string;
   address?: {
     street_address?: string;
     locality?: string;
@@ -46,6 +47,26 @@ export async function getHackClubClaims(userId: string) {
   }
 
   return claims;
+}
+
+// The user's Slack id, backfilled from stored Hack Club auth tokens when the
+// sign-in-time write missed it (e.g. first-login race). No re-auth needed.
+export async function ensureSlackId(userId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ slackId: user.slackId })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1);
+  if (row?.slackId) return row.slackId;
+
+  const claims = await getHackClubClaims(userId);
+  const slackId = String(claims.slack_id ?? "").trim();
+  if (!slackId) return null;
+  await db
+    .update(user)
+    .set({ slackId, updatedAt: new Date() })
+    .where(eq(user.id, userId));
+  return slackId;
 }
 
 export async function assertHackClubYswsEligible(userId: string) {

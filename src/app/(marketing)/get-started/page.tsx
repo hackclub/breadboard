@@ -416,6 +416,14 @@ export default function GetStartedPage() {
           as you go.
         </p>
         <p>
+          Your time here also earns you <strong>bread</strong>, the currency you
+          spend in the shop. The design stage pays{" "}
+          <strong>5 bread per hour</strong> of approved work. Later, once you
+          actually build a project, you earn <strong>golden bread</strong>,
+          which gets you items from the shop for cheaper! See the{" "}
+          <a href="/requirements">requirements</a> for the details.
+        </p>
+        <p>
           Do you have other components that aren&apos;t in the platform? You can
           work off platform instead! Design your own custom breadboard in KiCad
           or any tool you like and submit that. Make sure you timelapse{" "}

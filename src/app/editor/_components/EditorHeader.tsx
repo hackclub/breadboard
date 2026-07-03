@@ -8,6 +8,7 @@ import {
   subscribeEditorSaveState,
   triggerManualSave,
 } from "@/lib/editor/saveState";
+import { BreadEstimatePill } from "./BreadEstimatePill";
 import { EditorActivityIndicator } from "./EditorActivityIndicator";
 import { ScreenShareTracker } from "./ScreenShareTracker";
 
@@ -63,6 +64,7 @@ export function EditorHeader({
   version,
   readOnly,
   reviewLabel,
+  trackedSeconds,
 }: {
   backHref: string;
   backLabel: string;
@@ -74,6 +76,7 @@ export function EditorHeader({
   version?: number;
   readOnly?: boolean;
   reviewLabel?: string;
+  trackedSeconds?: number;
 }) {
   const router = useRouter();
   const [state, setState] = useState<EditorSaveState>({
@@ -266,6 +269,7 @@ export function EditorHeader({
       <div className="ml-auto flex items-center gap-3">
         {!readOnly && !trackingBlocked ? (
           <>
+            <BreadEstimatePill initialTotalSeconds={trackedSeconds ?? 0} />
             <ScreenShareTracker projectId={projectId} />
             <EditorActivityIndicator projectId={projectId} />
           </>

@@ -22,6 +22,7 @@ import {
   requestChanges,
 } from "@/actions/admin/review";
 import { BreadAmount, BreadIcon } from "@/components/shared/bread-amount";
+import { Markdown } from "@/components/shared/markdown";
 import { storageReadUrl } from "@/lib/storage/urls";
 
 type ReviewProject = {
@@ -69,6 +70,22 @@ type Journal = {
   activeSecondsCovered: number;
   createdAt: Date;
 };
+
+type Timelapse = {
+  id: number;
+  name: string;
+  playbackUrl: string;
+  thumbnailUrl: string;
+  durationSeconds: number;
+  recordedAt: string | null;
+};
+
+function formatTimelapseDuration(seconds: number) {
+  const total = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(total / 60);
+  if (minutes >= 60) return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return `${minutes}m ${(total % 60).toString().padStart(2, "0")}s`;
+}
 
 const verdictOptions = [
   { value: "approve", icon: HiCheckCircle, label: "Approve" },
@@ -179,10 +196,12 @@ function EvidenceButton({
 export function ReviewWorkspace({
   project: initial,
   journals,
+  timelapses,
   breadPerHour,
 }: {
   project: ReviewProject;
   journals: Journal[];
+  timelapses: Timelapse[];
   breadPerHour: number;
 }) {
   const [verdict, setVerdict] = useState<"approve" | "changes" | "reject">(
@@ -401,8 +420,10 @@ export function ReviewWorkspace({
                     className="rounded-xl border border-black bg-white px-4 py-3 text-xl font-black"
                   />
                   <span className="text-sm font-black text-[#BD0F32]">
-                    Awards <BreadAmount amount={approvedBread} /> (
-                    {approvedHours || 0}h × {breadPerHour})
+                    Awards{" "}
+                    <BreadAmount amount={approvedBread} gold={isManual} />{" "}
+                    {isManual ? "gold bread " : ""}({approvedHours || 0}h ×{" "}
+                    {breadPerHour})
                   </span>
                 </label>
                 <label className="grid gap-1.5">
@@ -564,7 +585,7 @@ export function ReviewWorkspace({
                   {new Date(journal.createdAt).toLocaleString()} ·{" "}
                   {Math.round(journal.activeSecondsCovered / 60)}m
                 </p>
-                <p className="mt-1 whitespace-pre-wrap">{journal.content}</p>
+                <Markdown className="mt-1">{journal.content}</Markdown>
               </div>
             ))}
             {journals.length === 0 ? (
@@ -577,14 +598,65 @@ export function ReviewWorkspace({
 
         <section className="rounded-[16px] border border-black bg-white p-4 shadow-[4px_4px_0_#000]">
           <div className="flex items-center gap-2 text-sm font-black text-black">
+            <HiFilm className="size-5 text-[#BD0F32]" />
+            Lapse timelapses ({timelapses.length})
+          </div>
+          {timelapses.length > 0 ? (
+            <ul className="mt-2 grid gap-3 sm:grid-cols-2">
+              {timelapses.map((entry) => (
+                <li
+                  key={entry.id}
+                  className="overflow-hidden rounded-lg border border-black/10 bg-zinc-50"
+                >
+                  <a
+                    href={entry.playbackUrl || undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block"
+                  >
+                    {entry.thumbnailUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={entry.thumbnailUrl}
+                        alt={entry.name || "Timelapse"}
+                        className="aspect-video w-full object-cover"
+                      />
+                    ) : (
+                      <div className="grid aspect-video w-full place-items-center bg-black/80 text-white">
+                        <HiFilm className="size-8" />
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between gap-2 p-2.5 text-xs">
+                      <span className="truncate font-black text-black">
+                        {entry.name || "Untitled timelapse"}
+                      </span>
+                      <span className="shrink-0 font-bold text-black/50">
+                        {entry.durationSeconds > 0
+                          ? formatTimelapseDuration(entry.durationSeconds)
+                          : "video"}
+                      </span>
+                    </div>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 rounded-lg border border-dashed border-black/10 bg-zinc-50 p-2.5 text-xs text-black/35">
+              No Lapse timelapses synced for this project.
+            </p>
+          )}
+        </section>
+
+        <section className="rounded-[16px] border border-black bg-white p-4 shadow-[4px_4px_0_#000]">
+          <div className="flex items-center gap-2 text-sm font-black text-black">
             <HiClock className="size-5 text-[#BD0F32]" />
             Currency
           </div>
           <p className="mt-2 text-xs font-bold uppercase tracking-[0.1em] text-black/40">
-            Award
+            Award{isManual ? " (gold bread — build ship)" : ""}
           </p>
           <p className="text-3xl font-black text-black">
-            <BreadAmount amount={approvedBread} size="lg" />
+            <BreadAmount amount={approvedBread} size="lg" gold={isManual} />
           </p>
           <p className="mt-1 text-sm text-black/55">
             {approvedHours || 0}h × {breadPerHour}
@@ -595,7 +667,10 @@ export function ReviewWorkspace({
             </p>
             <p className="text-base font-black text-black/60">
               {initial.hoursSpent}h × {breadPerHour} ={" "}
-              <BreadAmount amount={initial.hoursSpent * breadPerHour} />
+              <BreadAmount
+                amount={initial.hoursSpent * breadPerHour}
+                gold={isManual}
+              />
             </p>
             <p className="text-[10px] font-bold text-black/35">
               {isManual

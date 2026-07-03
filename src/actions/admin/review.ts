@@ -4,7 +4,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth/guards";
 import { audit } from "@/lib/audit";
-import { BREAD_PER_HOUR } from "@/lib/constants";
+import { BREAD_PER_HOUR, GOLD_BREAD_PER_HOUR } from "@/lib/constants";
 import { db } from "@/lib/db/db";
 import {
   orderItems,
@@ -363,6 +363,85 @@ export async function approveProject(
     return;
   }
 
+  // Build ships are finished projects built off-platform: approval pays out
+  // gold bread immediately and there's no kit to fulfill.
+  if (project.submissionSource === "manual") {
+    const submission = await getPendingSubmissionOrThrow(id, "materials");
+    const gold = hours * GOLD_BREAD_PER_HOUR;
+    const creditedUser = await db.transaction(async (tx) => {
+      await createReviewRecord(tx, {
+        projectId: id,
+        submissionId: submission.id,
+        reviewerId: session.user.id,
+        phase: "materials",
+        decision: "approved",
+        approvedHours: hours,
+        bread: gold,
+        internalComment: reviewJustification,
+        publicComment: reviewComment,
+        checks,
+      });
+      const [updatedSubmission] = await tx
+        .update(projectSubmissions)
+        .set({
+          status: "approved",
+          approvedHours: hours,
+          internalNote: reviewJustification,
+          userComment: reviewComment,
+          breadAmount: gold,
+          reviewedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(projectSubmissions.id, submission.id),
+            eq(projectSubmissions.status, "pending_review"),
+          ),
+        )
+        .returning({ userId: projectSubmissions.userId });
+      if (!updatedSubmission)
+        throw new Error("Only pending builds can be approved");
+      await tx
+        .update(projects)
+        .set({
+          status: "done",
+          overrideHoursSpent: hours,
+          overrideHoursSpentJustification: reviewJustification,
+          reviewNote: reviewComment,
+          breadAmount: gold,
+          approvedAt: new Date(),
+          doneAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(projects.id, id));
+      await tx
+        .insert(userBread)
+        .values({ userId: updatedSubmission.userId, goldBalance: gold })
+        .onConflictDoUpdate({
+          target: userBread.userId,
+          set: {
+            goldBalance: sql`${userBread.goldBalance} + ${gold}`,
+            updatedAt: new Date(),
+          },
+        });
+      return updatedSubmission.userId;
+    });
+    await audit("admin.user.gold_bread_add", "user", creditedUser, {
+      amount: gold,
+    });
+    await audit("admin.review.build_approve", "project", String(id), {
+      hours,
+      gold,
+    });
+    revalidateReviewViews(id);
+    await notifyReviewDecision(id, "materials", "accepted", {
+      bread: gold,
+      gold: true,
+      note: reviewComment,
+    });
+    return;
+  }
+
   const submission = await getPendingSubmissionOrThrow(id, "materials");
   const creditedUser = await db.transaction(async (tx) => {
     await createReviewRecord(tx, {
@@ -467,7 +546,9 @@ export async function payOutProject(projectId: number) {
   const hours = normalizeHours(
     project.overrideHoursSpent ?? project.hoursSpent,
   );
-  const bread = hours * BREAD_PER_HOUR;
+  // Build ships earn gold bread; everything else earns regular bread.
+  const isBuildShip = project.submissionSource === "manual";
+  const bread = hours * (isBuildShip ? GOLD_BREAD_PER_HOUR : BREAD_PER_HOUR);
   const creditedUser = await db.transaction(async (tx) => {
     const [updatedProject] = await tx
       .update(projects)
@@ -485,22 +566,36 @@ export async function payOutProject(projectId: number) {
 
     await tx
       .insert(userBread)
-      .values({ userId: updatedProject.userId, balance: bread })
+      .values(
+        isBuildShip
+          ? { userId: updatedProject.userId, goldBalance: bread }
+          : { userId: updatedProject.userId, balance: bread },
+      )
       .onConflictDoUpdate({
         target: userBread.userId,
-        set: {
-          balance: sql`${userBread.balance} + ${bread}`,
-          updatedAt: new Date(),
-        },
+        set: isBuildShip
+          ? {
+              goldBalance: sql`${userBread.goldBalance} + ${bread}`,
+              updatedAt: new Date(),
+            }
+          : {
+              balance: sql`${userBread.balance} + ${bread}`,
+              updatedAt: new Date(),
+            },
       });
 
     return updatedProject.userId;
   });
 
-  await audit("admin.user.bread_add", "user", creditedUser, { amount: bread });
+  await audit(
+    isBuildShip ? "admin.user.gold_bread_add" : "admin.user.bread_add",
+    "user",
+    creditedUser,
+    { amount: bread },
+  );
   await audit("admin.review.pay_out", "project", String(id), { hours });
   revalidateReviewViews(id);
-  await notifyProjectStatus(id, "paid_out", { bread });
+  await notifyProjectStatus(id, "paid_out", { bread, gold: isBuildShip });
 }
 
 export async function fulfillProject(projectId: number) {

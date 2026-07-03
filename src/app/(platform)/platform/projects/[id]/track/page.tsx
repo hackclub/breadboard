@@ -5,7 +5,15 @@ import { PageHeader } from "@/components/ui/page-header";
 import { offPlatformBuilds } from "@/flags";
 import { getSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
-import { editorActivitySessions, projectJournals, projects } from "@/lib/db/schema";
+import {
+  editorActivitySessions,
+  projectJournals,
+  projects,
+  projectTimelapses,
+  user,
+} from "@/lib/db/schema";
+import { lapseOAuthConfigured, lapseProgramKeyConfigured } from "@/lib/lapse";
+import { resolveLapseUserId } from "@/lib/lapse-identity";
 
 export default async function ExternalTrackPage({
   params,
@@ -26,12 +34,11 @@ export default async function ExternalTrackPage({
       title: projects.title,
       status: projects.status,
       screenshotUrl: projects.screenshotUrl,
-      hackatimeUsername: projects.hackatimeUsername,
-      hackatimeProjectName: projects.hackatimeProjectName,
-      hackatimeSeconds: projects.hackatimeSeconds,
     })
     .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.userId, session.user.id)))
+    .where(
+      and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
+    )
     .limit(1);
 
   if (!project) notFound();
@@ -62,27 +69,85 @@ export default async function ExternalTrackPage({
     .where(eq(projectJournals.projectId, projectId))
     .orderBy(desc(projectJournals.createdAt));
 
+  const [account] = await db
+    .select({
+      token: user.lapseAccessToken,
+      lapseUserId: user.lapseUserId,
+      lapseHandle: user.lapseHandle,
+    })
+    .from(user)
+    .where(eq(user.id, session.user.id))
+    .limit(1);
+
+  // Auto-match the Lapse account by email once (persisted), so timelapses
+  // appear with zero clicks when the emails line up.
+  let lapseLinked = Boolean(account?.token) || Boolean(account?.lapseUserId);
+  if (!lapseLinked && lapseProgramKeyConfigured()) {
+    lapseLinked = Boolean(
+      await resolveLapseUserId({
+        id: session.user.id,
+        email: session.user.email,
+      }),
+    );
+  }
+
+  const timelapseRows = await db
+    .select({
+      id: projectTimelapses.id,
+      journalEntryId: projectTimelapses.journalEntryId,
+      name: projectTimelapses.name,
+      playbackUrl: projectTimelapses.playbackUrl,
+      thumbnailUrl: projectTimelapses.thumbnailUrl,
+      durationSeconds: projectTimelapses.durationSeconds,
+    })
+    .from(projectTimelapses)
+    .where(eq(projectTimelapses.projectId, projectId));
+
+  const timelapsesByJournal = new Map<number, typeof timelapseRows>();
+  for (const row of timelapseRows) {
+    if (row.journalEntryId === null) continue;
+    const list = timelapsesByJournal.get(row.journalEntryId) ?? [];
+    list.push(row);
+    timelapsesByJournal.set(row.journalEntryId, list);
+  }
+  // Time contributed by attached recordings (Lapse durations; YouTube is 0
+  // until a duration is fetched).
+  const recordingSeconds = timelapseRows.reduce(
+    (total, row) => total + (row.durationSeconds ?? 0),
+    0,
+  );
+
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Off-platform build"
+        eyebrow="Build ship"
         title={project.title}
-        description="Track your time and journal as you build off-platform, then submit for review. We measure your hours the same way we do for in-editor projects, so there's nothing to self-report."
+        description="Track your time and journal as you build off-platform, then submit for review. We measure your hours the same way we do for in-editor projects, so there's nothing to self-report. Approved builds earn gold bread, and no kit ships since you already built it."
       />
       <ExternalTrackingWorkspace
         projectId={project.id}
         title={project.title}
         screenshotUrl={project.screenshotUrl}
         trackedSeconds={tracked?.total ?? 0}
+        recordingSeconds={recordingSeconds}
         journals={journalRows.map((entry) => ({
           id: entry.id,
           content: entry.content,
           createdAt: entry.createdAt.toISOString(),
+          timelapses: (timelapsesByJournal.get(entry.id) ?? []).map((tl) => ({
+            id: tl.id,
+            name: tl.name,
+            playbackUrl: tl.playbackUrl,
+            thumbnailUrl: tl.thumbnailUrl,
+            durationSeconds: tl.durationSeconds,
+          })),
         }))}
-        hackatime={{
-          username: project.hackatimeUsername,
-          projectName: project.hackatimeProjectName,
-          seconds: project.hackatimeSeconds,
+        lapse={{
+          oauthConfigured: lapseOAuthConfigured(),
+          programEnabled: lapseProgramKeyConfigured(),
+          connected: Boolean(account?.token),
+          linked: lapseLinked,
+          handle: account?.lapseHandle ?? "",
         }}
       />
     </div>

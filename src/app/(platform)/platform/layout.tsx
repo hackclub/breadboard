@@ -1,13 +1,28 @@
 import type { ReactNode } from "react";
-import { eq } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
 import { PlatformSidebar } from "@/components/layout/platform-sidebar";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { LaunchGate } from "@/components/shared/launch-gate";
 import { pageGridClass } from "@/components/shared/styles";
 import { launched } from "@/flags";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
+import { estimateBreadFromSeconds } from "@/lib/constants";
 import { db } from "@/lib/db/db";
-import { user as userTable, userBread } from "@/lib/db/schema";
+import {
+  editorActivitySessions,
+  projects,
+  user as userTable,
+  userBread,
+} from "@/lib/db/schema";
+
+// Projects in these states have either already had their bread credited or
+// will never earn any, so they don't count toward the pending estimate.
+const SETTLED_PROJECT_STATUSES = [
+  "done",
+  "paid_out",
+  "fulfilled",
+  "rejected",
+] as const;
 
 export default async function PlatformLayout({
   children,
@@ -38,12 +53,40 @@ export default async function PlatformLayout({
 
   const isAdmin = await isAdminSession(session);
 
-  const userRow = await db
-    .select({ slackId: userTable.slackId, breadBalance: userBread.balance })
-    .from(userTable)
-    .leftJoin(userBread, eq(userBread.userId, userTable.id))
-    .where(eq(userTable.id, session.user.id))
-    .limit(1);
+  // Editor projects earn regular bread; build ships (submissionSource
+  // "manual") earn gold bread, so pending time is estimated per currency.
+  const [userRow, [pendingTracked]] = await Promise.all([
+    db
+      .select({
+        slackId: userTable.slackId,
+        breadBalance: userBread.balance,
+        goldBreadBalance: userBread.goldBalance,
+      })
+      .from(userTable)
+      .leftJoin(userBread, eq(userBread.userId, userTable.id))
+      .where(eq(userTable.id, session.user.id))
+      .limit(1),
+    db
+      .select({
+        bread: sql<number>`coalesce(sum(case when ${projects.submissionSource} = 'manual' then 0 else ${editorActivitySessions.activeSeconds} end), 0)::int`,
+        gold: sql<number>`coalesce(sum(case when ${projects.submissionSource} = 'manual' then ${editorActivitySessions.activeSeconds} else 0 end), 0)::int`,
+      })
+      .from(editorActivitySessions)
+      .innerJoin(projects, eq(projects.id, editorActivitySessions.projectId))
+      .where(
+        and(
+          eq(editorActivitySessions.userId, session.user.id),
+          notInArray(projects.status, [...SETTLED_PROJECT_STATUSES]),
+        ),
+      ),
+  ]);
+
+  const pendingBreadEstimate = estimateBreadFromSeconds(
+    pendingTracked?.bread ?? 0,
+  );
+  const pendingGoldBreadEstimate = estimateBreadFromSeconds(
+    pendingTracked?.gold ?? 0,
+  );
 
   return (
     <div className={`${pageGridClass} min-h-screen`}>
@@ -56,6 +99,9 @@ export default async function PlatformLayout({
                 email: session.user.email,
                 slackId: userRow[0]?.slackId ?? null,
                 breadBalance: userRow[0]?.breadBalance ?? 0,
+                goldBreadBalance: userRow[0]?.goldBreadBalance ?? 0,
+                pendingBreadEstimate,
+                pendingGoldBreadEstimate,
               }
             : null
         }

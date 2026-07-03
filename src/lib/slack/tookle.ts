@@ -280,7 +280,15 @@ function reviewDecisionCopy(
   phase: ReviewPhase,
   decision: ReviewDecision,
   bread?: number,
+  gold?: boolean,
 ) {
+  if (decision === "accepted" && phase === "materials" && gold) {
+    return {
+      title: "Build review accepted",
+      body: `YAY, your build got accepted. You got ${bread ?? 0} gold bread to spend in the shop. No kit to wait for since you already built it.`,
+    };
+  }
+
   if (decision === "accepted" && phase === "materials") {
     return {
       title: "Design review accepted",
@@ -394,7 +402,7 @@ export async function notifyReviewDecision(
   projectId: number,
   phase: ReviewPhase,
   decision: ReviewDecision,
-  details?: { note?: string; bread?: number },
+  details?: { note?: string; bread?: number; gold?: boolean },
 ) {
   try {
     await addReviewDoneReaction(projectId, phase);
@@ -405,7 +413,12 @@ export async function notifyReviewDecision(
     const dm = await openDm(project.ownerSlackId);
     if (!dm) return;
 
-    const copy = reviewDecisionCopy(phase, decision, details?.bread);
+    const copy = reviewDecisionCopy(
+      phase,
+      decision,
+      details?.bread,
+      details?.gold,
+    );
     const fields = [
       {
         type: "mrkdwn",
@@ -417,7 +430,10 @@ export async function notifyReviewDecision(
       },
     ];
     if (typeof details?.bread === "number" && details.bread > 0) {
-      fields.push({ type: "mrkdwn", text: `*Bread:* ${details.bread}` });
+      fields.push({
+        type: "mrkdwn",
+        text: `*${details.gold ? "Gold bread" : "Bread"}:* ${details.bread}`,
+      });
     }
 
     const blocks: SlackBlock[] = [
@@ -458,7 +474,7 @@ export async function notifyReviewDecision(
 export async function notifyProjectStatus(
   projectId: number,
   status: ProjectStatusKind,
-  details?: { note?: string; bread?: number },
+  details?: { note?: string; bread?: number; gold?: boolean },
 ) {
   try {
     const project = await getProjectWithOwner(projectId);
@@ -475,7 +491,10 @@ export async function notifyProjectStatus(
       },
     ];
     if (typeof details?.bread === "number" && details.bread > 0) {
-      fields.push({ type: "mrkdwn", text: `*Bread:* ${details.bread}` });
+      fields.push({
+        type: "mrkdwn",
+        text: `*${details.gold ? "Gold bread" : "Bread"}:* ${details.bread}`,
+      });
     }
 
     const blocks: SlackBlock[] = [

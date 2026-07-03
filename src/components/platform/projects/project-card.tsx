@@ -343,6 +343,7 @@ export function ProjectCard({
           project={project}
           onSaved={onProjectChange}
           onClose={() => setEditOpen(false)}
+          offPlatformEnabled={offPlatformEnabled}
         />
       ) : null}
       {shipOpen ? (

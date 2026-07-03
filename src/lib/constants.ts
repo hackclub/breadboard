@@ -38,4 +38,17 @@ export const ROUTES = {
   },
 } as const;
 
-export const BREAD_PER_HOUR = 30;
+export const BREAD_PER_HOUR = 5;
+
+// Build ships (off-platform builds) earn gold bread instead of regular bread.
+// Same hourly rate, different currency: gold bread discounts shop items.
+export const GOLD_BREAD_PER_HOUR = 5;
+
+// 5 bread per hour works out to one bread every 12 minutes of tracked time.
+export const SECONDS_PER_BREAD = 3600 / BREAD_PER_HOUR;
+
+// Pre-review estimate shown to users. The real amount is decided at review
+// time from approved hours, so this always rounds down.
+export function estimateBreadFromSeconds(seconds: number): number {
+  return Math.floor(Math.max(0, seconds) / SECONDS_PER_BREAD);
+}

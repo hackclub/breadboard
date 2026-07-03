@@ -1,0 +1,1 @@
+ALTER TABLE "user_bread" ADD COLUMN "gold_balance" integer DEFAULT 0 NOT NULL;

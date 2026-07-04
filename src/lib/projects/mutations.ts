@@ -319,6 +319,14 @@ export async function shipCustomProjectForUser(
         lastName: clean(data.lastName),
         hoursSpent,
         submissionSource: "manual",
+        // This legacy path is a build ship: the modal promises gold bread and
+        // no kit, and review requires build evidence (photos + demo video).
+        // Without this write, the project would keep projectType "design" and
+        // approval would pay regular bread and ship a kit, contradicting the
+        // promise. Off-platform *designs* go through createExternalDraftFromForm
+        // instead. Builders use their own parts, so kitType follows suit.
+        projectType: "build",
+        kitType: "own",
         status: "materials_review",
         reviewNote: "",
         updatedAt: now,

@@ -2,7 +2,6 @@
 
 import { useActionState, useEffect, useState } from "react";
 import {
-  HiArrowRight,
   HiArrowUpTray,
   HiClock,
   HiCodeBracket,
@@ -11,8 +10,9 @@ import {
   HiWrenchScrewdriver,
 } from "react-icons/hi2";
 import Image from "next/image";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
+  createExternalDraftFromForm,
   createProjectFromForm,
   shipProjectFromForm,
   submitCustomProjectFromForm,
@@ -36,6 +36,136 @@ type ProjectActionModalProps = {
   onClose: () => void;
 };
 
+type KitChoice = "arduino" | "esp32";
+// The terminal path the user has picked in the New Project modal:
+//  - editor: on-platform design in the Breadboard editor (regular bread + kit)
+//  - offplatform-design: design off-platform, tracked on its own page
+//    (regular bread + kit)
+//  - build: off-platform build, tracked on its own page (gold bread, no kit)
+type ProjectPath = "editor" | "offplatform-design" | "build";
+
+// Cards for the Edit Project modal's ship-type picker. Same three paths as
+// the New Project modal; switchNote shows when the user picks a different
+// path than the project currently has.
+const SHIP_TYPE_OPTIONS: Array<{
+  value: ProjectPath;
+  title: string;
+  blurb: string;
+  switchNote: string;
+}> = [
+  {
+    value: "editor",
+    title: "Editor ship",
+    blurb: "Design the schematic and code in the online editor.",
+    switchNote:
+      "Everything carries over: tracked time, journals, all of it. You'll design and track in the online editor again. Approved design work earns regular bread and ships a kit.",
+  },
+  {
+    value: "offplatform-design",
+    title: "Off-platform design",
+    blurb:
+      "Design with your own tools, tracked on this project's page. Earns bread and ships a kit.",
+    switchNote:
+      "Everything carries over: tracked time, journals, all of it. You'll design with your own tools and track on this project's page. Approved designs earn regular bread and ship a kit.",
+  },
+  {
+    value: "build",
+    title: "Build ship",
+    blurb:
+      "Build off-platform with your own parts. Earns gold bread, no kit ships.",
+    switchNote:
+      "Everything carries over: tracked time, journals, all of it. You'll build and track on this project's own page, and shipping needs the build submission requirements (photos of the finished circuit and a working demo video). Approved builds earn gold bread instead of bread, and no kit ships.",
+  },
+];
+
+function KitOption({
+  value,
+  selected,
+  onSelect,
+  name,
+}: {
+  value: KitChoice;
+  selected: boolean;
+  onSelect: () => void;
+  name: string;
+}) {
+  return (
+    <label
+      className={cn(
+        "flex cursor-pointer items-start gap-4 rounded-[12px] border-2 p-4 transition",
+        selected
+          ? "border-[#BD0F32] bg-[#fff5f7]"
+          : "border-black bg-white hover:bg-zinc-50",
+      )}
+    >
+      <div className="relative size-16 shrink-0 overflow-hidden rounded-[10px] border border-black bg-white">
+        <Image
+          src={value === "esp32" ? "/assets/esp32.png" : "/assets/arduino.png"}
+          alt={value === "esp32" ? "ESP32 kit" : "Arduino kit"}
+          fill
+          sizes="64px"
+          className="object-cover"
+        />
+      </div>
+      <div>
+        <div className="flex items-center gap-3">
+          <input
+            type="radio"
+            name={name}
+            value={value}
+            checked={selected}
+            onChange={onSelect}
+            className="mt-0.5 size-4 accent-[#BD0F32]"
+          />
+          <p className="text-sm font-black text-black">
+            {value === "esp32" ? "B - ESP32" : "A - Arduino"}
+          </p>
+        </div>
+        <p className="mt-1 text-xs text-black/50">
+          {value === "esp32"
+            ? "ESP32 board, breadboard, sensors, and Wi-Fi/Bluetooth support."
+            : "Arduino board, breadboard, sensors, and additional modules."}
+        </p>
+      </div>
+    </label>
+  );
+}
+
+function ChoiceCard({
+  selected,
+  onSelect,
+  icon,
+  title,
+  description,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "flex items-start gap-3 rounded-[12px] border-2 p-4 text-left transition",
+        selected
+          ? "border-[#BD0F32] bg-[#fff5f7]"
+          : "border-black bg-white hover:bg-zinc-50",
+      )}
+    >
+      <span className="mt-0.5 shrink-0 text-[#BD0F32]">{icon}</span>
+      <span>
+        <span className="block text-sm font-black text-black">{title}</span>
+        <span className="mt-0.5 block text-xs text-black/55">
+          {description}
+        </span>
+      </span>
+    </button>
+  );
+}
+
 export function NewProjectModal({
   onCreated,
   onClose,
@@ -45,17 +175,51 @@ export function NewProjectModal({
   onClose: () => void;
   offPlatformEnabled?: boolean;
 }) {
-  const [kitType, setKitType] = useState<"arduino" | "esp32">("arduino");
-  const [state, formAction, pending] = useActionState(
+  const router = useRouter();
+  // "design" vs "build". When off-platform is disabled there's only the
+  // on-platform design flow, so lock the class to design and skip the choice.
+  const [projectClass, setProjectClass] = useState<"design" | "build">(
+    "design",
+  );
+  // Which kind of design: arduino/esp32 build in the editor, or off-platform.
+  const [designTarget, setDesignTarget] = useState<
+    "arduino" | "esp32" | "offplatform"
+  >("arduino");
+
+  const path: ProjectPath =
+    projectClass === "build"
+      ? "build"
+      : designTarget === "offplatform"
+        ? "offplatform-design"
+        : "editor";
+  const isExternal = path !== "editor";
+
+  const [editorState, editorAction, editorPending] = useActionState(
     createProjectFromForm,
     initialProjectFormState,
   );
+  const [externalState, externalAction, externalPending] = useActionState(
+    createExternalDraftFromForm,
+    initialProjectFormState,
+  );
+
+  const state = isExternal ? externalState : editorState;
+  const pending = isExternal ? externalPending : editorPending;
 
   useEffect(() => {
-    if (!state.success || !state.project || !isProject(state.project)) return;
-    onCreated(state.project);
-    onClose();
-  }, [state, onCreated, onClose]);
+    // Editor designs land back on the board; off-platform projects open their
+    // tracking page so the user can start logging time right away.
+    if (editorState.success && editorState.project && isProject(editorState.project)) {
+      onCreated(editorState.project);
+      onClose();
+    } else if (externalState.success && externalState.project?.id) {
+      router.push(`/platform/projects/${externalState.project.id}/track`);
+    }
+  }, [editorState, externalState, onCreated, onClose, router]);
+
+  // For the editor path the kit is the chosen board; off-platform designs send
+  // their own kit choice; builds ship no kit.
+  const editorKit: KitChoice = designTarget === "esp32" ? "esp32" : "arduino";
 
   return (
     <Modal
@@ -70,12 +234,16 @@ export function NewProjectModal({
           formId="new-project-form"
           pending={pending}
           pendingLabel="Creating"
-          submitLabel="Create project"
+          submitLabel={isExternal ? "Create & start tracking" : "Create project"}
           onClose={onClose}
         />
       }
     >
-      <form id="new-project-form" action={formAction} className="grid gap-4">
+      <form
+        id="new-project-form"
+        action={isExternal ? externalAction : editorAction}
+        className="grid gap-4"
+      >
         <FormField label="Project title" id="new-project-title">
           <Input
             id="new-project-title"
@@ -95,78 +263,73 @@ export function NewProjectModal({
             className={inputClass("px-4 py-3")}
           />
         </FormField>
-        <fieldset className="grid gap-2">
-          <legend className="mb-1 text-xs font-black uppercase tracking-[0.14em] text-black/45">
-            Which kit are you using?
-          </legend>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {(["arduino", "esp32"] as const).map((value) => (
-              <label
-                key={value}
-                className={cn(
-                  "flex cursor-pointer items-start gap-4 rounded-[12px] border-2 p-4 transition",
-                  kitType === value
-                    ? "border-[#BD0F32] bg-[#fff5f7]"
-                    : "border-black bg-white hover:bg-zinc-50",
-                )}
-              >
-                <div className="relative size-16 shrink-0 overflow-hidden rounded-[10px] border border-black bg-white">
-                  <Image
-                    src={
-                      value === "esp32"
-                        ? "/assets/esp32.png"
-                        : "/assets/arduino.png"
-                    }
-                    alt={value === "esp32" ? "ESP32 kit" : "Arduino kit"}
-                    fill
-                    sizes="64px"
-                    className="object-cover"
-                  />
-                </div>
-                <div>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="radio"
-                      name="kitType"
-                      value={value}
-                      checked={kitType === value}
-                      onChange={() => setKitType(value)}
-                      className="mt-0.5 size-4 accent-[#BD0F32]"
-                    />
-                    <p className="text-sm font-black text-black">
-                      {value === "esp32" ? "B - ESP32" : "A - Arduino"}
-                    </p>
-                  </div>
-                  <p className="mt-1 text-xs text-black/50">
-                    {value === "esp32"
-                      ? "ESP32 board, breadboard, sensors, and Wi-Fi/Bluetooth support."
-                      : "Arduino board, breadboard, sensors, and additional modules."}
-                  </p>
-                </div>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+
+        {/* Hidden fields the actions read. Off-platform designs default to the
+            Arduino kit and let the user change it on the tracking page. */}
+        <input type="hidden" name="kitType" value={editorKit} />
+        <input
+          type="hidden"
+          name="projectType"
+          value={projectClass === "build" ? "build" : "design"}
+        />
+
         {offPlatformEnabled ? (
-          <Link
-            href="/platform/submit-external"
-            className="flex items-center justify-between gap-3 rounded-[12px] border border-black bg-zinc-50 p-3 text-left transition hover:bg-white"
-          >
-            <div className="flex items-start gap-2">
-              <HiWrenchScrewdriver className="mt-0.5 size-4 shrink-0 text-[#BD0F32]" />
-              <div>
-                <p className="text-sm font-black text-black">
-                  Building off-platform?
-                </p>
-                <p className="mt-0.5 text-xs text-black/55">
-                  Using KiCad, Eagle, or another tool? Start and track it on its
-                  own page instead.
-                </p>
-              </div>
+          <fieldset className="grid gap-2">
+            <legend className="mb-1 text-xs font-black uppercase tracking-[0.14em] text-black/45">
+              What are you doing?
+            </legend>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <ChoiceCard
+                selected={projectClass === "design"}
+                onSelect={() => setProjectClass("design")}
+                icon={<HiCodeBracket className="size-4" />}
+                title="Design"
+                description="Design a project, earn a kit to build it (as well as bread)!"
+              />
+              <ChoiceCard
+                selected={projectClass === "build"}
+                onSelect={() => setProjectClass("build")}
+                icon={<HiWrenchScrewdriver className="size-4" />}
+                title="Build"
+                description="Have your parts? Earn golden bread by shipping your project!"
+              />
             </div>
-            <HiArrowRight className="size-4 shrink-0 text-black/40" />
-          </Link>
+          </fieldset>
         ) : null}
+
+        {projectClass === "design" ? (
+          <fieldset className="grid gap-2">
+            <legend className="mb-1 text-xs font-black uppercase tracking-[0.14em] text-black/45">
+              {offPlatformEnabled
+                ? "How do you want to design it?"
+                : "Which kit are you using?"}
+            </legend>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <KitOption
+                value="arduino"
+                name="designTargetKit"
+                selected={designTarget === "arduino"}
+                onSelect={() => setDesignTarget("arduino")}
+              />
+              <KitOption
+                value="esp32"
+                name="designTargetKit"
+                selected={designTarget === "esp32"}
+                onSelect={() => setDesignTarget("esp32")}
+              />
+            </div>
+            {offPlatformEnabled ? (
+              <ChoiceCard
+                selected={designTarget === "offplatform"}
+                onSelect={() => setDesignTarget("offplatform")}
+                icon={<HiArrowUpTray className="size-4" />}
+                title="Off-platform design"
+                description="Design with KiCad, Eagle, or another tool and track it here. You'll pick which kit to build on the tracking page."
+              />
+            ) : null}
+          </fieldset>
+        ) : null}
+
         <ProjectActionMessage message={state.message} />
       </form>
     </Modal>
@@ -187,9 +350,16 @@ export function EditProjectModal({
     initialProjectFormState,
   );
   const [screenshotUrl, setScreenshotUrl] = useState(project.screenshotUrl);
-  const initialShipType =
-    project.submissionSource === "manual" ? "build" : "editor";
-  const [shipType, setShipType] = useState<"editor" | "build">(initialShipType);
+  // Ship type is the (projectType, submissionSource) pair, same three paths
+  // as the New Project modal. submissionSource alone can't distinguish an
+  // off-platform design from a build.
+  const initialShipType: ProjectPath =
+    project.projectType === "build"
+      ? "build"
+      : project.submissionSource === "manual"
+        ? "offplatform-design"
+        : "editor";
+  const [shipType, setShipType] = useState<ProjectPath>(initialShipType);
   const canSwitchShipType = offPlatformEnabled && project.status === "draft";
 
   useEffect(() => {
@@ -247,61 +417,41 @@ export function EditProjectModal({
             <legend className="mb-1 text-xs font-black uppercase tracking-[0.14em] text-black/45">
               How are you building this?
             </legend>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <label
-                className={cn(
-                  "flex cursor-pointer items-center gap-3 rounded-[12px] border-2 p-4 transition",
-                  shipType === "editor"
-                    ? "border-[#BD0F32] bg-[#fff5f7]"
-                    : "border-black bg-white hover:bg-zinc-50",
-                )}
-              >
-                <input
-                  type="radio"
-                  name="shipType"
-                  value="editor"
-                  checked={shipType === "editor"}
-                  onChange={() => setShipType("editor")}
-                  className="size-4 accent-[#BD0F32]"
-                />
-                <div>
-                  <p className="text-sm font-black text-black">Editor ship</p>
-                  <p className="text-xs text-black/50">
-                    Design the schematic and code in the online editor.
-                  </p>
-                </div>
-              </label>
-              <label
-                className={cn(
-                  "flex cursor-pointer items-center gap-3 rounded-[12px] border-2 p-4 transition",
-                  shipType === "build"
-                    ? "border-[#BD0F32] bg-[#fff5f7]"
-                    : "border-black bg-white hover:bg-zinc-50",
-                )}
-              >
-                <input
-                  type="radio"
-                  name="shipType"
-                  value="build"
-                  checked={shipType === "build"}
-                  onChange={() => setShipType("build")}
-                  className="size-4 accent-[#BD0F32]"
-                />
-                <div>
-                  <p className="text-sm font-black text-black">Build ship</p>
-                  <p className="text-xs text-black/50">
-                    Build off-platform with your own tools and parts. Earns gold
-                    bread — no kit ships.
-                  </p>
-                </div>
-              </label>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {SHIP_TYPE_OPTIONS.map((option) => (
+                <label
+                  key={option.value}
+                  className={cn(
+                    "flex cursor-pointer items-start gap-3 rounded-[12px] border-2 p-4 transition",
+                    shipType === option.value
+                      ? "border-[#BD0F32] bg-[#fff5f7]"
+                      : "border-black bg-white hover:bg-zinc-50",
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="shipType"
+                    value={option.value}
+                    checked={shipType === option.value}
+                    onChange={() => setShipType(option.value)}
+                    className="mt-0.5 size-4 shrink-0 accent-[#BD0F32]"
+                  />
+                  <div>
+                    <p className="text-sm font-black text-black">
+                      {option.title}
+                    </p>
+                    <p className="text-xs text-black/50">{option.blurb}</p>
+                  </div>
+                </label>
+              ))}
             </div>
             {shipType !== initialShipType ? (
               <p className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-xs font-semibold text-zinc-600">
                 <HiInformationCircle className="size-3.5 shrink-0" />
-                {shipType === "build"
-                  ? "Everything carries over — tracked time, journals, all of it. You'll build and track on this project's own page, and shipping it needs the build submission requirements (photos of the finished circuit and a working demo video). Approved builds earn gold bread instead of bread, and no kit ships."
-                  : "Everything carries over — tracked time, journals, all of it. You'll design and track in the online editor again, and approved design work earns regular bread."}
+                {
+                  SHIP_TYPE_OPTIONS.find((o) => o.value === shipType)
+                    ?.switchNote
+                }
               </p>
             ) : null}
           </fieldset>

@@ -28,7 +28,13 @@ export const shopOpen = flag<boolean>({
 
 export const offPlatformBuilds = flag<boolean>({
   key: "off-platform-builds",
-  adapter: growthbookAdapter.feature<boolean>(),
-  defaultValue: false,
+  // Forced on in local dev so the off-platform pages are reachable without a
+  // GrowthBook override. Production always decides via GrowthBook.
+  ...(process.env.NODE_ENV === "development"
+    ? { decide: () => true }
+    : {
+        adapter: growthbookAdapter.feature<boolean>(),
+        defaultValue: false,
+      }),
   identify,
 });

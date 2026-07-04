@@ -13,6 +13,7 @@ import {
   user,
 } from "@/lib/db/schema";
 import { lapseOAuthConfigured, lapseProgramKeyConfigured } from "@/lib/lapse";
+import { isBuildShip } from "@/lib/projects/project-type";
 import { resolveLapseUserId } from "@/lib/lapse-identity";
 
 export default async function ExternalTrackPage({
@@ -34,6 +35,8 @@ export default async function ExternalTrackPage({
       title: projects.title,
       status: projects.status,
       screenshotUrl: projects.screenshotUrl,
+      projectType: projects.projectType,
+      kitType: projects.kitType,
     })
     .from(projects)
     .where(
@@ -117,17 +120,25 @@ export default async function ExternalTrackPage({
     0,
   );
 
+  const isBuild = isBuildShip(project);
+
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Build ship"
+        eyebrow={isBuild ? "Build ship" : "Off-platform design"}
         title={project.title}
-        description="Track your time and journal as you build off-platform, then submit for review. We measure your hours the same way we do for in-editor projects, so there's nothing to self-report. Approved builds earn gold bread, and no kit ships since you already built it."
+        description={
+          isBuild
+            ? "Track your time and journal as you build off-platform, then submit for review. We measure your hours the same way we do for in-editor projects, so there's nothing to self-report. Approved builds earn gold bread, and no kit ships since you already built it."
+            : "Track your time and journal as you design off-platform, then submit for review. We measure your hours the same way we do for in-editor projects, so there's nothing to self-report. Approved designs earn regular bread, and we ship you a kit to build it."
+        }
       />
       <ExternalTrackingWorkspace
         projectId={project.id}
         title={project.title}
         screenshotUrl={project.screenshotUrl}
+        projectType={isBuild ? "build" : "design"}
+        kitType={project.kitType === "esp32" ? "esp32" : "arduino"}
         trackedSeconds={tracked?.total ?? 0}
         recordingSeconds={recordingSeconds}
         journals={journalRows.map((entry) => ({

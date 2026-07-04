@@ -16,6 +16,7 @@ import {
   projects,
   userBread,
 } from "@/lib/db/schema";
+import { isBuildShip } from "@/lib/projects/project-type";
 import { notifyProjectStatus, notifyReviewDecision } from "@/lib/slack/tookle";
 
 const REVIEW_TEXT_LIMIT = 2000;
@@ -364,8 +365,11 @@ export async function approveProject(
   }
 
   // Build ships are finished projects built off-platform: approval pays out
-  // gold bread immediately and there's no kit to fulfill.
-  if (project.submissionSource === "manual") {
+  // gold bread immediately and there's no kit to fulfill. Off-platform *design*
+  // (projectType "design", submissionSource "manual") is not a build ship, so
+  // it falls through to the normal design flow: a kit ships and it earns
+  // regular bread.
+  if (isBuildShip(project)) {
     const submission = await getPendingSubmissionOrThrow(id, "materials");
     const gold = hours * GOLD_BREAD_PER_HOUR;
     const creditedUser = await db.transaction(async (tx) => {
@@ -546,9 +550,10 @@ export async function payOutProject(projectId: number) {
   const hours = normalizeHours(
     project.overrideHoursSpent ?? project.hoursSpent,
   );
-  // Build ships earn gold bread; everything else earns regular bread.
-  const isBuildShip = project.submissionSource === "manual";
-  const bread = hours * (isBuildShip ? GOLD_BREAD_PER_HOUR : BREAD_PER_HOUR);
+  // Build ships earn gold bread; everything else (including off-platform
+  // design) earns regular bread.
+  const buildShip = isBuildShip(project);
+  const bread = hours * (buildShip ? GOLD_BREAD_PER_HOUR : BREAD_PER_HOUR);
   const creditedUser = await db.transaction(async (tx) => {
     const [updatedProject] = await tx
       .update(projects)
@@ -567,13 +572,13 @@ export async function payOutProject(projectId: number) {
     await tx
       .insert(userBread)
       .values(
-        isBuildShip
+        buildShip
           ? { userId: updatedProject.userId, goldBalance: bread }
           : { userId: updatedProject.userId, balance: bread },
       )
       .onConflictDoUpdate({
         target: userBread.userId,
-        set: isBuildShip
+        set: buildShip
           ? {
               goldBalance: sql`${userBread.goldBalance} + ${bread}`,
               updatedAt: new Date(),
@@ -588,14 +593,14 @@ export async function payOutProject(projectId: number) {
   });
 
   await audit(
-    isBuildShip ? "admin.user.gold_bread_add" : "admin.user.bread_add",
+    buildShip ? "admin.user.gold_bread_add" : "admin.user.bread_add",
     "user",
     creditedUser,
     { amount: bread },
   );
   await audit("admin.review.pay_out", "project", String(id), { hours });
   revalidateReviewViews(id);
-  await notifyProjectStatus(id, "paid_out", { bread, gold: isBuildShip });
+  await notifyProjectStatus(id, "paid_out", { bread, gold: buildShip });
 }
 
 export async function fulfillProject(projectId: number) {

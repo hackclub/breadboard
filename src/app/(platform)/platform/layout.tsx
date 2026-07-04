@@ -53,8 +53,9 @@ export default async function PlatformLayout({
 
   const isAdmin = await isAdminSession(session);
 
-  // Editor projects earn regular bread; build ships (submissionSource
-  // "manual") earn gold bread, so pending time is estimated per currency.
+  // Build ships (projectType "build") earn gold bread; everything else,
+  // including off-platform design, earns regular bread, so pending time is
+  // estimated per currency.
   const [userRow, [pendingTracked]] = await Promise.all([
     db
       .select({
@@ -68,8 +69,10 @@ export default async function PlatformLayout({
       .limit(1),
     db
       .select({
-        bread: sql<number>`coalesce(sum(case when ${projects.submissionSource} = 'manual' then 0 else ${editorActivitySessions.activeSeconds} end), 0)::int`,
-        gold: sql<number>`coalesce(sum(case when ${projects.submissionSource} = 'manual' then ${editorActivitySessions.activeSeconds} else 0 end), 0)::int`,
+        // SQL restatement of isBuildShip (lib/projects/project-type.ts):
+        // 'build' time accrues toward gold bread, everything else regular.
+        bread: sql<number>`coalesce(sum(case when ${projects.projectType} = 'build' then 0 else ${editorActivitySessions.activeSeconds} end), 0)::int`,
+        gold: sql<number>`coalesce(sum(case when ${projects.projectType} = 'build' then ${editorActivitySessions.activeSeconds} else 0 end), 0)::int`,
       })
       .from(editorActivitySessions)
       .innerJoin(projects, eq(projects.id, editorActivitySessions.projectId))

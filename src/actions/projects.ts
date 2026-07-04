@@ -51,7 +51,7 @@ const projectBasicsSchema = z.object({
   title: z.string().trim().min(1, "Project title is required"),
   description: z.string().trim().max(2000).default(""),
   screenshotUrl: z.string().trim().max(2048).default(""),
-  shipType: z.enum(["editor", "build"]).optional(),
+  shipType: z.enum(["editor", "offplatform-design", "build"]).optional(),
 });
 
 const createProjectSchema = projectBasicsSchema
@@ -308,13 +308,22 @@ export async function updateProjectBasicsFromForm(
       { projectId, title, description, screenshotUrl },
     );
 
-    let submissionSource: string | undefined;
+    let shipPatch:
+      | { submissionSource: string; projectType: "build" | "design" }
+      | undefined;
     if (shipType) {
-      const requestedSource = shipType === "build" ? "manual" : "editor";
+      // editor → editor/design; offplatform-design → manual/design;
+      // build → manual/build. Source and type are independent columns, so
+      // compare both: a design/build change with an unchanged source (e.g.
+      // off-platform design → build) must still be written.
+      const requestedSource = shipType === "editor" ? "editor" : "manual";
+      const requestedType = shipType === "build" ? "build" : "design";
       const [current] = await db
         .select({
           status: projects.status,
           submissionSource: projects.submissionSource,
+          projectType: projects.projectType,
+          kitType: projects.kitType,
         })
         .from(projects)
         .where(
@@ -322,7 +331,10 @@ export async function updateProjectBasicsFromForm(
         )
         .limit(1);
       if (!current) throw new Error("Project not found.");
-      if (requestedSource !== current.submissionSource) {
+      if (
+        requestedSource !== current.submissionSource ||
+        requestedType !== current.projectType
+      ) {
         if (current.status !== "draft") {
           throw new Error("Only drafts can switch ship type.");
         }
@@ -331,7 +343,19 @@ export async function updateProjectBasicsFromForm(
         }
         await db
           .update(projects)
-          .set({ submissionSource: requestedSource, updatedAt: new Date() })
+          .set({
+            submissionSource: requestedSource,
+            projectType: requestedType,
+            // Builds use the builder's own parts; designs must end up with a
+            // shippable kit again or approval would skip fulfillment
+            // (review.ts treats kitType "own" as "builder has parts").
+            ...(requestedType === "build"
+              ? { kitType: "own" as const }
+              : current.kitType === "own"
+                ? { kitType: "arduino" as const }
+                : {}),
+            updatedAt: new Date(),
+          })
           .where(
             and(
               eq(projects.id, projectId),
@@ -339,7 +363,10 @@ export async function updateProjectBasicsFromForm(
               eq(projects.status, "draft"),
             ),
           );
-        submissionSource = requestedSource;
+        shipPatch = {
+          submissionSource: requestedSource,
+          projectType: requestedType,
+        };
       }
     }
     revalidatePath("/platform/projects");
@@ -351,7 +378,7 @@ export async function updateProjectBasicsFromForm(
         title: title || "Untitled project",
         description,
         screenshotUrl,
-        ...(submissionSource ? { submissionSource } : {}),
+        ...(shipPatch ?? {}),
       },
     };
   } catch (error) {
@@ -550,11 +577,14 @@ const externalDraftSchema = z.object({
   title: z.string().trim().min(1, "Project title is required"),
   description: z.string().trim().max(2000).default(""),
   kitType: z.enum(["arduino", "esp32", "own"]).default("arduino"),
+  // "build": off-platform build, gold bread, no kit. "design": off-platform
+  // design, regular bread, a kit ships.
+  projectType: z.enum(["build", "design"]).default("build"),
 });
 
-// Off-platform builds are created as ordinary drafts so they accrue tracked
-// time, screen evidence, and journals through the same pipeline as the editor
-// before they're submitted for review.
+// Off-platform projects (both builds and off-platform designs) are created as
+// ordinary drafts so they accrue tracked time, screen evidence, and journals
+// through the same pipeline as the editor before they're submitted for review.
 export async function createExternalDraftFromForm(
   _previousState: ProjectFormState,
   formData: FormData,
@@ -563,19 +593,27 @@ export async function createExternalDraftFromForm(
     if (!(await offPlatformBuilds())) {
       throw new Error("Off-platform builds aren't available right now.");
     }
-    const { title, description, kitType } = externalDraftSchema.parse({
-      title: formData.get("title"),
-      description: formData.get("description") ?? "",
-      kitType: formData.get("kitType") ?? "arduino",
-    });
+    const { title, description, kitType, projectType } =
+      externalDraftSchema.parse({
+        title: formData.get("title"),
+        description: formData.get("description") ?? "",
+        kitType: formData.get("kitType") ?? "arduino",
+        projectType: formData.get("projectType") ?? "build",
+      });
     const session = await requireSession();
+    // Builds ship no kit, so their kit choice is irrelevant; designs keep the
+    // chosen kit so it can be fulfilled after review.
     const projectId = await createProjectForUser(
       { userId: session.user.id, email: session.user.email },
-      { title, description, kitType },
+      {
+        title,
+        description,
+        kitType: projectType === "build" ? "own" : kitType,
+      },
     );
     await db
       .update(projects)
-      .set({ submissionSource: "manual", updatedAt: new Date() })
+      .set({ submissionSource: "manual", projectType, updatedAt: new Date() })
       .where(
         and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
       );
@@ -584,6 +622,45 @@ export async function createExternalDraftFromForm(
   } catch (error) {
     return projectFormError(error);
   }
+}
+
+// Set which kit ships for an off-platform *design* draft. Chosen on the
+// tracking page rather than at creation, so builders can change their mind
+// while they work. Ignored for builds, which never ship a kit.
+export async function setOffPlatformDesignKit(
+  projectId: number,
+  kitType: "arduino" | "esp32",
+): Promise<void> {
+  if (!(await offPlatformBuilds())) {
+    throw new Error("Off-platform builds aren't available right now.");
+  }
+  if (kitType !== "arduino" && kitType !== "esp32") {
+    throw new Error("Pick a valid kit.");
+  }
+  if (!Number.isInteger(projectId)) throw new Error("Invalid project.");
+  const session = await requireSession();
+  const updated = await db
+    .update(projects)
+    .set({ kitType, updatedAt: new Date() })
+    .where(
+      and(
+        eq(projects.id, projectId),
+        eq(projects.userId, session.user.id),
+        eq(projects.status, "draft"),
+        eq(projects.projectType, "design"),
+      ),
+    )
+    .returning({ id: projects.id });
+  // A zero-row match means the project was submitted (or isn't a design
+  // draft) since the page loaded, e.g. from another tab. Throw so the
+  // caller's optimistic selection reverts instead of showing a kit choice
+  // that was never saved.
+  if (updated.length === 0) {
+    throw new Error(
+      "The kit can't be changed anymore. This project is no longer an editable design draft.",
+    );
+  }
+  revalidatePath(`/platform/projects/${projectId}/track`);
 }
 
 async function trackedSecondsFor(projectId: number, userId: string) {
@@ -727,6 +804,26 @@ export async function listAvailableTimelapses(
     }));
 }
 
+// Journal entries and their recordings are only editable while the project is
+// a draft. The tracking page redirects once submitted, but server actions are
+// invokable directly, so the invariant has to be enforced here: without it,
+// journal text could be rewritten after review, and deleting a recording row
+// would release the video to be re-claimed as fresh evidence on another
+// project (hoursSpent is locked from recordings at submit time).
+async function assertOwnedDraftProject(projectId: number, userId: string) {
+  const [project] = await db
+    .select({ status: projects.status })
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+    .limit(1);
+  if (!project) throw new Error("Project not found.");
+  if (project.status !== "draft") {
+    throw new Error(
+      "This project has been submitted, so its journal can no longer be changed.",
+    );
+  }
+}
+
 // Creates a journal entry. Every entry must carry a recording, one of: 10+
 // minutes of on-platform screen tracking, a Lapse timelapse, or a YouTube link.
 export async function addExternalJournalFromForm(
@@ -751,44 +848,13 @@ export async function addExternalJournalFromForm(
     );
 
     const session = await requireSession();
-    const [owned] = await db
-      .select({ id: projects.id })
-      .from(projects)
-      .where(
-        and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
-      )
-      .limit(1);
-    if (!owned) throw new Error("Project not found.");
+    await assertOwnedDraftProject(projectId, session.user.id);
 
-    // Resolve the Lapse timelapses the user picked (owned + unclaimed).
-    let lapseToInsert: Awaited<
-      ReturnType<typeof fetchSessionUserTimelapses>
-    > = [];
-    if (timelapseIds.length) {
-      const all = await fetchSessionUserTimelapses(session);
-      const claimed = await db
-        .select({ lapseId: projectTimelapses.lapseId })
-        .from(projectTimelapses)
-        .where(eq(projectTimelapses.userId, session.user.id));
-      const claimedIds = new Set(claimed.map((row) => row.lapseId));
-      lapseToInsert = all.filter(
-        (entry) =>
-          timelapseIds.includes(entry.id) &&
-          entry.playbackUrl &&
-          !claimedIds.has(entry.id),
-      );
-    }
-
-    // Resolve fresh YouTube videos (a video is claimed by one entry globally).
-    let youtubeFresh: string[] = [];
-    if (youtubeIds.length) {
-      const existing = await db
-        .select({ lapseId: projectTimelapses.lapseId })
-        .from(projectTimelapses)
-        .where(inArray(projectTimelapses.lapseId, youtubeIds));
-      const takenGlobally = new Set(existing.map((row) => row.lapseId));
-      youtubeFresh = youtubeIds.filter((id) => !takenGlobally.has(id));
-    }
+    const { lapseToInsert, youtubeFresh } = await resolveFreshRecordings(
+      session,
+      timelapseIds,
+      youtubeIds,
+    );
 
     // On-platform screen recording backs the entry once 10+ minutes are tracked
     // since the last entry (same gate as the editor's journaling rule).
@@ -814,46 +880,168 @@ export async function addExternalJournalFromForm(
       })
       .returning({ id: projectJournals.id });
 
-    if (lapseToInsert.length) {
-      await db
-        .insert(projectTimelapses)
-        .values(
-          lapseToInsert.map((entry) => ({
-            projectId,
-            journalEntryId: journal.id,
-            userId: session.user.id,
-            lapseId: entry.id,
-            name: entry.name,
-            playbackUrl: entry.playbackUrl,
-            thumbnailUrl: entry.thumbnailUrl,
-            durationSeconds: entry.durationSeconds,
-            hackatimeProject: entry.hackatimeProject,
-            recordedAt: entry.recordedAt,
-            syncedAt: new Date(),
-          })),
-        )
-        .onConflictDoNothing();
-    }
+    await insertRecordings(
+      session,
+      projectId,
+      journal.id,
+      lapseToInsert,
+      youtubeFresh,
+    );
 
-    if (youtubeFresh.length) {
-      await db
-        .insert(projectTimelapses)
-        .values(
-          youtubeFresh.map((videoId) => ({
-            projectId,
-            journalEntryId: journal.id,
-            userId: session.user.id,
-            lapseId: videoId,
-            name: "YouTube video",
-            playbackUrl: youtubeWatchUrl(videoId),
-            thumbnailUrl: youtubeThumbnail(videoId),
-            durationSeconds: 0,
-            hackatimeProject: "",
-            recordedAt: null,
-            syncedAt: new Date(),
-          })),
-        )
-        .onConflictDoNothing();
+    revalidatePath(`/platform/projects/${projectId}/track`);
+    return { success: true, project: { id: projectId } };
+  } catch (error) {
+    return projectFormError(error);
+  }
+}
+
+// Resolves the recordings a user picked into ones we can actually attach:
+// Lapse timelapses they own and haven't claimed yet, and YouTube videos not
+// already claimed by any entry (a video belongs to one entry globally).
+async function resolveFreshRecordings(
+  session: { user: { id: string; email: string } },
+  timelapseIds: string[],
+  youtubeIds: string[],
+) {
+  let lapseToInsert: Awaited<ReturnType<typeof fetchSessionUserTimelapses>> = [];
+  if (timelapseIds.length) {
+    const all = await fetchSessionUserTimelapses(session);
+    const claimed = await db
+      .select({ lapseId: projectTimelapses.lapseId })
+      .from(projectTimelapses)
+      .where(eq(projectTimelapses.userId, session.user.id));
+    const claimedIds = new Set(claimed.map((row) => row.lapseId));
+    lapseToInsert = all.filter(
+      (entry) =>
+        timelapseIds.includes(entry.id) &&
+        entry.playbackUrl &&
+        !claimedIds.has(entry.id),
+    );
+  }
+
+  let youtubeFresh: string[] = [];
+  if (youtubeIds.length) {
+    const existing = await db
+      .select({ lapseId: projectTimelapses.lapseId })
+      .from(projectTimelapses)
+      .where(inArray(projectTimelapses.lapseId, youtubeIds));
+    const takenGlobally = new Set(existing.map((row) => row.lapseId));
+    youtubeFresh = youtubeIds.filter((id) => !takenGlobally.has(id));
+  }
+
+  return { lapseToInsert, youtubeFresh };
+}
+
+// Attaches resolved recordings to a journal entry.
+async function insertRecordings(
+  session: { user: { id: string } },
+  projectId: number,
+  journalEntryId: number,
+  lapseToInsert: Awaited<ReturnType<typeof fetchSessionUserTimelapses>>,
+  youtubeFresh: string[],
+) {
+  if (lapseToInsert.length) {
+    await db
+      .insert(projectTimelapses)
+      .values(
+        lapseToInsert.map((entry) => ({
+          projectId,
+          journalEntryId,
+          userId: session.user.id,
+          lapseId: entry.id,
+          name: entry.name,
+          playbackUrl: entry.playbackUrl,
+          thumbnailUrl: entry.thumbnailUrl,
+          durationSeconds: entry.durationSeconds,
+          hackatimeProject: entry.hackatimeProject,
+          recordedAt: entry.recordedAt,
+          syncedAt: new Date(),
+        })),
+      )
+      .onConflictDoNothing();
+  }
+
+  if (youtubeFresh.length) {
+    await db
+      .insert(projectTimelapses)
+      .values(
+        youtubeFresh.map((videoId) => ({
+          projectId,
+          journalEntryId,
+          userId: session.user.id,
+          lapseId: videoId,
+          name: "YouTube video",
+          playbackUrl: youtubeWatchUrl(videoId),
+          thumbnailUrl: youtubeThumbnail(videoId),
+          durationSeconds: 0,
+          hackatimeProject: "",
+          recordedAt: null,
+          syncedAt: new Date(),
+        })),
+      )
+      .onConflictDoNothing();
+  }
+}
+
+// Edit an existing journal entry: update its text and optionally attach more
+// recordings. Owner-only and draft-only (assertOwnedDraftProject).
+export async function updateExternalJournalFromForm(
+  _previousState: ProjectFormState,
+  formData: FormData,
+): Promise<ProjectFormState> {
+  try {
+    if (!(await offPlatformBuilds())) {
+      throw new Error("Off-platform builds aren't available right now.");
+    }
+    const projectId = Number(formData.get("projectId"));
+    const journalId = Number(formData.get("journalId"));
+    if (!Number.isInteger(projectId) || !Number.isInteger(journalId)) {
+      throw new Error("Invalid entry.");
+    }
+    const content = String(formData.get("content") ?? "").trim();
+    if (content.length < 10) throw new Error("Journal entry is too short.");
+    if (content.length > 4000) throw new Error("Journal entry is too long.");
+    const timelapseIds = formData
+      .getAll("timelapseIds")
+      .map((value) => String(value))
+      .filter(Boolean);
+    const youtubeIds = parseYouTubeVideoIds(
+      String(formData.get("youtubeUrls") ?? ""),
+    );
+
+    const session = await requireSession();
+    await assertOwnedDraftProject(projectId, session.user.id);
+    const [entry] = await db
+      .select({ id: projectJournals.id })
+      .from(projectJournals)
+      .where(
+        and(
+          eq(projectJournals.id, journalId),
+          eq(projectJournals.projectId, projectId),
+          eq(projectJournals.userId, session.user.id),
+        ),
+      )
+      .limit(1);
+    if (!entry) throw new Error("Entry not found.");
+
+    await db
+      .update(projectJournals)
+      .set({ content, updatedAt: new Date() })
+      .where(eq(projectJournals.id, journalId));
+
+    if (timelapseIds.length || youtubeIds.length) {
+      const { lapseToInsert, youtubeFresh } = await resolveFreshRecordings(
+        session,
+        timelapseIds,
+        youtubeIds,
+      );
+      await insertRecordings(
+        session,
+        projectId,
+        journalId,
+        lapseToInsert,
+        youtubeFresh,
+      );
     }
 
     revalidatePath(`/platform/projects/${projectId}/track`);
@@ -861,6 +1049,47 @@ export async function addExternalJournalFromForm(
   } catch (error) {
     return projectFormError(error);
   }
+}
+
+// Detach a recording (Lapse timelapse or YouTube video) from its journal entry.
+// Deleting the row releases the video so it can be attached elsewhere again.
+export async function removeJournalRecording(
+  timelapseId: number,
+): Promise<void> {
+  if (!(await offPlatformBuilds())) {
+    throw new Error("Off-platform builds aren't available right now.");
+  }
+  if (!Number.isInteger(timelapseId)) throw new Error("Invalid recording.");
+  const session = await requireSession();
+  const [row] = await db
+    .select({
+      projectId: projectTimelapses.projectId,
+      projectStatus: projects.status,
+    })
+    .from(projectTimelapses)
+    .innerJoin(projects, eq(projects.id, projectTimelapses.projectId))
+    .where(
+      and(
+        eq(projectTimelapses.id, timelapseId),
+        eq(projectTimelapses.userId, session.user.id),
+      ),
+    )
+    .limit(1);
+  if (!row) return;
+  if (row.projectStatus !== "draft") {
+    throw new Error(
+      "This project has been submitted, so its recordings can no longer be removed.",
+    );
+  }
+  await db
+    .delete(projectTimelapses)
+    .where(
+      and(
+        eq(projectTimelapses.id, timelapseId),
+        eq(projectTimelapses.userId, session.user.id),
+      ),
+    );
+  revalidatePath(`/platform/projects/${row.projectId}/track`);
 }
 
 const externalSubmitSchema = z.object({

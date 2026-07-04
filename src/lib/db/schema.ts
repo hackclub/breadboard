@@ -635,6 +635,11 @@ export const projects = pgTable(
     archived: boolean("archived").notNull().default(false),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     submissionSource: text("submission_source").notNull().default("editor"),
+    // "design" earns regular bread and ships a kit (whether designed in the
+    // editor or off-platform); "build" is an off-platform build that earns gold
+    // bread with no kit. Distinct from submissionSource, which only records
+    // where the work was tracked (editor vs manual/off-platform).
+    projectType: text("project_type").notNull().default("design"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

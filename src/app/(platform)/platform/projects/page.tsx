@@ -8,6 +8,7 @@ import {
   getHackClubClaims,
 } from "@/lib/auth/hackclub";
 import { offPlatformBuilds } from "@/flags";
+import { asProjectType } from "@/lib/projects/project-type";
 import { getSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import {
@@ -41,6 +42,7 @@ const projectColumns = {
   reviewNote: projects.reviewNote,
   kitType: projects.kitType,
   submissionSource: projects.submissionSource,
+  projectType: projects.projectType,
   journalCount: sql<number>`(
     SELECT COUNT(*) FROM ${projectJournals}
     WHERE ${projectJournals.projectId} = ${projects.id}
@@ -52,7 +54,10 @@ const projectColumns = {
   )`.mapWith(Number),
 };
 
-type ProjectRow = Omit<PlatformProject, "kitType"> & { kitType: string };
+type ProjectRow = Omit<PlatformProject, "kitType" | "projectType"> & {
+  kitType: string;
+  projectType: string;
+};
 
 function normalizeProjectRow(project: ProjectRow): PlatformProject {
   return {
@@ -65,6 +70,7 @@ function normalizeProjectRow(project: ProjectRow): PlatformProject {
           : "arduino",
     journalCount: project.journalCount ?? 0,
     submissionSource: project.submissionSource ?? "editor",
+    projectType: asProjectType(project.projectType),
   };
 }
 

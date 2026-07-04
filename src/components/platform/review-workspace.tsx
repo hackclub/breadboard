@@ -23,6 +23,7 @@ import {
 } from "@/actions/admin/review";
 import { BreadAmount, BreadIcon } from "@/components/shared/bread-amount";
 import { Markdown } from "@/components/shared/markdown";
+import { isBuildShip } from "@/lib/projects/project-type";
 import { storageReadUrl } from "@/lib/storage/urls";
 
 type ReviewProject = {
@@ -62,6 +63,7 @@ type ReviewProject = {
   userId: string;
   kitType: string;
   submissionSource: string | null;
+  projectType: string;
 };
 
 type Journal = {
@@ -213,6 +215,10 @@ export function ReviewWorkspace({
   const [userComment, setUserComment] = useState("");
   const [pending, startTransition] = useTransition();
   const isManual = initial.submissionSource === "manual";
+  // Currency follows projectType, not submissionSource: an off-platform
+  // *design* (manual source, design type) earns regular bread and ships a
+  // kit, exactly like an editor design. Only build ships earn gold.
+  const isBuild = isBuildShip(initial);
   const screenshot = safeUrl(initial.screenshotUrl);
   const playable = safeUrl(initial.playableUrl);
   const demoVideo = safeUrl(initial.demoVideoUrl);
@@ -421,8 +427,8 @@ export function ReviewWorkspace({
                   />
                   <span className="text-sm font-black text-[#BD0F32]">
                     Awards{" "}
-                    <BreadAmount amount={approvedBread} gold={isManual} />{" "}
-                    {isManual ? "gold bread " : ""}({approvedHours || 0}h ×{" "}
+                    <BreadAmount amount={approvedBread} gold={isBuild} />{" "}
+                    {isBuild ? "gold bread " : ""}({approvedHours || 0}h ×{" "}
                     {breadPerHour})
                   </span>
                 </label>
@@ -653,10 +659,10 @@ export function ReviewWorkspace({
             Currency
           </div>
           <p className="mt-2 text-xs font-bold uppercase tracking-[0.1em] text-black/40">
-            Award{isManual ? " (gold bread — build ship)" : ""}
+            Award{isBuild ? " (gold bread — build ship)" : ""}
           </p>
           <p className="text-3xl font-black text-black">
-            <BreadAmount amount={approvedBread} size="lg" gold={isManual} />
+            <BreadAmount amount={approvedBread} size="lg" gold={isBuild} />
           </p>
           <p className="mt-1 text-sm text-black/55">
             {approvedHours || 0}h × {breadPerHour}
@@ -669,7 +675,7 @@ export function ReviewWorkspace({
               {initial.hoursSpent}h × {breadPerHour} ={" "}
               <BreadAmount
                 amount={initial.hoursSpent * breadPerHour}
-                gold={isManual}
+                gold={isBuild}
               />
             </p>
             <p className="text-[10px] font-bold text-black/35">

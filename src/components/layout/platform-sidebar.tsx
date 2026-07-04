@@ -12,6 +12,7 @@ import {
   HiCube,
   HiHome,
   HiShoppingBag,
+  HiSignal,
   HiUsers,
 } from "react-icons/hi2";
 import { authClient } from "@/lib/auth/client";
@@ -63,6 +64,11 @@ const adminNavigation: SidebarSection = {
   name: "Admin",
   links: [
     { name: "Dashboard", href: "/platform/admin", icon: HiCog6Tooth },
+    {
+      name: "In progress",
+      href: "/platform/admin/in-progress",
+      icon: HiSignal,
+    },
     { name: "Fulfillment", href: "/platform/admin/fulfillment", icon: HiCube },
     {
       name: "Review",

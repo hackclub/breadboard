@@ -1,3 +1,7 @@
+import type { ProjectType } from "@/lib/projects/project-type";
+
+export type { ProjectType };
+
 export type ProjectStatus =
   | "draft"
   | "materials_review"
@@ -95,6 +99,7 @@ export type PlatformProject = ShipInput & {
   journalCount: number;
   trackedSeconds: number;
   submissionSource: string;
+  projectType: ProjectType;
 };
 
 export type ShippingAddress = {

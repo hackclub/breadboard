@@ -3,7 +3,8 @@ import Link from "next/link";
 import { HiArrowLeft } from "react-icons/hi2";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
-import { BREAD_PER_HOUR } from "@/lib/constants";
+import { BREAD_PER_HOUR, GOLD_BREAD_PER_HOUR } from "@/lib/constants";
+import { isBuildShip } from "@/lib/projects/project-type";
 import { db } from "@/lib/db/db";
 import {
   projectSubmissions,
@@ -75,6 +76,7 @@ export default async function AdminReviewProjectPage({
       breadAmount: projectSubmissions.breadAmount,
       submissionType: projectSubmissions.type,
       submissionSource: projectSubmissions.submissionSource,
+      projectType: projects.projectType,
       shippedAt: projectSubmissions.submittedAt,
       updatedAt: projectSubmissions.updatedAt,
       createdAt: projects.createdAt,
@@ -156,7 +158,9 @@ export default async function AdminReviewProjectPage({
         project={project}
         journals={journals}
         timelapses={timelapses}
-        breadPerHour={BREAD_PER_HOUR}
+        breadPerHour={
+          isBuildShip(project) ? GOLD_BREAD_PER_HOUR : BREAD_PER_HOUR
+        }
       />
     </main>
   );

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Clock, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Clock, PanelRightClose, PanelRightOpen, Pencil } from "lucide-react";
+import { Markdown } from "@/components/shared/markdown";
 import {
   refreshActivityTracking,
   setActivityStatusListener,
@@ -15,6 +16,23 @@ function fmt(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
   return `${m}m ${s.toString().padStart(2, "0")}s`;
+}
+
+type JournalEntry = {
+  id: number;
+  content: string;
+  createdAt: string;
+  updatedAt: string | null;
+};
+
+function entryDateLabel(entry: JournalEntry): string {
+  const stamp = new Date(entry.createdAt).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return entry.updatedAt ? `${stamp} · edited` : stamp;
 }
 
 export function EditorActivityIndicator({ projectId }: { projectId: number }) {
@@ -32,7 +50,34 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
   const [open, setOpen] = useState(false);
   const [content, setContent] = useState("");
   const [saving, setSaving] = useState(false);
+  const [draftTab, setDraftTab] = useState<"write" | "preview">("write");
+  const [entries, setEntries] = useState<JournalEntry[]>([]);
+  const [entriesEditable, setEntriesEditable] = useState(false);
+  const [entriesLoaded, setEntriesLoaded] = useState(false);
   const draftKey = `breadboard:journal-draft:${projectId}`;
+
+  const refreshEntries = useCallback(async () => {
+    try {
+      const response = await fetch(
+        `/api/editor/projects/${projectId}/journal`,
+        { credentials: "include" },
+      );
+      if (!response.ok) return;
+      const data = (await response.json()) as {
+        entries: JournalEntry[];
+        editable: boolean;
+      };
+      setEntries(data.entries ?? []);
+      setEntriesEditable(Boolean(data.editable));
+    } finally {
+      setEntriesLoaded(true);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!open) return;
+    void refreshEntries();
+  }, [open, refreshEntries]);
   const validatedElapsedSeconds =
     status === "active" && validatedAt
       ? Math.floor((now - validatedAt) / 1000)
@@ -105,12 +150,13 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
     }
     setContent("");
     window.localStorage.removeItem(draftKey);
-    setOpen(false);
+    setDraftTab("write");
     setNeedsJournal(false);
     setJournalToastDismissed(false);
     setLiveUnjournaledSeconds(0);
     setReason("");
     await refreshActivityTracking();
+    await refreshEntries();
   }
 
   if (open) {
@@ -168,13 +214,77 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
             ) : null}
           </div>
 
-          <div className="flex-1 p-4">
-            <textarea
-              value={content}
-              onChange={(event) => setContent(event.target.value)}
-              placeholder="Today I added an LED that flickers when the button is pressed. I wired it to pin 8, tested the resistor value, and fixed the code so it blinks reliably."
-              className="h-full min-h-80 w-full resize-none rounded-xl border border-[#333] bg-[#101010] px-3 py-3 text-sm leading-relaxed text-white outline-none placeholder:text-[#666] focus:border-[#BD0F32]"
-            />
+          <div className="flex-1 space-y-4 overflow-y-auto p-4">
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setDraftTab("write")}
+                  className={`rounded-full px-3 py-1 text-xs font-black transition ${
+                    draftTab === "write"
+                      ? "bg-white text-black"
+                      : "bg-[#2a2a2a] text-[#999] hover:bg-[#333] hover:text-white"
+                  }`}
+                >
+                  Write
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDraftTab("preview")}
+                  className={`rounded-full px-3 py-1 text-xs font-black transition ${
+                    draftTab === "preview"
+                      ? "bg-white text-black"
+                      : "bg-[#2a2a2a] text-[#999] hover:bg-[#333] hover:text-white"
+                  }`}
+                >
+                  Preview
+                </button>
+                <span className="ml-auto text-[11px] font-semibold text-[#666]">
+                  Markdown supported
+                </span>
+              </div>
+              {draftTab === "write" ? (
+                <textarea
+                  value={content}
+                  onChange={(event) => setContent(event.target.value)}
+                  placeholder="Today I added an LED that flickers when the button is pressed. I wired it to pin 8, tested the resistor value, and fixed the code so it blinks reliably."
+                  className="min-h-52 w-full resize-y rounded-xl border border-[#333] bg-[#101010] px-3 py-3 text-sm leading-relaxed text-white outline-none placeholder:text-[#666] focus:border-[#BD0F32]"
+                />
+              ) : (
+                <div className="min-h-52 rounded-xl border border-[#333] bg-[#f4f4f4] p-3">
+                  {content.trim() ? (
+                    <Markdown>{content}</Markdown>
+                  ) : (
+                    <p className="text-xs font-semibold text-black/40">
+                      Nothing to preview yet.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-[11px] font-black uppercase tracking-[0.14em] text-[#777]">
+                Previous entries
+              </p>
+              {entries.length > 0 ? (
+                <ul className="space-y-2">
+                  {entries.map((entry) => (
+                    <EditorJournalEntry
+                      key={entry.id}
+                      projectId={projectId}
+                      entry={entry}
+                      editable={entriesEditable}
+                      onSaved={refreshEntries}
+                    />
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs font-semibold text-[#666]">
+                  {entriesLoaded ? "No journal entries yet." : "Loading…"}
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="space-y-3 border-t border-[#333] p-4">
@@ -321,5 +431,105 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
         Journal
       </button>
     </span>
+  );
+}
+
+// A saved journal entry in the editor's journal panel. Reads as rendered
+// Markdown; while the project is still a draft it expands into a textarea for
+// editing, mirroring the off-platform tracking page.
+function EditorJournalEntry({
+  projectId,
+  entry,
+  editable,
+  onSaved,
+}: {
+  projectId: number;
+  entry: JournalEntry;
+  editable: boolean;
+  onSaved: () => Promise<void> | void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(entry.content);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function save() {
+    setSaving(true);
+    setError("");
+    const response = await fetch(`/api/editor/projects/${projectId}/journal`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ journalId: entry.id, content: draft }),
+    });
+    setSaving(false);
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      setError(data?.error ?? "Failed to save changes.");
+      return;
+    }
+    setEditing(false);
+    await onSaved();
+  }
+
+  if (!editing) {
+    return (
+      <li className="rounded-xl border border-[#333] bg-[#f4f4f4]">
+        <div className="flex items-center justify-between gap-2 border-b border-black/10 px-3 py-1.5">
+          <span className="text-[11px] font-bold text-black/45">
+            {entryDateLabel(entry)}
+          </span>
+          {editable ? (
+            <button
+              type="button"
+              onClick={() => {
+                setDraft(entry.content);
+                setEditing(true);
+              }}
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-black text-black/55 transition hover:bg-black hover:text-white"
+            >
+              <Pencil className="size-3" />
+              Edit
+            </button>
+          ) : null}
+        </div>
+        <div className="p-3">
+          <Markdown>{entry.content}</Markdown>
+        </div>
+      </li>
+    );
+  }
+
+  return (
+    <li className="space-y-2 rounded-xl border border-[#BD0F32]/60 bg-[#101010] p-3">
+      <textarea
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        rows={5}
+        className="w-full resize-y rounded-lg border border-[#333] bg-[#181818] px-3 py-2 text-sm leading-relaxed text-white outline-none focus:border-[#BD0F32]"
+      />
+      {error ? (
+        <p className="text-xs font-semibold text-red-300">{error}</p>
+      ) : null}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={saving || draft.trim().length < 10}
+          onClick={() => void save()}
+          className="rounded-lg bg-[#BD0F32] px-3 py-1.5 text-xs font-black text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {saving ? "Saving" : "Save changes"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setEditing(false);
+            setError("");
+          }}
+          className="rounded-lg bg-[#2a2a2a] px-3 py-1.5 text-xs font-black text-[#ddd] hover:bg-[#3a3a3a]"
+        >
+          Cancel
+        </button>
+      </div>
+    </li>
   );
 }

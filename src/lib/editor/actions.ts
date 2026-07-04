@@ -183,6 +183,68 @@ export async function addProjectJournal(projectId: number, content: string) {
   return { ok: true, journalId: inserted.id };
 }
 
+export async function listProjectJournals(projectId: number) {
+  const { session, project } = await getEditorProject(projectId);
+  if (!project || !session || project.userId !== session.user.id) return null;
+  const entries = await db
+    .select({
+      id: projectJournals.id,
+      content: projectJournals.content,
+      createdAt: projectJournals.createdAt,
+      updatedAt: projectJournals.updatedAt,
+    })
+    .from(projectJournals)
+    .where(
+      and(
+        eq(projectJournals.projectId, projectId),
+        eq(projectJournals.userId, session.user.id),
+      ),
+    )
+    .orderBy(desc(projectJournals.createdAt));
+  return {
+    entries: entries.map((entry) => ({
+      id: entry.id,
+      content: entry.content,
+      createdAt: entry.createdAt.toISOString(),
+      updatedAt: entry.updatedAt ? entry.updatedAt.toISOString() : null,
+    })),
+    // Mirrors the off-platform draft-only rule: once the project is submitted
+    // a reviewer may be reading these entries, so they freeze.
+    editable: project.status === "draft",
+  };
+}
+
+export async function updateProjectJournal(
+  projectId: number,
+  journalId: number,
+  content: string,
+) {
+  const { session, project } = await getEditorProject(projectId);
+  if (!project || !session || project.userId !== session.user.id) return null;
+  if (project.status !== "draft") {
+    throw new Error(
+      "This project has been submitted, so its journal can no longer be changed.",
+    );
+  }
+  const text = content.trim();
+  if (text.length < 10) throw new Error("Journal entry is too short.");
+  if (text.length > 4000) throw new Error("Journal entry is too long.");
+  if (!Number.isInteger(journalId)) throw new Error("Invalid entry.");
+  const [updated] = await db
+    .update(projectJournals)
+    .set({ content: text, updatedAt: new Date() })
+    .where(
+      and(
+        eq(projectJournals.id, journalId),
+        eq(projectJournals.projectId, projectId),
+        eq(projectJournals.userId, session.user.id),
+      ),
+    )
+    .returning({ id: projectJournals.id });
+  if (!updated) throw new Error("Entry not found.");
+  return { ok: true };
+}
+
 export async function storeSnapshot(
   projectId: number,
   sessionId: number,

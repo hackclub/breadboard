@@ -61,6 +61,10 @@ yarn-error.log*
 /public/wasm/
 /public/components-metadata.json
 /public/littlefs.wasm
+# Local Monaco copy for dev (loader.config points at /monaco/vs when
+# NODE_ENV !== production). Recreate with:
+#   cp -r node_modules/monaco-editor/min/vs public/monaco/vs
+/public/monaco/
 
 # Vercel
 .vercel

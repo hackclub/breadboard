@@ -13,6 +13,10 @@ let lastValidatedAt = 0;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let snapshotTimer: ReturnType<typeof setInterval> | null = null;
 let projectId = 0;
+// When true, heartbeats keep firing regardless of recent input, so tracking
+// never auto-pauses on inactivity. Used by off-platform tracking, where the
+// builder is often working away from the computer.
+let ignoreInactivity = false;
 type ActivityStatus = {
   status: "active" | "idle" | "blocked" | "error";
   activeSeconds: number;
@@ -121,9 +125,11 @@ function checkRecentActivity(): boolean {
 export async function startActivityTracking(
   pid: number,
   captureState: () => unknown,
+  options?: { ignoreInactivity?: boolean },
 ) {
   if (heartbeatTimer) return;
   projectId = pid;
+  ignoreInactivity = options?.ignoreInactivity ?? false;
   lastActivity = Date.now();
 
   const result = await sendHeartbeat(projectId);
@@ -141,7 +147,7 @@ export async function startActivityTracking(
   }
 
   heartbeatTimer = setInterval(async () => {
-    if (!paused && checkRecentActivity()) {
+    if (!paused && (ignoreInactivity || checkRecentActivity())) {
       const result = await sendHeartbeat(projectId);
       if (!result) {
         emitError("Time tracking heartbeat failed.");
@@ -233,6 +239,7 @@ export function stopActivityTracking() {
   document.removeEventListener("wheel", markRealActivity);
   active = false;
   paused = false;
+  ignoreInactivity = false;
   lastValidatedAt = 0;
   lastActivity = 0;
   emit();

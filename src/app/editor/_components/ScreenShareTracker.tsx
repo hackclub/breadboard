@@ -686,8 +686,8 @@ export function ScreenShareTracker({
             })}
             {screenCount === 0 ? (
               <p className="text-xs font-semibold text-[#888]">
-                No screens are being shared. Outside-site time only counts
-                while at least one screen is shared.
+                No screens are being shared. Outside-site time only counts while
+                at least one screen is shared.
               </p>
             ) : null}
           </div>

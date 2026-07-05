@@ -34,13 +34,7 @@ export async function GET(request: NextRequest) {
   const cookieState = request.cookies.get("lapse_oauth_state")?.value;
   const verifier = request.cookies.get("lapse_pkce_verifier")?.value;
 
-  if (
-    !code ||
-    !state ||
-    !cookieState ||
-    state !== cookieState ||
-    !verifier
-  ) {
+  if (!code || !state || !cookieState || state !== cookieState || !verifier) {
     return finish("error");
   }
 

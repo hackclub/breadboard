@@ -426,8 +426,7 @@ export function ReviewWorkspace({
                     className="rounded-xl border border-black bg-white px-4 py-3 text-xl font-black"
                   />
                   <span className="text-sm font-black text-[#BD0F32]">
-                    Awards{" "}
-                    <BreadAmount amount={approvedBread} gold={isBuild} />{" "}
+                    Awards <BreadAmount amount={approvedBread} gold={isBuild} />{" "}
                     {isBuild ? "gold bread " : ""}({approvedHours || 0}h ×{" "}
                     {breadPerHour})
                   </span>

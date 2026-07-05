@@ -37,10 +37,7 @@ import {
 import { createExternalScreenshotUpload } from "@/actions/uploads";
 import { ScreenShareTracker } from "@/app/editor/_components/ScreenShareTracker";
 import { BreadIcon } from "@/components/shared/bread-amount";
-import {
-  isBuildShip,
-  type ProjectType,
-} from "@/lib/projects/project-type";
+import { isBuildShip, type ProjectType } from "@/lib/projects/project-type";
 import { LoadingInline } from "@/components/shared/loading-card";
 import { Markdown } from "@/components/shared/markdown";
 import { Button, buttonClass } from "@/components/ui/button";
@@ -179,18 +176,14 @@ export function ExternalTrackingWorkspace({
         </div>
       </Surface>
 
-      {!isBuild ? (
-        <KitCard projectId={projectId} initialKit={kitType} />
-      ) : null}
+      {!isBuild ? <KitCard projectId={projectId} initialKit={kitType} /> : null}
 
       <LapseCard projectId={projectId} lapse={lapse} />
 
       <JournalCard
         projectId={projectId}
         journals={initialJournals}
-        lapseEnabled={
-          lapse.connected || (lapse.programEnabled && lapse.linked)
-        }
+        lapseEnabled={lapse.connected || (lapse.programEnabled && lapse.linked)}
       />
 
       <SubmitCard
@@ -259,7 +252,9 @@ function KitCard({
     <Surface className="grid gap-3 bg-white">
       <div className="flex items-center gap-2">
         <HiCpuChip className="size-5 text-[#BD0F32]" />
-        <h2 className="text-lg font-black text-black">Which kit should ship?</h2>
+        <h2 className="text-lg font-black text-black">
+          Which kit should ship?
+        </h2>
       </div>
       <p className="text-xs font-semibold text-black/55">
         We&apos;ll send you this kit to build your design once it&apos;s
@@ -308,7 +303,11 @@ function KitCard({
 type RecordingMethod = "onplatform" | "lapse" | "youtube";
 const METHOD_STORAGE_KEY = "breadboard:track-method";
 const RECORDING_METHODS = [
-  { value: "onplatform" as const, label: "On-platform recording", icon: HiClock },
+  {
+    value: "onplatform" as const,
+    label: "On-platform recording",
+    icon: HiClock,
+  },
   { value: "lapse" as const, label: "Lapse", icon: HiFilm },
   { value: "youtube" as const, label: "YouTube", icon: HiPlayCircle },
 ];
@@ -570,7 +569,9 @@ function JournalCard({
     }
     const start = el.selectionStart;
     const end = el.selectionEnd;
-    setContent((current) => current.slice(0, start) + text + current.slice(end));
+    setContent(
+      (current) => current.slice(0, start) + text + current.slice(end),
+    );
     requestAnimationFrame(() => {
       const pos = start + text.length;
       el.focus();
@@ -618,8 +619,8 @@ function JournalCard({
       </div>
       <p className="text-xs font-semibold text-black/55">
         Journal as you build, just like in the editor. Write in Markdown and
-        paste screenshots straight in. Every entry needs one recording, pick
-        the source below.
+        paste screenshots straight in. Every entry needs one recording, pick the
+        source below.
       </p>
 
       <form ref={formRef} action={formAction} className="grid gap-3">
@@ -768,7 +769,8 @@ function JournalCard({
                 </div>
               ) : (
                 <p className="text-xs font-semibold text-black/40">
-                  No unattached Lapse timelapses yet. Record in Lapse to add one.
+                  No unattached Lapse timelapses yet. Record in Lapse to add
+                  one.
                 </p>
               )
             ) : (
@@ -1166,7 +1168,9 @@ function SubmitCard({
         <ul className="mt-1.5 grid gap-1 text-xs font-semibold text-black/70">
           {isBuild ? (
             <>
-              <li>Photos of the finished breadboard circuit, fully assembled</li>
+              <li>
+                Photos of the finished breadboard circuit, fully assembled
+              </li>
               <li>A demo video showing it actually working</li>
               <li>
                 A public repo with README.md, journal.md, your schematic,

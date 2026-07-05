@@ -779,7 +779,9 @@ export async function listAvailableTimelapses(
   const [owned] = await db
     .select({ id: projects.id })
     .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.userId, session.user.id)))
+    .where(
+      and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
+    )
     .limit(1);
   if (!owned) return [];
 
@@ -903,7 +905,8 @@ async function resolveFreshRecordings(
   timelapseIds: string[],
   youtubeIds: string[],
 ) {
-  let lapseToInsert: Awaited<ReturnType<typeof fetchSessionUserTimelapses>> = [];
+  let lapseToInsert: Awaited<ReturnType<typeof fetchSessionUserTimelapses>> =
+    [];
   if (timelapseIds.length) {
     const all = await fetchSessionUserTimelapses(session);
     const claimed = await db

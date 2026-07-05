@@ -209,7 +209,11 @@ export function NewProjectModal({
   useEffect(() => {
     // Editor designs land back on the board; off-platform projects open their
     // tracking page so the user can start logging time right away.
-    if (editorState.success && editorState.project && isProject(editorState.project)) {
+    if (
+      editorState.success &&
+      editorState.project &&
+      isProject(editorState.project)
+    ) {
       onCreated(editorState.project);
       onClose();
     } else if (externalState.success && externalState.project?.id) {
@@ -234,7 +238,9 @@ export function NewProjectModal({
           formId="new-project-form"
           pending={pending}
           pendingLabel="Creating"
-          submitLabel={isExternal ? "Create & start tracking" : "Create project"}
+          submitLabel={
+            isExternal ? "Create & start tracking" : "Create project"
+          }
           onClose={onClose}
         />
       }

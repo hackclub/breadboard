@@ -135,9 +135,8 @@ export default function FaqPage() {
 
         <h2>Is there a minimum time requirement?</h2>
         <p>
-          Nope! Just meet the <a href="/requirements">requirements</a>.
-          However, for time spent, you get <strong>bread</strong> to spend in
-          the shop!
+          Nope! Just meet the <a href="/requirements">requirements</a>. However,
+          for time spent, you get <strong>bread</strong> to spend in the shop!
         </p>
 
         <h2>Can I submit multiple projects?</h2>

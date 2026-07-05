@@ -11,16 +11,14 @@ export function projectStatusCopy(status: string) {
     return "Build your kit. Take photos and video of it working, then submit your demo.";
   if (status === "demo_review")
     return "Demo submitted for final review. Almost done!";
-  if (status === "done")
-    return "Done. Currency awarded. Spend it in the shop!";
+  if (status === "done") return "Done. Currency awarded. Spend it in the shop!";
   if (status === "shipped")
     return "Snapshot in review. Keep editing, ship again after a decision.";
   if (status === "needs_changes")
     return "Reviewer requested changes. Fix your design and submit again.";
   if (status === "reviewed")
     return "Approved. Keep building and ship more hours anytime.";
-  if (status === "paid_out")
-    return "Currency awarded. Spend it in the shop!";
+  if (status === "paid_out") return "Currency awarded. Spend it in the shop!";
   if (status === "fulfilled")
     return "Kit sent. Future progress can still be shipped.";
   if (status === "approved")

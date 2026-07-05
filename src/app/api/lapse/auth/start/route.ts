@@ -4,7 +4,7 @@ import { getSession } from "@/lib/auth/guards";
 import { lapseAuthorizeUrl, lapseOAuthConfigured } from "@/lib/lapse";
 
 function safeReturnTo(value: string | null) {
-  if (value && value.startsWith("/") && !value.startsWith("//")) return value;
+  if (value?.startsWith("/") && !value.startsWith("//")) return value;
   return "/platform/projects";
 }
 

@@ -1,7 +1,7 @@
 "use server";
 
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
-import { randomUUID } from "crypto";
+import { randomUUID } from "node:crypto";
 import { canWriteEditorProject, getEditorProject } from "@/lib/editor/access";
 import {
   getUnjournaledSeconds,

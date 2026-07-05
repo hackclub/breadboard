@@ -6,7 +6,7 @@ import { user } from "@/lib/db/schema";
 import { exchangeCodeForToken } from "@/lib/lapse";
 
 function safeReturnTo(value: string | undefined) {
-  if (value && value.startsWith("/") && !value.startsWith("//")) return value;
+  if (value?.startsWith("/") && !value.startsWith("//")) return value;
   return "/platform/projects";
 }
 

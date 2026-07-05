@@ -44,7 +44,9 @@ function emit() {
     unjournaledSeconds,
     validatedAt: lastValidatedAt || undefined,
   } satisfies ActivityStatus;
-  statusListeners.forEach((listener) => listener(status));
+  statusListeners.forEach((listener) => {
+    listener(status);
+  });
 }
 
 function emitBlocked(reason: string, needsJournal: boolean, seconds: number) {
@@ -59,7 +61,9 @@ function emitBlocked(reason: string, needsJournal: boolean, seconds: number) {
     needsJournal,
     reason,
   } satisfies ActivityStatus;
-  statusListeners.forEach((listener) => listener(status));
+  statusListeners.forEach((listener) => {
+    listener(status);
+  });
 }
 
 function emitError(reason: string) {
@@ -72,7 +76,9 @@ function emitError(reason: string) {
     needsJournal: false,
     reason,
   } satisfies ActivityStatus;
-  statusListeners.forEach((listener) => listener(status));
+  statusListeners.forEach((listener) => {
+    listener(status);
+  });
 }
 
 let lastActivity = Date.now();

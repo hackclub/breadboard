@@ -155,6 +155,10 @@ async def iot_gateway_gate(request: Request) -> Optional[dict]:
     try:
         return await _iot_gateway_gate_hook(request)
     except Exception:
-        # A failing gate must not take the gateway down — fail open.
-        logger.exception("iot_gateway_gate hook failed (allowing request)")
-        return None
+        # Fail closed: once a gate is installed, an error in it must block
+        # rather than silently grant a paid feature to everyone.
+        logger.exception("iot_gateway_gate hook failed (blocking request)")
+        return {
+            "error": "gateway_unavailable",
+            "message": "The IoT gateway is temporarily unavailable.",
+        }

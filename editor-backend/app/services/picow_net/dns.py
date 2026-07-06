@@ -19,6 +19,7 @@ import struct
 from typing import Optional
 
 from .consts import DNS_IP, GATEWAY_MAC, ip_to_bytes
+from .egress import is_egress_allowed
 from .protocols import (
     BROADCAST_MAC,
     DnsMessage,
@@ -112,9 +113,14 @@ class DnsResolver:
             if isinstance(sockaddr, tuple) and len(sockaddr) >= 1:
                 ip = sockaddr[0]
                 try:
-                    addrs.append(socket.inet_aton(ip))
+                    packed = socket.inet_aton(ip)
                 except OSError:
                     continue
+                # Don't hand the chip an internal/loopback address (blocks
+                # DNS-rebinding to reach hosts the NAT would otherwise deny).
+                if not is_egress_allowed(packed):
+                    continue
+                addrs.append(packed)
         # de-dup preserving order
         seen: set = set()
         deduped: list[bytes] = []

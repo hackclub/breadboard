@@ -7,6 +7,7 @@ import { db } from "@/lib/db/db";
 import { user, userBread } from "@/lib/db/schema";
 import { isValidEmail, normalizeBread } from "@/lib/utils";
 import { audit } from "@/lib/audit";
+import { recordCurrencyTransaction } from "@/lib/projects/ledger";
 
 export async function updateUserProfile(
   userId: string,
@@ -52,58 +53,107 @@ export async function updateUserProfile(
 }
 
 export async function addUserBread(userId: string, amount: number) {
-  await requireAdminSession();
+  const session = await requireAdminSession();
   const bread = normalizeBread(amount);
   if (bread <= 0) throw new Error("Amount must be greater than zero");
 
-  await db
-    .insert(userBread)
-    .values({ userId, balance: bread, updatedAt: new Date() })
-    .onConflictDoUpdate({
-      target: userBread.userId,
-      set: {
-        balance: sql`${userBread.balance} + ${bread}`,
-        updatedAt: new Date(),
-      },
+  await db.transaction(async (tx) => {
+    const [updated] = await tx
+      .insert(userBread)
+      .values({ userId, balance: bread, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: userBread.userId,
+        set: {
+          balance: sql`${userBread.balance} + ${bread}`,
+          updatedAt: new Date(),
+        },
+      })
+      .returning({ balance: userBread.balance });
+    await recordCurrencyTransaction(tx, {
+      userId,
+      actorId: session.user.id,
+      type: "admin_adjustment",
+      amount: bread,
+      balanceAfter: updated?.balance ?? null,
+      note: "Admin added bread",
     });
+  });
 
   await audit("admin.user.bread_add", "user", userId, { amount: bread });
   revalidatePath("/platform/admin/users");
 }
 
 export async function deductUserBread(userId: string, amount: number) {
-  await requireAdminSession();
+  const session = await requireAdminSession();
   const bread = normalizeBread(amount);
   if (bread <= 0) throw new Error("Amount must be greater than zero");
 
-  await db
-    .insert(userBread)
-    .values({ userId, balance: 0, updatedAt: new Date() })
-    .onConflictDoNothing({ target: userBread.userId });
+  await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .insert(userBread)
+      .values({ userId, balance: 0, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: userBread.userId,
+        set: { updatedAt: new Date() },
+      })
+      .returning({ balance: userBread.balance });
+    const before = existing?.balance ?? 0;
 
-  await db
-    .update(userBread)
-    .set({
-      balance: sql`greatest(${userBread.balance} - ${bread}, 0)`,
-      updatedAt: new Date(),
-    })
-    .where(eq(userBread.userId, userId));
+    const [updated] = await tx
+      .update(userBread)
+      .set({
+        balance: sql`greatest(${userBread.balance} - ${bread}, 0)`,
+        updatedAt: new Date(),
+      })
+      .where(eq(userBread.userId, userId))
+      .returning({ balance: userBread.balance });
+
+    // Balance is floored at 0, so the amount actually removed can be less than
+    // the requested deduction when the user had a smaller balance.
+    const removed = before - (updated?.balance ?? 0);
+    await recordCurrencyTransaction(tx, {
+      userId,
+      actorId: session.user.id,
+      type: "admin_adjustment",
+      amount: -removed,
+      balanceAfter: updated?.balance ?? null,
+      note: "Admin deducted bread",
+    });
+  });
 
   await audit("admin.user.bread_deduct", "user", userId, { amount: bread });
   revalidatePath("/platform/admin/users");
 }
 
 export async function setUserBread(userId: string, amount: number) {
-  await requireAdminSession();
+  const session = await requireAdminSession();
   const bread = normalizeBread(amount);
 
-  await db
-    .insert(userBread)
-    .values({ userId, balance: bread, updatedAt: new Date() })
-    .onConflictDoUpdate({
-      target: userBread.userId,
-      set: { balance: bread, updatedAt: new Date() },
+  await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ balance: userBread.balance })
+      .from(userBread)
+      .where(eq(userBread.userId, userId))
+      .limit(1);
+    const before = existing?.balance ?? 0;
+
+    await tx
+      .insert(userBread)
+      .values({ userId, balance: bread, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: userBread.userId,
+        set: { balance: bread, updatedAt: new Date() },
+      });
+
+    await recordCurrencyTransaction(tx, {
+      userId,
+      actorId: session.user.id,
+      type: "admin_adjustment",
+      amount: bread - before,
+      balanceAfter: bread,
+      note: `Admin set bread to ${bread}`,
     });
+  });
 
   await audit("admin.user.bread_set", "user", userId, { amount: bread });
   revalidatePath("/platform/admin/users");

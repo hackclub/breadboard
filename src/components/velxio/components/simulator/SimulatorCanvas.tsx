@@ -31,7 +31,10 @@ import {
   kitBoardLimit,
   kitComponentLimit,
 } from "@/lib/velxio/data/kitInventory";
-import { getTabSessionId } from "@/lib/velxio/simulation/Esp32Bridge";
+import {
+  getGatewayToken,
+  getTabSessionId,
+} from "@/lib/velxio/simulation/Esp32Bridge";
 import { CameraToggle } from "@/components/velxio/components/simulator/CameraToggle";
 import { WireLayer } from "@/components/velxio/components/simulator/WireLayer";
 import type {
@@ -2614,7 +2617,14 @@ export const SimulatorCanvas = ({
                     const clientId = `${sessionId}::${activeBoard.id}`;
                     const backendBase =
                       (window as any).__VELXIO_API_BASE__ ?? "/api";
-                    const gatewayUrl = `${backendBase}/gateway/${clientId}/`;
+                    // The gateway requires the capability token issued to this
+                    // session's simulation WebSocket.
+                    const gatewayToken = getGatewayToken(clientId);
+                    const gatewayUrl = `${backendBase}/gateway/${clientId}/${
+                      gatewayToken
+                        ? `?gwt=${encodeURIComponent(gatewayToken)}`
+                        : ""
+                    }`;
 
                     const openGateway = () => {
                       if (!hasIp) return;

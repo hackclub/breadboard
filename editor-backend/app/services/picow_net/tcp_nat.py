@@ -56,6 +56,7 @@ from .consts import (
     TCP_WINDOW,
     bytes_to_ip,
 )
+from .egress import is_egress_allowed
 from .protocols import IPv4, TCP, make_frame_ipv4, parse_tcp_options
 
 logger = logging.getLogger(__name__)
@@ -200,6 +201,16 @@ class TcpNat:
             mss=mss,
             last_activity=asyncio.get_event_loop().time(),
         )
+
+        # Block SSRF: emulated firmware must not reach loopback, private,
+        # link-local, or metadata addresses through the bridge.
+        if not is_egress_allowed(conn.dst_ip):
+            logger.warning(
+                '[picow-tcp] blocked egress to %s:%d',
+                bytes_to_ip(conn.dst_ip), conn.dst_port,
+            )
+            await self._send_rst(chip_mac, ip, tcp)
+            return
 
         # Try to establish the host-side connection. If it fails we
         # send RST to the chip and never store the connection.

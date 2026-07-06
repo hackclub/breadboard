@@ -14,6 +14,7 @@ import {
   userBread,
 } from "@/lib/db/schema";
 import { notifyKitShippingStatus } from "@/lib/slack/tookle";
+import { recordCurrencyTransaction } from "@/lib/projects/ledger";
 import type {
   CheckoutItem,
   OrderStatusFormState,
@@ -283,6 +284,15 @@ export async function placeOrder(
     if (!updatedBalance) {
       throw new Error(`Insufficient balance. You need ${totalCost} bread.`);
     }
+
+    await recordCurrencyTransaction(tx, {
+      userId: session.user.id,
+      type: "shop_purchase",
+      amount: -totalCost,
+      balanceAfter: updatedBalance.balance,
+      sourceEntityType: "shop",
+      note: `Shop purchase of ${items.length} item(s)`,
+    });
 
     const existingOrder = await tx
       .select()
@@ -566,7 +576,7 @@ export async function cancelOrder(orderId: number) {
         );
     }
 
-    await tx
+    const [refunded] = await tx
       .insert(userBread)
       .values({
         userId: session.user.id,
@@ -579,7 +589,21 @@ export async function cancelOrder(orderId: number) {
           balance: sql`${userBread.balance} + ${cancelledOrder.totalCost}`,
           updatedAt: new Date(),
         },
-      });
+      })
+      .returning({ balance: userBread.balance });
+
+    // Deterministic key: an order refunds at most once (guarded by the
+    // pending→cancelled transition), so a retry can't double-credit.
+    await recordCurrencyTransaction(tx, {
+      userId: session.user.id,
+      type: "order_refund",
+      amount: cancelledOrder.totalCost,
+      balanceAfter: refunded?.balance ?? null,
+      sourceEntityType: "order",
+      sourceEntityId: String(id),
+      idempotencyKey: `order_refund:${id}`,
+      note: "Order cancelled — bread refunded",
+    });
   });
 
   revalidatePath("/platform/shop/orders");

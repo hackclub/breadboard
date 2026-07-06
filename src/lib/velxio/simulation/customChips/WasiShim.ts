@@ -98,6 +98,26 @@ export class WasiShim {
 
   random_get = (ptr: number, len: number): number => {
     const u8 = this._u8();
+    const view = u8.subarray(ptr, ptr + len);
+    // Prefer a real CSPRNG so chips calling getrandom()/rand() see genuine
+    // entropy instead of a fixed-seed sequence that repeats every run.
+    // crypto.getRandomValues caps at 65536 bytes per call, so chunk it.
+    const cryptoObj =
+      typeof globalThis !== "undefined"
+        ? (globalThis.crypto as Crypto | undefined)
+        : undefined;
+    if (cryptoObj?.getRandomValues) {
+      for (let off = 0; off < view.length; off += 65536) {
+        cryptoObj.getRandomValues(view.subarray(off, Math.min(off + 65536, view.length)));
+      }
+      return 0;
+    }
+    // Fallback (no Web Crypto, e.g. some test envs): seed the LCG once from a
+    // time source so it isn't identical across runs.
+    if (this._randCounter === 0) {
+      this._randCounter =
+        ((Number(this.simNanos()) >>> 0) ^ 0x9e3779b9) >>> 0 || 0x9e3779b9;
+    }
     for (let i = 0; i < len; i++) {
       this._randCounter = (this._randCounter * 1664525 + 1013904223) >>> 0;
       u8[ptr + i] = this._randCounter & 0xff;

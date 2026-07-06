@@ -2,7 +2,10 @@ import subprocess
 import tempfile
 import asyncio
 import base64
+import os
 from pathlib import Path
+
+from app.services.safe_paths import UnsafePathError, safe_join
 
 
 class ArduinoCLIService:
@@ -23,6 +26,10 @@ class ArduinoCLIService:
 
     # Cores to auto-install on startup
     REQUIRED_CORES = ["arduino:avr"]
+
+    # Hard ceiling on a single arduino-cli compile. Overridable via env for
+    # slower self-hosted toolchains. Mirrors the ESP-IDF path's own timeouts.
+    COMPILE_TIMEOUT_SECONDS = int(os.environ.get("COMPILE_TIMEOUT_SECONDS", "180"))
 
     # Libraries that should be available in the editor without users opening
     # the library manager first. Keep names matching Arduino Library Manager.
@@ -502,7 +509,20 @@ class ArduinoCLIService:
                 if "rp2040" in board_fqbn and write_name == "sketch.ino":
                     content = "#define Serial Serial1\n" + content
 
-                (sketch_dir / write_name).write_text(content, encoding="utf-8")
+                # write_name is browser-controlled; reject any traversal before
+                # touching the filesystem so it can't escape the sketch dir.
+                try:
+                    dest = safe_join(sketch_dir, write_name)
+                except UnsafePathError as exc:
+                    return {
+                        "success": False,
+                        "hex_content": None,
+                        "stdout": "",
+                        "stderr": "",
+                        "error": f"Invalid file name: {exc}",
+                    }
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(content, encoding="utf-8")
 
             # Fallback: no .ino files provided at all
             if not any(f["name"].endswith(".ino") for f in files):
@@ -545,15 +565,30 @@ class ArduinoCLIService:
                            str(sketch_dir)]
                 print(f"Running command: {' '.join(cmd)}")
 
-                # Use subprocess.run in a thread for Windows compatibility
+                # Use subprocess.run in a thread for Windows compatibility.
+                # A hard timeout stops a pathological sketch (runaway template
+                # or #include recursion) from pinning the thread pool forever.
                 def run_compile():
                     return subprocess.run(
                         cmd,
                         capture_output=True,
-                        text=True
+                        text=True,
+                        timeout=self.COMPILE_TIMEOUT_SECONDS,
                     )
 
-                result = await asyncio.to_thread(run_compile)
+                try:
+                    result = await asyncio.to_thread(run_compile)
+                except subprocess.TimeoutExpired:
+                    return {
+                        "success": False,
+                        "hex_content": None,
+                        "stdout": "",
+                        "stderr": "",
+                        "error": (
+                            "Compilation timed out after "
+                            f"{self.COMPILE_TIMEOUT_SECONDS}s."
+                        ),
+                    }
 
                 print(f"Process return code: {result.returncode}")
                 print(f"Stdout: {result.stdout}")
@@ -917,7 +952,17 @@ class ArduinoCLIService:
             user_dir = dirs.get("user", "") or dirs.get("sketchbook", "")
             if not user_dir:
                 return {"success": False, "error": "Could not determine Arduino user directory from config"}
-            lib_dir = Path(user_dir) / "libraries" / lib_name
+            # lib_name comes from the client; a traversing name would make the
+            # rmtree below delete a directory outside the libraries tree.
+            libraries_root = Path(user_dir) / "libraries"
+            try:
+                lib_dir = safe_join(libraries_root, lib_name)
+            except UnsafePathError as exc:
+                return {"success": False, "error": f"Invalid library name: {exc}"}
+            # A traversal-free name may still be nested; only ever remove a
+            # direct child of the libraries root.
+            if lib_dir.parent != libraries_root.resolve():
+                return {"success": False, "error": f"Invalid library name: {lib_name!r}"}
         except Exception as e:
             return {"success": False, "error": f"Failed to read arduino-cli config: {e}"}
 

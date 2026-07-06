@@ -18,6 +18,7 @@ from fastapi import APIRouter, Request, Response
 
 from app.core.hooks import iot_gateway_gate
 from app.services.esp32_lib_manager import esp_lib_manager
+from app.services.gateway_tokens import verify_token
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -63,6 +64,19 @@ async def gateway_proxy(client_id: str, path: str, request: Request) -> Response
         return Response(
             content=json.dumps({'error': 'pro_required', 'detail': block_detail}),
             status_code=402,
+            media_type='application/json',
+        )
+
+    # Capability check: the caller must present the token issued to the
+    # simulation WebSocket that created this client_id. This binds the proxy
+    # to the session owner so a leaked/observed client_id isn't enough to
+    # reach someone else's ESP32 web server. Token comes from the `gwt` query
+    # param (browser navigations) or the X-Gateway-Token header (fetch).
+    token = request.query_params.get('gwt') or request.headers.get('x-gateway-token')
+    if not verify_token(client_id, token):
+        return Response(
+            content='{"error":"Invalid or missing gateway token for this session."}',
+            status_code=403,
             media_type='application/json',
         )
 

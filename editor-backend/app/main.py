@@ -31,7 +31,14 @@ def _asyncio_exception_handler(loop: asyncio.AbstractEventLoop, context: dict) -
     exc = context.get("exception")
     msg = context.get("message", "")
     if exc is not None:
-        logger.error("Unhandled asyncio task exception (swallowed): %s — %r", msg, exc)
+        # Log with the full traceback so this net doesn't silently hide real
+        # bugs (fire-and-forget task crashes) while it absorbs the known
+        # websockets<12 keepalive race. It stays non-fatal either way.
+        logger.error(
+            "Unhandled asyncio task exception (swallowed): %s",
+            msg,
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
     else:
         # No exception object — let default handler deal with it
         loop.default_exception_handler(context)

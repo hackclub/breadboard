@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable, Dict, Tuple
 
 from .consts import GATEWAY_MAC, IPPROTO_UDP, bytes_to_ip
+from .egress import is_egress_allowed
 from .protocols import IPv4, UDP, make_frame_ipv4
 
 logger = logging.getLogger(__name__)
@@ -75,6 +76,13 @@ class UdpNat:
         ip: IPv4,
         udp: UDP,
     ) -> None:
+        # Block SSRF: firmware must not reach internal/loopback/metadata hosts.
+        if not is_egress_allowed(bytes(ip.dst)):
+            logger.warning(
+                '[picow-udp] blocked egress to %s:%d',
+                bytes_to_ip(bytes(ip.dst)), udp.dst_port,
+            )
+            return
         key = (bytes(ip.src), udp.src_port, bytes(ip.dst), udp.dst_port)
         flow = self._flows.get(key)
         if flow is None:

@@ -169,6 +169,40 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+const MAX_VLX_JSON_DEPTH = 32;
+
+// Mirror the server-side editor payload validator (src/lib/editor/payload.ts):
+// reject prototype-polluting keys, non-finite numbers, and pathological depth.
+// A .vlx file is hand-editable and loads straight into the live stores, so it
+// shouldn't be trusted more loosely than data that round-trips through the API.
+function assertJsonSafe(value: unknown, depth = 0): void {
+  if (depth > MAX_VLX_JSON_DEPTH) {
+    throw new VlxParseError("File is nested too deeply.");
+  }
+  if (value === null) return;
+  const type = typeof value;
+  if (type === "string" || type === "boolean") return;
+  if (type === "number") {
+    if (!Number.isFinite(value)) {
+      throw new VlxParseError("File contains a non-finite number.");
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) assertJsonSafe(item, depth + 1);
+    return;
+  }
+  if (!isPlainObject(value)) {
+    throw new VlxParseError("File contains an unsupported value.");
+  }
+  for (const [key, nested] of Object.entries(value)) {
+    if (key === "__proto__" || key === "constructor" || key === "prototype") {
+      throw new VlxParseError("File contains a disallowed key.");
+    }
+    assertJsonSafe(nested, depth + 1);
+  }
+}
+
 /**
  * Validate that `data` is shaped like a VlxPayload. Throws VlxParseError
  * on mismatch with a human-readable reason. Keep the checks defensive —
@@ -178,6 +212,9 @@ function validatePayload(data: unknown): VlxPayload {
   if (!isPlainObject(data)) {
     throw new VlxParseError("File is not a JSON object.");
   }
+  // Reject prototype-polluting keys and non-finite numbers before the data
+  // reaches the stores / gets spread into objects.
+  assertJsonSafe(data);
   if (data.format !== VLX_FORMAT) {
     throw new VlxParseError(
       `Not a Velxio project file (expected format="${VLX_FORMAT}", got ${JSON.stringify(

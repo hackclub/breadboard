@@ -6,8 +6,11 @@ set -e
 if [ ! -d /root/.arduino15/packages/arduino/hardware/avr ]; then
   echo "[entrypoint] configuring arduino-cli additional URLs..."
   arduino-cli config init --overwrite
+  # HTTPS mirror of the ATTiny core index. The old http://drazzy.com URL is
+  # cleartext (MITM-able, and it feeds `core install`); descartes.net serves
+  # the same index over TLS. arduino_cli.py migrates any persisted http URL.
   arduino-cli config set board_manager.additional_urls \
-    "http://drazzy.com/package_drazzy.com_index.json"
+    "https://descartes.net/package_drazzy.com_index.json"
 
   echo "[entrypoint] updating core indexes..."
   if ! arduino-cli core update-index; then
@@ -26,4 +29,8 @@ if [ ! -d /root/.arduino15/packages/arduino/hardware/avr ]; then
 fi
 
 echo "[entrypoint] starting editor backend on port ${PORT:-8001}"
-exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8001}"
+# Cap a single WebSocket message (default 16 MiB) so an oversized frame is
+# rejected at the transport before it's buffered in memory. The handler also
+# validates firmware sizes; this is the outer bound for every message type.
+exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8001}" \
+  --ws-max-size "${WS_MAX_SIZE:-16777216}"

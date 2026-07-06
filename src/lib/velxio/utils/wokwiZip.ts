@@ -172,12 +172,23 @@ function metadataIdToWokwiType(metadataId: string): string {
  * - Includes Wokwi-hosted entries in the form  name@wokwi:hash
  *   so the backend can download and install them from wokwi.com
  */
+// A single libraries.txt line: a library name, optionally with a version
+// (`@1.2.3`) or a Wokwi hosted marker (`@wokwi:<hash>`). Reject anything with
+// control chars / shell metacharacters so a crafted bundle can't smuggle
+// surprises into the install requests these names are fanned out to.
+const LIBRARY_LINE = /^[\w .+-]{1,120}(@wokwi:[a-zA-Z0-9]{1,64}|@[\w.-]{1,40})?$/;
+// Cap the list so a bundle with thousands of lines can't drive thousands of
+// sequential backend install calls (client-driven amplification).
+const MAX_LIBRARIES = 64;
+
 export function parseLibrariesTxt(content: string): string[] {
   const libs: string[] = [];
   for (const raw of content.split("\n")) {
     const line = raw.trim();
     if (!line || line.startsWith("#")) continue;
+    if (!LIBRARY_LINE.test(line)) continue;
     libs.push(line);
+    if (libs.length >= MAX_LIBRARIES) break;
   }
   return libs;
 }
@@ -269,10 +280,40 @@ export async function importFromWokwiZip(file: File): Promise<ImportResult> {
   if (!diagramEntry) throw new Error("No diagram.json found in the zip file.");
 
   const diagramText = await diagramEntry.async("string");
-  const diagram: WokwiDiagram = JSON.parse(diagramText);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(diagramText);
+  } catch {
+    throw new Error("diagram.json is not valid JSON.");
+  }
+  // The zip is untrusted input; validate the shape rather than assuming
+  // parts/connections exist and are arrays (a missing key otherwise throws a
+  // raw TypeError, and non-numeric coords would flow to the canvas as NaN).
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("diagram.json must be a JSON object.");
+  }
+  const diagram = parsed as WokwiDiagram;
+  const rawParts = Array.isArray(diagram.parts) ? diagram.parts : [];
+  const rawConnections = Array.isArray(diagram.connections)
+    ? diagram.connections
+    : [];
+  // Keep only well-formed parts and coerce coordinates to finite numbers so a
+  // missing/garbage left/top can't place a component at NaN,NaN.
+  const finite = (v: unknown, fallback = 0) =>
+    typeof v === "number" && Number.isFinite(v) ? v : fallback;
+  const parts = rawParts
+    .filter(
+      (p): p is WokwiDiagram["parts"][number] =>
+        !!p && typeof p === "object" && typeof (p as { type?: unknown }).type === "string",
+    )
+    .map((p) => ({
+      ...p,
+      left: finite(p.left),
+      top: finite(p.top),
+    }));
 
   // Detect board
-  const boardPart = diagram.parts.find((p) => WOKWI_TYPE_TO_BOARD[p.type]);
+  const boardPart = parts.find((p) => WOKWI_TYPE_TO_BOARD[p.type]);
   const boardType = boardPart
     ? WOKWI_TYPE_TO_BOARD[boardPart.type]
     : "arduino-uno";
@@ -301,7 +342,7 @@ export async function importFromWokwiZip(file: File): Promise<ImportResult> {
 
   // Convert non-board parts to Velxio components.
   // Apply the same offset so components keep their relative position to the board.
-  const components: VelxioComponent[] = diagram.parts
+  const components: VelxioComponent[] = parts
     .filter((p) => !WOKWI_TYPE_TO_BOARD[p.type])
     .map((p) => ({
       id: p.id,
@@ -311,11 +352,20 @@ export async function importFromWokwiZip(file: File): Promise<ImportResult> {
       properties: { ...p.attrs },
     }));
 
-  // Convert connections to Velxio wires
-  const wires: Wire[] = diagram.connections.map((conn, i) => {
-    const [startStr, endStr, color] = conn;
-    const colonA = startStr.indexOf(":");
-    const colonB = endStr.indexOf(":");
+  // Convert connections to Velxio wires. Each entry should be
+  // [start, end, color, ...]; skip anything that isn't the expected shape so a
+  // malformed entry can't throw on .indexOf.
+  const wires: Wire[] = rawConnections
+    .filter(
+      (conn): conn is [string, string, string] =>
+        Array.isArray(conn) &&
+        typeof conn[0] === "string" &&
+        typeof conn[1] === "string",
+    )
+    .map((conn, i) => {
+      const [startStr, endStr, color] = conn;
+      const colonA = startStr.indexOf(":");
+      const colonB = endStr.indexOf(":");
     const startCompRaw = colonA >= 0 ? startStr.slice(0, colonA) : startStr;
     const startPin = colonA >= 0 ? startStr.slice(colonA + 1) : "";
     const endCompRaw = colonB >= 0 ? endStr.slice(0, colonB) : endStr;

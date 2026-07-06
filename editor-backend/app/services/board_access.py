@@ -48,6 +48,8 @@ async def board_allowed(websocket: object, board_kind: str) -> bool:
         return True
     try:
         return await _gate(websocket, board_kind)
-    except Exception as exc:  # fail-open: a gate bug must never wedge the sim
-        logger.warning('board_access gate raised, allowing: %r', exc)
-        return True
+    except Exception as exc:
+        # Fail closed: once a gate is installed, an error in the paid-plan
+        # check must deny rather than hand a free/anonymous user a Pro board.
+        logger.warning('board_access gate raised, denying: %r', exc)
+        return False

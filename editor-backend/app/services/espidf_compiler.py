@@ -28,6 +28,8 @@ import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+
+from app.services.safe_paths import UnsafePathError, safe_join
 from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
@@ -1069,8 +1071,12 @@ class ESPIDFCompiler:
                 env['PATH'] = py_scripts + os.pathsep + env.get('PATH', '')
                 env['VIRTUAL_ENV'] = py_venv
 
-            # Add ESP-IDF tools to PATH
-            tools_path = os.environ.get('IDF_TOOLS_PATH', r'C:\Users\David\.espressif')
+            # Add ESP-IDF tools to PATH. Default to the conventional per-user
+            # location; the Docker image sets IDF_TOOLS_PATH explicitly.
+            tools_path = os.environ.get(
+                'IDF_TOOLS_PATH',
+                os.path.join(os.path.expanduser('~'), '.espressif'),
+            )
             if os.path.isdir(tools_path):
                 # Add all tool bin dirs
                 for tool_dir in Path(tools_path).glob('tools/*/*/bin'):
@@ -1455,11 +1461,14 @@ class ESPIDFCompiler:
             name = entry['name']
             data = base64.b64decode(entry['content_b64'])
             total_bytes += len(data)
-            # mkspiffs uses the on-disk filename as the in-flash path so
-            # write subdirs literally rather than smuggling slashes into
-            # the name. Strip any leading slash to avoid escaping the dir.
-            safe_path = name.lstrip('/').lstrip('\\')
-            dest = spiffs_data_dir / safe_path
+            # mkspiffs uses the on-disk filename as the in-flash path so subdirs
+            # are written literally. The name is client-controlled: reject any
+            # absolute path or ".." so it can't escape spiffs_data_dir (a bare
+            # lstrip('/') left "../" traversal open).
+            try:
+                dest = safe_join(spiffs_data_dir, name)
+            except UnsafePathError as exc:
+                raise ValueError(f'invalid SPIFFS file name: {exc}') from exc
             dest.parent.mkdir(parents=True, exist_ok=True)
             dest.write_bytes(data)
 
@@ -1722,12 +1731,17 @@ class ESPIDFCompiler:
                 )
             sketch_cpp.write_text(main_content, encoding='utf-8')
 
-            # Copy additional files (.h, .cpp)
+            # Copy additional files (.h, .cpp). f['name'] is client-controlled,
+            # so reject any traversal before writing into main/.
+            main_dir = project_dir / 'main'
             for f in files:
                 if not f['name'].endswith('.ino'):
-                    (project_dir / 'main' / f['name']).write_text(
-                        f['content'], encoding='utf-8'
-                    )
+                    try:
+                        dest = safe_join(main_dir, f['name'])
+                    except UnsafePathError as exc:
+                        raise ValueError(f'invalid source file name: {exc}') from exc
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_text(f['content'], encoding='utf-8')
 
             # Remove the pure-C main to avoid conflict
             main_c = project_dir / 'main' / 'main.c'

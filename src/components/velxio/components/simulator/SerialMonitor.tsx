@@ -7,7 +7,10 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useSimulatorStore } from "@/services/velxio/store/useSimulatorStore";
-import { getTabSessionId } from "@/lib/velxio/simulation/Esp32Bridge";
+import {
+  getGatewayToken,
+  getTabSessionId,
+} from "@/lib/velxio/simulation/Esp32Bridge";
 import { boardDisplayName } from "@/lib/velxio/types/board";
 
 // Short labels for tabs
@@ -303,7 +306,13 @@ export const SerialMonitor: React.FC = () => {
                   const end = start + m[0].length;
                   const path = m[2] || "/";
                   const clientId = `${sessionId}::${activeBoard.id}`;
-                  const gatewayUrl = `${backendBase}/gateway/${clientId}${path}`;
+                  // The gateway requires the session's capability token.
+                  const gatewayToken = getGatewayToken(clientId);
+                  const gatewayUrl = gatewayToken
+                    ? `${backendBase}/gateway/${clientId}${path}${
+                        path.includes("?") ? "&" : "?"
+                      }gwt=${encodeURIComponent(gatewayToken)}`
+                    : `${backendBase}/gateway/${clientId}${path}`;
 
                   parts.push(text.slice(lastIdx, start));
                   parts.push(

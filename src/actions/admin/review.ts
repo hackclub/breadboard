@@ -17,6 +17,7 @@ import {
   userBread,
 } from "@/lib/db/schema";
 import { isBuildShip } from "@/lib/projects/project-type";
+import { recordCurrencyTransaction } from "@/lib/projects/ledger";
 import { notifyProjectStatus, notifyReviewDecision } from "@/lib/slack/tookle";
 
 const REVIEW_TEXT_LIMIT = 2000;
@@ -337,7 +338,7 @@ export async function approveProject(
           updatedAt: new Date(),
         })
         .where(eq(projects.id, id));
-      await tx
+      const [credited] = await tx
         .insert(userBread)
         .values({ userId: updatedSubmission.userId, balance: bread })
         .onConflictDoUpdate({
@@ -346,7 +347,21 @@ export async function approveProject(
             balance: sql`${userBread.balance} + ${bread}`,
             updatedAt: new Date(),
           },
-        });
+        })
+        .returning({ balance: userBread.balance });
+      // Deterministic key: the submission moves out of pending_review inside
+      // this same tx, so a retried approval can't double-credit.
+      await recordCurrencyTransaction(tx, {
+        userId: updatedSubmission.userId,
+        actorId: session.user.id,
+        type: "project_payout",
+        amount: bread,
+        balanceAfter: credited?.balance ?? null,
+        sourceEntityType: "submission",
+        sourceEntityId: String(submission.id),
+        idempotencyKey: `project_payout:demo:${submission.id}`,
+        note: "Demo approved",
+      });
       return updatedSubmission.userId;
     });
     await audit("admin.user.bread_add", "user", creditedUser, {
@@ -418,7 +433,7 @@ export async function approveProject(
           updatedAt: new Date(),
         })
         .where(eq(projects.id, id));
-      await tx
+      const [credited] = await tx
         .insert(userBread)
         .values({ userId: updatedSubmission.userId, goldBalance: gold })
         .onConflictDoUpdate({
@@ -427,7 +442,19 @@ export async function approveProject(
             goldBalance: sql`${userBread.goldBalance} + ${gold}`,
             updatedAt: new Date(),
           },
-        });
+        })
+        .returning({ goldBalance: userBread.goldBalance });
+      await recordCurrencyTransaction(tx, {
+        userId: updatedSubmission.userId,
+        actorId: session.user.id,
+        type: "project_payout",
+        amount: gold,
+        balanceAfter: credited?.goldBalance ?? null,
+        sourceEntityType: "submission",
+        sourceEntityId: String(submission.id),
+        idempotencyKey: `project_payout:build:${submission.id}`,
+        note: "Build approved (gold bread)",
+      });
       return updatedSubmission.userId;
     });
     await audit("admin.user.gold_bread_add", "user", creditedUser, {
@@ -542,7 +569,7 @@ export async function approveProject(
 }
 
 export async function payOutProject(projectId: number) {
-  await requireAdminSession();
+  const session = await requireAdminSession();
   const id = requirePositiveProjectId(projectId);
   const project = await getProjectOrThrow(id);
   if (project.status !== "reviewed")
@@ -569,7 +596,7 @@ export async function payOutProject(projectId: number) {
     if (!updatedProject)
       throw new Error("Only reviewed projects can be paid out");
 
-    await tx
+    const [credited] = await tx
       .insert(userBread)
       .values(
         buildShip
@@ -587,7 +614,27 @@ export async function payOutProject(projectId: number) {
               balance: sql`${userBread.balance} + ${bread}`,
               updatedAt: new Date(),
             },
+      })
+      .returning({
+        balance: userBread.balance,
+        goldBalance: userBread.goldBalance,
       });
+
+    // Deterministic key: the project leaves "reviewed" in this same tx, so a
+    // retried payout is a no-op rather than a double-credit.
+    await recordCurrencyTransaction(tx, {
+      userId: updatedProject.userId,
+      actorId: session.user.id,
+      type: "project_payout",
+      amount: bread,
+      balanceAfter: buildShip
+        ? (credited?.goldBalance ?? null)
+        : (credited?.balance ?? null),
+      sourceEntityType: "project",
+      sourceEntityId: String(id),
+      idempotencyKey: `project_payout:payout:${id}`,
+      note: buildShip ? "Project paid out (gold bread)" : "Project paid out",
+    });
 
     return updatedProject.userId;
   });

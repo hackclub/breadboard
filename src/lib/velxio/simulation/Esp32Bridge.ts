@@ -88,6 +88,21 @@ export function getTabSessionId(): string {
   return id;
 }
 
+// Capability token for the IoT gateway proxy, keyed by client_id
+// (`<sessionId>::<boardId>`). The backend issues one per simulation WebSocket
+// and requires it on `/api/gateway/...` requests, so a leaked client_id alone
+// can't reach the ESP32 web server. Populated from the `gateway_token` WS
+// message; read by the components that build gateway URLs.
+const gatewayTokens = new Map<string, string>();
+
+export function setGatewayToken(clientId: string, token: string): void {
+  gatewayTokens.set(clientId, token);
+}
+
+export function getGatewayToken(clientId: string): string | undefined {
+  return gatewayTokens.get(clientId);
+}
+
 export interface Ws2812Pixel {
   r: number;
   g: number;
@@ -345,6 +360,11 @@ export class Esp32Bridge {
       }
 
       switch (msg.type) {
+        case "gateway_token": {
+          const token = msg.data.token as string | undefined;
+          if (token) setGatewayToken(this.clientId, token);
+          break;
+        }
         case "serial_output": {
           const text = (msg.data.data as string) ?? "";
           const uart = msg.data.uart as number | undefined;

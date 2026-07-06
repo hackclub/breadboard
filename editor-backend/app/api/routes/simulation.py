@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import socket
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.services.qemu_manager import qemu_manager
@@ -8,6 +9,19 @@ from app.services.board_access import board_allowed, PRO_BOARD_MESSAGE
 from app.services.esp32_lib_manager import esp_lib_manager
 from app.services.stm32_lib_manager import stm32_lib_manager
 from app.services.picow_net_bridge import picow_net_manager
+from app.services.gateway_tokens import clear_token, issue_token
+
+# Ceiling on concurrent simulation sessions. Each session can spawn a QEMU or
+# worker subprocess, so an unbounded count is a memory/PID/disk DoS. Tune per
+# host via env.
+MAX_SIM_CONNECTIONS = int(os.environ.get("MAX_SIM_CONNECTIONS", "128"))
+
+# Reject oversized firmware blobs before decoding/holding them in memory. A
+# 4 MB flash image is ~5.5 MB of base64; 12 MB of chars leaves generous
+# headroom while blocking hundred-MB payloads.
+MAX_FIRMWARE_B64_CHARS = int(
+    os.environ.get("MAX_FIRMWARE_B64_CHARS", str(12 * 1024 * 1024))
+)
 
 
 def _find_free_port() -> int:
@@ -18,6 +32,10 @@ def _find_free_port() -> int:
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _firmware_too_large(firmware_b64) -> bool:
+    return isinstance(firmware_b64, str) and len(firmware_b64) > MAX_FIRMWARE_B64_CHARS
 
 
 class ConnectionManager:
@@ -42,7 +60,30 @@ manager = ConnectionManager()
 
 @router.websocket('/ws/{client_id}')
 async def simulation_websocket(websocket: WebSocket, client_id: str):
+    # Cap concurrent sessions. A reconnect for an existing client_id replaces
+    # its slot rather than counting against the cap.
+    if (
+        client_id not in manager.active_connections
+        and len(manager.active_connections) >= MAX_SIM_CONNECTIONS
+    ):
+        await websocket.close(code=1013)  # 1013 = try again later
+        logger.warning('rejected WS %s: at MAX_SIM_CONNECTIONS=%d',
+                       client_id, MAX_SIM_CONNECTIONS)
+        return
+
     await manager.connect(websocket, client_id)
+
+    # Hand this socket (and only this socket) a capability token that the IoT
+    # gateway proxy requires, so a leaked client_id alone can't reach the
+    # instance's web server.
+    gateway_token = issue_token(client_id)
+    try:
+        await websocket.send_text(json.dumps({
+            'type': 'gateway_token',
+            'data': {'token': gateway_token},
+        }))
+    except Exception:
+        logger.debug('[%s] failed to send gateway_token', client_id)
 
     async def qemu_callback(event_type: str, data: dict) -> None:
         if event_type == 'gpio_change':
@@ -107,6 +148,9 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
             elif msg_type == 'start_esp32':
                 board        = msg_data.get('board', 'esp32')
                 firmware_b64 = msg_data.get('firmware_b64')
+                if _firmware_too_large(firmware_b64):
+                    await qemu_callback('error', {'message': 'Firmware image too large.'})
+                    continue
                 sensors      = msg_data.get('sensors', [])
                 wifi_enabled = bool(msg_data.get('wifi_enabled', False))
                 fw_size_kb   = round(len(firmware_b64) * 0.75 / 1024) if firmware_b64 else 0
@@ -134,6 +178,9 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
 
             elif msg_type == 'load_firmware':
                 firmware_b64 = msg_data.get('firmware_b64', '')
+                if _firmware_too_large(firmware_b64):
+                    await qemu_callback('error', {'message': 'Firmware image too large.'})
+                    continue
                 if firmware_b64:
                     if _use_lib():
                         esp_lib_manager.load_firmware(client_id, firmware_b64)
@@ -144,6 +191,9 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
             elif msg_type == 'start_stm32':
                 board        = msg_data.get('board', 'stm32-bluepill')
                 firmware_b64 = msg_data.get('firmware_b64')
+                if _firmware_too_large(firmware_b64):
+                    await qemu_callback('error', {'message': 'Firmware image too large.'})
+                    continue
                 sensors      = msg_data.get('sensors', [])
                 fw_size_kb   = round(len(firmware_b64) * 0.75 / 1024) if firmware_b64 else 0
                 lib_available = stm32_lib_manager.is_available()
@@ -165,6 +215,9 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
 
             elif msg_type == 'stm32_load_firmware':
                 firmware_b64 = msg_data.get('firmware_b64', '')
+                if _firmware_too_large(firmware_b64):
+                    await qemu_callback('error', {'message': 'Firmware image too large.'})
+                    continue
                 if firmware_b64:
                     stm32_lib_manager.load_firmware(client_id, firmware_b64)
 
@@ -378,6 +431,7 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
         # A newer simulation_websocket may have already connected and replaced us.
         if manager.active_connections.get(client_id) is websocket:
             manager.disconnect(client_id)
+            clear_token(client_id)
             qemu_manager.stop_instance(client_id)
             await esp_lib_manager.stop_instance(client_id)
             esp_qemu_manager.stop_instance(client_id)
@@ -387,6 +441,7 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
         logger.error('WebSocket error for %s: %s', client_id, exc)
         if manager.active_connections.get(client_id) is websocket:
             manager.disconnect(client_id)
+            clear_token(client_id)
             qemu_manager.stop_instance(client_id)
             await esp_lib_manager.stop_instance(client_id)
             esp_qemu_manager.stop_instance(client_id)

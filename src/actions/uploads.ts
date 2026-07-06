@@ -6,6 +6,10 @@ import { requireAdminSession, requireSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import { projects } from "@/lib/db/schema";
 import { createPresignedPutUrl } from "@/lib/storage/s3";
+import {
+  createUploadToken,
+  normalizeUploadContentType,
+} from "@/lib/storage/upload-token";
 
 const imageContentTypes = new Map([
   ["image/png", "png"],
@@ -19,8 +23,12 @@ const videoContentTypes = new Map([
   ["video/quicktime", "mov"],
 ]);
 
-function normalizeContentType(contentType: string) {
-  return contentType.split(";", 1)[0].trim().toLowerCase();
+function signedUploadUrls(key: string, contentType: string) {
+  const token = createUploadToken(key, contentType);
+  return {
+    uploadUrl: `/api/uploads/${key}?token=${encodeURIComponent(token)}`,
+    publicUrl: `/api/uploads/${key}`,
+  };
 }
 
 async function assertProjectOwned(projectId: number, userId: string) {
@@ -41,29 +49,23 @@ export async function createProjectScreenshotUpload(
   if (!Number.isInteger(id) || id < 1) throw new Error("Invalid project");
   await assertProjectOwned(id, session.user.id);
 
-  const safeContentType = normalizeContentType(contentType);
+  const safeContentType = normalizeUploadContentType(contentType);
   const extension = imageContentTypes.get(safeContentType);
   if (!extension) throw new Error("Upload a PNG, JPEG, or WebP image.");
 
   const key = `project-screenshots/${session.user.id}/${id}/${randomUUID()}.${extension}`;
-  return {
-    uploadUrl: `/api/uploads/${key}`,
-    publicUrl: `/api/uploads/${key}`,
-  };
+  return signedUploadUrls(key, safeContentType);
 }
 
 export async function createExternalScreenshotUpload(contentType: string) {
   const session = await requireSession();
 
-  const safeContentType = normalizeContentType(contentType);
+  const safeContentType = normalizeUploadContentType(contentType);
   const extension = imageContentTypes.get(safeContentType);
   if (!extension) throw new Error("Upload a PNG, JPEG, or WebP image.");
 
   const key = `project-screenshots/${session.user.id}/external/${randomUUID()}.${extension}`;
-  return {
-    uploadUrl: `/api/uploads/${key}`,
-    publicUrl: `/api/uploads/${key}`,
-  };
+  return signedUploadUrls(key, safeContentType);
 }
 
 export async function createProjectDemoVideoUpload(
@@ -75,7 +77,7 @@ export async function createProjectDemoVideoUpload(
   if (!Number.isInteger(id) || id < 1) throw new Error("Invalid project");
   await assertProjectOwned(id, session.user.id);
 
-  const safeContentType = normalizeContentType(contentType);
+  const safeContentType = normalizeUploadContentType(contentType);
   const extension = videoContentTypes.get(safeContentType);
   if (!extension) throw new Error("Upload an MP4, WebM, or MOV video.");
   const demoPath = `${id}/${randomUUID()}.${extension}`;
@@ -89,13 +91,10 @@ export async function createProjectDemoVideoUpload(
 
 export async function createProductImageUpload(contentType: string) {
   const session = await requireAdminSession();
-  const safeContentType = normalizeContentType(contentType);
+  const safeContentType = normalizeUploadContentType(contentType);
   const extension = imageContentTypes.get(safeContentType);
   if (!extension) throw new Error("Upload a PNG, JPEG, or WebP image.");
 
   const key = `product-images/${session.user.id}/${randomUUID()}.${extension}`;
-  return {
-    uploadUrl: `/api/uploads/${key}`,
-    publicUrl: `/api/uploads/${key}`,
-  };
+  return signedUploadUrls(key, safeContentType);
 }

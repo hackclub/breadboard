@@ -598,6 +598,9 @@ export const projects = pgTable(
     screenshotUrl: text("screenshot_url").notNull().default(""),
     description: text("description").notNull().default(""),
     howToUse: text("how_to_use").notNull().default(""),
+    // JSON array of { name, quantity } rows curated in the publish modal's
+    // BOM maker; empty string means "derive the BOM from the schematic".
+    bom: text("bom").notNull().default(""),
     addressLine1: text("address_line1").notNull().default(""),
     addressLine2: text("address_line2").notNull().default(""),
     city: text("city").notNull().default(""),

@@ -97,12 +97,16 @@ export default async function ProjectEditorPage({
         projectStatus={project.status}
         initialPublishUrl={project.codeUrl || null}
         initialHowToUse={project.howToUse || null}
+        initialBom={project.bom || null}
         version={version}
         readOnly={readOnly}
         reviewLabel={reviewLabel}
         trackedSeconds={trackedSeconds}
       />
-      <div className="flex-1 relative">
+      {/* min-h-0 is load-bearing: without it this flex child grows to its
+          content height, pushing the editor's bottom panels (serial monitor,
+          oscilloscope) below the viewport. */}
+      <div className="relative min-h-0 flex-1 overflow-hidden">
         <VelxioNextEditor
           projectId={project.id}
           version={version}

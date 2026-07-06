@@ -1151,12 +1151,12 @@ function SubmitCard({
         <h2 className="text-lg font-black text-black">Submit for review</h2>
       </div>
       <div className="rounded-xl border border-black bg-[#fffaf1] p-4 text-sm text-black shadow-[2px_2px_0_#000]">
-        <p className="flex items-center gap-1.5 font-black">
-          <BreadIcon size="sm" gold={isBuild} />
-          {isBuild
-            ? "Build ships earn gold bread"
-            : "Off-platform designs earn regular bread"}
-        </p>
+        {isBuild ? (
+          <p className="flex items-center gap-1.5 font-black">
+            <BreadIcon size="sm" gold={isBuild} />
+            Build ships earn gold bread
+          </p>
+        ) : null}
         <p className="mt-1 text-xs font-semibold text-black/60">
           {isBuild
             ? "We don't ship you a kit for a build ship. When a reviewer approves your build, you earn gold bread for your approved hours, which gets you shop items for cheaper."
@@ -1174,15 +1174,23 @@ function SubmitCard({
               <li>A demo video showing it actually working</li>
               <li>
                 A public repo with README.md, journal.md, your schematic,
-                firmware source, and a BOM with links to every part
+                firmware source, and a BOM listing your parts and quantities
+                (it can be in the README)
               </li>
             </>
           ) : (
             <>
               <li>A screenshot or render of your finished schematic</li>
+              <li className="font-black text-black">
+                A simulation of your project. You have to somehow simulate the
+                project, which means showing your firmware actually working on a
+                simulation, not just the circuit, similar to a Wokwi simulation
+                or the simulation on site!
+              </li>
               <li>
                 A public repo with README.md, journal.md, your schematic,
-                firmware source, and a BOM with links to every part
+                firmware source, and a BOM listing your parts and quantities
+                (it can be in the README)
               </li>
               <li>
                 You&apos;ll build it and submit a demo video once your kit
@@ -1191,17 +1199,22 @@ function SubmitCard({
             </>
           )}
         </ul>
-        <p className="mt-2 text-xs font-semibold text-black/60">
-          The full checklist is on the{" "}
-          <Link
-            href="/requirements"
-            target="_blank"
-            className="font-black text-[#BD0F32] underline"
-          >
-            requirements page
-          </Link>
-          . We check everything before approving.
-        </p>
+        <div className="mt-3 rounded-lg border border-[#BD0F32]/20 bg-[#fff5f7] p-3 text-xs font-semibold text-black/70">
+          <p className="font-black text-black">Read the requirements first</p>
+          <p className="mt-0.5">
+            The full checklist{isBuild ? "" : ", including how to simulate your project,"} is on the{" "}
+            <Link
+              href="/requirements"
+              target="_blank"
+              className="font-black text-[#BD0F32] underline"
+            >
+              requirements page
+            </Link>
+            . Make sure everything there is in your repo, including the
+            schematic, code, README, and bill of materials. We check these
+            before accepting your submission.
+          </p>
+        </div>
       </div>
       <form action={formAction} className="grid gap-4">
         <input type="hidden" name="projectId" value={projectId} />
@@ -1216,28 +1229,6 @@ function SubmitCard({
             placeholder="https://github.com/your-username/your-project"
             className="px-4 py-3 font-mono text-sm"
           />
-          <div className="mt-1 flex items-start gap-1.5 rounded-lg border border-[#BD0F32]/20 bg-[#fff5f7] p-2.5 text-xs text-black/70">
-            <HiInformationCircle className="mt-0.5 size-3.5 shrink-0 text-[#BD0F32]" />
-            <div>
-              <p className="font-black">
-                Your public repo must have a{" "}
-                <span className="text-[#BD0F32]">README.md</span> and{" "}
-                <span className="text-[#BD0F32]">journal.md</span>.
-              </p>
-              <p className="mt-0.5">
-                Make sure everything on the{" "}
-                <Link
-                  href="/requirements"
-                  target="_blank"
-                  className="font-black text-[#BD0F32] underline"
-                >
-                  requirements page
-                </Link>{" "}
-                is in your repo: schematic, code, README, and bill of materials.
-                We check these before accepting your submission.
-              </p>
-            </div>
-          </div>
         </div>
 
         <ExternalScreenshotField

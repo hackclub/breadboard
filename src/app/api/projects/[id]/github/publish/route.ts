@@ -15,6 +15,13 @@ import {
   hasAllowedContentLength,
 } from "@/lib/editor/security";
 import { GITHUB_PUBLISH_PROVIDER_ID } from "@/lib/github/oauth";
+import {
+  type BomItem,
+  bomToMarkdown,
+  normalizeBomItems,
+  parseStoredBom,
+  serializeBom,
+} from "@/lib/projects/bom";
 
 type GitHubUser = { login: string };
 type GitHubRepo = { html_url: string; full_name: string };
@@ -78,6 +85,18 @@ function optionalPublicUrl(value: unknown, origin: string) {
   if (!trimmed) return "";
   if (trimmed.startsWith("/demo/")) return `${origin}${trimmed}`;
   return optionalUrl(trimmed);
+}
+
+function absoluteScreenshotUrl(value: unknown, origin: string) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("/")) return `${origin}${trimmed}`;
+  try {
+    return optionalUrl(trimmed);
+  } catch {
+    return "";
+  }
 }
 
 function encodeBase64(content: string) {
@@ -260,7 +279,9 @@ function flattenFiles(
   return files;
 }
 
-function buildBom(editorData: Record<string, unknown> | null) {
+function bomFromEditorData(
+  editorData: Record<string, unknown> | null,
+): BomItem[] {
   const components = Array.isArray(editorData?.components)
     ? editorData.components
     : [];
@@ -271,12 +292,18 @@ function buildBom(editorData: Record<string, unknown> | null) {
     if (typeof metadataId !== "string") continue;
     counts.set(metadataId, (counts.get(metadataId) ?? 0) + 1);
   }
-  if (counts.size === 0)
-    return "- Kit parts are listed in the editor schematic.\n";
   return Array.from(counts.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([name, count]) => `- ${name}: ${count}`)
-    .join("\n");
+    .map(([name, quantity]) => ({ name, quantity }));
+}
+
+function buildBom(
+  customBom: BomItem[],
+  editorData: Record<string, unknown> | null,
+) {
+  const items = customBom.length ? customBom : bomFromEditorData(editorData);
+  if (!items.length) return "- Kit parts are listed in the editor schematic.\n";
+  return bomToMarkdown(items);
 }
 
 function buildReadme({
@@ -286,7 +313,7 @@ function buildReadme({
   demoUrl,
   videoUrl,
   screenshotUrl,
-  editorData,
+  bom,
   hours,
 }: {
   title: string;
@@ -295,18 +322,17 @@ function buildReadme({
   demoUrl: string;
   videoUrl: string;
   screenshotUrl: string;
-  editorData: Record<string, unknown> | null;
+  bom: string;
   hours: number;
 }) {
   const desc = description || title;
   const section = (heading: string, body: string) =>
     body.trim() ? `## ${heading}\n\n${body.trim()}\n` : "";
 
-  const bom = buildBom(editorData);
-
   return [
     `# ${title}`,
     "",
+    screenshotUrl ? `![${title}](${screenshotUrl})` : "",
     desc,
     `\n> Built in [Breadboard](https://breadboard.hackclub.com), a Hack Club program. This project took ~${hours} hours of work.`,
     "",
@@ -316,7 +342,6 @@ function buildReadme({
       [
         demoUrl ? `- **Try it:** [${demoUrl}](${demoUrl})` : "",
         videoUrl ? `- **Video:** ${videoUrl}` : "",
-        screenshotUrl ? `\n![${title} screenshot](${screenshotUrl})` : "",
       ]
         .filter(Boolean)
         .join("\n"),
@@ -447,9 +472,15 @@ export async function POST(
     return error(err instanceof Error ? err.message : "Invalid URL", 400);
   }
   const demoUrl = `${origin}/share/${projectId}`;
+  const screenshotUrl = absoluteScreenshotUrl(project.screenshotUrl, origin);
   const editorData = project.editorData
     ? (JSON.parse(project.editorData) as Record<string, unknown>)
     : null;
+  // An array in the body is authoritative (an empty one clears the custom
+  // BOM and falls back to the schematic); anything else keeps the saved BOM.
+  const bomItems = Array.isArray(body.bom)
+    ? normalizeBomItems(body.bom)
+    : parseStoredBom(project.bom);
   await audit("github.publish.attempt", "project", String(projectId), {
     storedRepoUrl: project.codeUrl || null,
   });
@@ -521,8 +552,8 @@ export async function POST(
     howToUse,
     demoUrl,
     videoUrl,
-    screenshotUrl: project.screenshotUrl,
-    editorData,
+    screenshotUrl,
+    bom: buildBom(bomItems, editorData),
     hours,
   });
   const journalsMarkdown = buildJournalsMarkdown(project.title, journals);
@@ -571,6 +602,7 @@ export async function POST(
     .set({
       codeUrl: repo.html_url,
       howToUse,
+      ...(Array.isArray(body.bom) ? { bom: serializeBom(bomItems) } : {}),
       playableUrl: demoUrl,
       demoVideoUrl:
         typeof body.videoUrl === "string" && body.videoUrl.trim()

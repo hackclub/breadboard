@@ -129,8 +129,9 @@ export default function FaqPage() {
         <h2>Do I need a GitHub repo?</h2>
         <p>
           Yes, your submission lives in a repo with your README, schematic,
-          firmware, and BOM. If you use the editor, it can publish your project
-          to GitHub in one click.
+          firmware, and BOM (a list of your parts and quantities, right in the
+          README). If you use the editor, it can publish your project to GitHub
+          in one click, BOM included.
         </p>
 
         <h2>Is there a minimum time requirement?</h2>

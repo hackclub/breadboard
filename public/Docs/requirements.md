@@ -51,7 +51,7 @@ Your project must:
 
 Your repo must include:
 
-- [x] A BOM (Bill of Materials) as a CSV, with links to every part
+- [x] A BOM (Bill of Materials) listing the parts you used and how many of each. It can live in your README! If you design in the Breadboard editor, Publish writes this section from your schematic and you can edit the parts list in the publish dialog.
 - [x] Your wiring diagram or schematic file
 - [x] Firmware source code, if applicable
 - [x] CAD files for your enclosure (.step, .f3d, .FCStd, or an Onshape link)

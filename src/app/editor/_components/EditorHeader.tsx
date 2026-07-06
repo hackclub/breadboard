@@ -2,15 +2,44 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Github, Save, X } from "lucide-react";
+import { ChevronLeft, Clock, Github, Plus, Save, Trash2, X } from "lucide-react";
 import {
   type EditorSaveState,
   subscribeEditorSaveState,
   triggerManualSave,
 } from "@/lib/editor/saveState";
-import { BreadEstimatePill } from "./BreadEstimatePill";
+import {
+  MAX_BOM_ITEMS,
+  normalizeBomItems,
+  parseStoredBom,
+} from "@/lib/projects/bom";
+import {
+  BreadEstimatePill,
+  fmtDuration,
+  useLiveTrackedSeconds,
+} from "./BreadEstimatePill";
 import { EditorActivityIndicator } from "./EditorActivityIndicator";
 import { ScreenShareTracker } from "./ScreenShareTracker";
+
+// Total tracked time on this project, live. Same data feed as the bread
+// estimate badge: server baseline plus heartbeat growth since mount.
+function ProjectTimeTotal({
+  initialTotalSeconds,
+}: {
+  initialTotalSeconds: number;
+}) {
+  const totalSeconds = useLiveTrackedSeconds(initialTotalSeconds);
+  return (
+    <span
+      className="flex items-center gap-1.5 rounded bg-[#2a2a2a] px-2 py-1 text-xs font-black text-[#ddd]"
+      title="Total tracked time on this project, across every session."
+    >
+      <Clock className="size-3.5 text-[#999]" />
+      {fmtDuration(totalSeconds)}
+      <span className="font-semibold text-[#888]">total</span>
+    </span>
+  );
+}
 
 function timeAgo(ms: number | null): string {
   if (!ms) return "";
@@ -61,6 +90,7 @@ export function EditorHeader({
   projectStatus,
   initialPublishUrl,
   initialHowToUse,
+  initialBom,
   version,
   readOnly,
   reviewLabel,
@@ -73,6 +103,7 @@ export function EditorHeader({
   projectStatus: string;
   initialPublishUrl?: string | null;
   initialHowToUse?: string | null;
+  initialBom?: string | null;
   version?: number;
   readOnly?: boolean;
   reviewLabel?: string;
@@ -93,7 +124,42 @@ export function EditorHeader({
   const [publishError, setPublishError] = useState("");
   const [publishStatus, setPublishStatus] = useState("");
   const [howToUse, setHowToUse] = useState(initialHowToUse ?? "");
+  // Quantity stays a string while editing so the field can be cleared;
+  // normalizeBomItems turns it back into a number on publish.
+  const [bomRows, setBomRows] = useState<
+    Array<{ id: number; name: string; quantity: string }>
+  >(() =>
+    parseStoredBom(initialBom ?? "").map((item, index) => ({
+      id: index,
+      name: item.name,
+      quantity: String(item.quantity),
+    })),
+  );
+  const nextBomId = useRef(bomRows.length);
   const autoPublishStarted = useRef(false);
+
+  const addBomRow = useCallback(() => {
+    const id = nextBomId.current;
+    nextBomId.current += 1;
+    setBomRows((rows) =>
+      rows.length >= MAX_BOM_ITEMS
+        ? rows
+        : [...rows, { id, name: "", quantity: "1" }],
+    );
+  }, []);
+
+  const updateBomRow = useCallback(
+    (id: number, patch: Partial<{ name: string; quantity: string }>) => {
+      setBomRows((rows) =>
+        rows.map((row) => (row.id === id ? { ...row, ...patch } : row)),
+      );
+    },
+    [],
+  );
+
+  const removeBomRow = useCallback((id: number) => {
+    setBomRows((rows) => rows.filter((row) => row.id !== id));
+  }, []);
 
   useEffect(() => subscribeEditorSaveState((s) => setState({ ...s })), []);
 
@@ -143,7 +209,11 @@ export function EditorHeader({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ overwrite: true, howToUse: cleanedHowToUse }),
+        body: JSON.stringify({
+          overwrite: true,
+          howToUse: cleanedHowToUse,
+          bom: normalizeBomItems(bomRows),
+        }),
       });
 
       if (res.status === 409) {
@@ -188,7 +258,7 @@ export function EditorHeader({
     } finally {
       setPublishing(false);
     }
-  }, [howToUse, projectId, publishUrl, publishing, readOnly]);
+  }, [bomRows, howToUse, projectId, publishUrl, publishing, readOnly]);
 
   useEffect(() => {
     if (readOnly || autoPublishStarted.current) return;
@@ -266,10 +336,20 @@ export function EditorHeader({
         </span>
       ) : null}
 
+      {/* One tall badge spanning this row AND the toolbar row below it.
+          self-start anchors it to the header's top edge; the z-index keeps
+          it above the toolbar it hangs over (whose right end holds no
+          buttons). ml-auto here plus ml-auto on the button group keeps the
+          group flush right whether or not the badge renders. */}
+      {!readOnly && !trackingBlocked ? (
+        <div className="relative z-[55] ml-auto self-start">
+          <BreadEstimatePill initialTotalSeconds={trackedSeconds ?? 0} />
+        </div>
+      ) : null}
       <div className="ml-auto flex items-center gap-3">
         {!readOnly && !trackingBlocked ? (
           <>
-            <BreadEstimatePill initialTotalSeconds={trackedSeconds ?? 0} />
+            <ProjectTimeTotal initialTotalSeconds={trackedSeconds ?? 0} />
             <ScreenShareTracker projectId={projectId} />
             <EditorActivityIndicator projectId={projectId} />
           </>
@@ -396,6 +476,65 @@ export function EditorHeader({
                   edit it during a future publish/update.
                 </span>
               </label>
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[#ddd] text-xs font-black">
+                    Bill of materials
+                  </span>
+                  <button
+                    type="button"
+                    onClick={addBomRow}
+                    disabled={bomRows.length >= MAX_BOM_ITEMS}
+                    className="flex items-center gap-1 rounded-lg border border-[#3a3a3a] px-2 py-1 text-[11px] font-black text-[#ddd] transition hover:border-[#BD0F32] hover:text-white disabled:opacity-40"
+                  >
+                    <Plus className="size-3" />
+                    Add part
+                  </button>
+                </div>
+                {bomRows.length > 0 ? (
+                  <div className="grid gap-1.5">
+                    {bomRows.map((row) => (
+                      <div key={row.id} className="flex items-center gap-2">
+                        <input
+                          value={row.name}
+                          onChange={(event) =>
+                            updateBomRow(row.id, {
+                              name: event.target.value,
+                            })
+                          }
+                          placeholder="Part name, e.g. 220Ω resistor"
+                          className="min-w-0 flex-1 rounded-xl border border-[#3a3a3a] bg-[#111] px-3 py-2 text-sm text-white outline-none transition focus:border-[#BD0F32]"
+                        />
+                        <input
+                          type="number"
+                          min={1}
+                          value={row.quantity}
+                          onChange={(event) =>
+                            updateBomRow(row.id, {
+                              quantity: event.target.value,
+                            })
+                          }
+                          aria-label="Quantity"
+                          className="w-20 rounded-xl border border-[#3a3a3a] bg-[#111] px-3 py-2 text-sm text-white outline-none transition focus:border-[#BD0F32]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeBomRow(row.id)}
+                          aria-label={`Remove ${row.name || "part"}`}
+                          className="rounded p-1.5 text-[#888] transition hover:bg-[#333] hover:text-white"
+                        >
+                          <Trash2 className="size-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                <span className="text-[#888] text-[11px] font-bold">
+                  The parts you used and how many of each. Goes into your
+                  README as the Bill of Materials. Leave it empty to
+                  auto-generate the list from your schematic.
+                </span>
+              </div>
               {publishUrl ? (
                 <a
                   href={publishUrl}

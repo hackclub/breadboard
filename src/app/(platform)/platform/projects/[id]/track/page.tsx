@@ -130,9 +130,17 @@ export default async function ExternalTrackPage({
         description={
           isBuild
             ? "Track your time and journal as you build off-platform, then submit for review. We measure your hours the same way we do for in-editor projects, so there's nothing to self-report. Approved builds earn gold bread, and no kit ships since you already built it."
-            : "Track your time and journal as you design off-platform, then submit for review. We measure your hours the same way we do for in-editor projects, so there's nothing to self-report. Approved designs earn regular bread, and we ship you a kit to build it."
+            : "Track your time and journal as you design off-platform, then submit for review. Approved designs earn bread, and we ship you a kit to build it!"
         }
       />
+      {!isBuild ? (
+        <div className="rounded-xl border border-black bg-[#fff5f7] p-4 text-sm font-semibold text-black shadow-[2px_2px_0_#000]">
+          A simulation of your project. You have to somehow simulate the
+          project, which means showing your firmware actually working on a
+          simulation, not just the circuit, similar to a Wokwi simulation or the
+          simulation on site!
+        </div>
+      ) : null}
       <ExternalTrackingWorkspace
         projectId={project.id}
         title={project.title}

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { buttonClass } from "@/components/ui/button";
 import { Card, CardSection, Surface } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { offPlatformBuilds } from "@/flags";
 import { getSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import { projects } from "@/lib/db/schema";
@@ -56,6 +57,7 @@ export default async function PlatformDashboardPage() {
       description: projects.description,
       status: projects.status,
       reviewNote: projects.reviewNote,
+      submissionSource: projects.submissionSource,
     })
     .from(projects)
     .where(
@@ -63,6 +65,8 @@ export default async function PlatformDashboardPage() {
     )
     .orderBy(desc(projects.updatedAt))
     .limit(6);
+
+  const offPlatformEnabled = await offPlatformBuilds();
 
   return (
     <main className="max-w-6xl space-y-6">
@@ -130,6 +134,9 @@ export default async function PlatformDashboardPage() {
             <div className="divide-y divide-black/10">
               {userProjects.map((project) => {
                 const editable = canEditProject(project.status);
+                // Off-platform projects (manual submission source) have no
+                // editor; drafts go to their tracking page instead.
+                const isManual = project.submissionSource === "manual";
 
                 return (
                   <div
@@ -151,13 +158,23 @@ export default async function PlatformDashboardPage() {
                     </div>
 
                     <div className="flex gap-2">
-                      {editable ? (
+                      {editable && !isManual ? (
                         <Link
                           href={`/editor/${project.id}`}
                           className={buttonClass({ tone: "ink", size: "sm" })}
                         >
                           <HiPencilSquare className="size-4" />
                           Editor
+                        </Link>
+                      ) : isManual &&
+                        project.status === "draft" &&
+                        offPlatformEnabled ? (
+                        <Link
+                          href={`/platform/projects/${project.id}/track`}
+                          className={buttonClass({ tone: "ink", size: "sm" })}
+                        >
+                          <HiPencilSquare className="size-4" />
+                          Track
                         </Link>
                       ) : null}
                       <Link

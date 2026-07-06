@@ -27,6 +27,7 @@ import {
   isKitBoard,
   kitBoardLimit,
   kitComponentLimit,
+  kitComponentName,
 } from "@/lib/velxio/data/kitInventory";
 import raspberryPi3Svg from "@/components/velxio/assets/Raspberry_Pi_3_illustration.svg";
 import { Attiny85 } from "@/components/velxio/components/velxio-components/Attiny85";
@@ -153,9 +154,18 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
   const filteredComponents = useMemo(() => {
     if (isLoading) return [];
 
-    let components = searchQuery
-      ? registry.search(searchQuery)
-      : registry.getAllComponents();
+    let components = registry.getAllComponents();
+    if (searchQuery) {
+      // Match on the registry index plus the kit-specific display name, so
+      // e.g. "tact switch" finds the pushbutton in an Arduino-kit project.
+      const query = searchQuery.toLowerCase();
+      const indexHits = new Set(registry.search(searchQuery).map((c) => c.id));
+      components = components.filter(
+        (c) =>
+          indexHits.has(c.id) ||
+          kitComponentName(c.id, c.name, kitType).toLowerCase().includes(query),
+      );
+    }
 
     if (selectedCategory !== "all") {
       components = components.filter((c) => c.category === selectedCategory);
@@ -369,6 +379,11 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
                     <ComponentCard
                       key={component.id}
                       component={component}
+                      displayName={kitComponentName(
+                        component.id,
+                        component.name,
+                        kitType,
+                      )}
                       remaining={
                         ignoreStock
                           ? Number.POSITIVE_INFINITY
@@ -445,6 +460,8 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
  */
 interface ComponentCardProps {
   component: ComponentMetadata;
+  /** Kit-specific display name; falls back to the metadata name. */
+  displayName?: string;
   remaining: number;
   onSelect: () => void;
 }
@@ -464,6 +481,7 @@ const PASSIVE_TAGS = new Set([
 
 const ComponentCard: React.FC<ComponentCardProps> = ({
   component,
+  displayName,
   remaining,
   onSelect,
 }) => {
@@ -521,6 +539,12 @@ const ComponentCard: React.FC<ComponentCardProps> = ({
       component.tagName === "wokwi-lcd2004"
     ) {
       (element as any).text = "Hello World!";
+      // The I2C-adapter variant shares the wokwi-lcd1602 tag; pass its
+      // pins mode through so the preview shows the 4-pin I2C backpack
+      // instead of looking identical to the parallel LCD1602 card.
+      if (component.defaultValues?.pins) {
+        (element as any).pins = component.defaultValues.pins;
+      }
     }
 
     thumbnailRef.current.innerHTML = "";
@@ -555,7 +579,7 @@ const ComponentCard: React.FC<ComponentCardProps> = ({
         )}
       </div>
       <div className="card-content">
-        <div className="card-name">{component.name}</div>
+        <div className="card-name">{displayName ?? component.name}</div>
         {component.description && (
           <div className="card-description">{component.description}</div>
         )}

@@ -43,7 +43,11 @@ function getConnectedElement(
   return null;
 }
 
-const STEPPER_TAGS = ["wokwi-stepper-motor", "wokwi-biaxial-stepper"];
+const STEPPER_TAGS = [
+  "wokwi-stepper-motor",
+  "wokwi-biaxial-stepper",
+  "velxio-stepper-28byj48",
+];
 const FULL_STEP_DEG = 1.8;
 
 PartSimulationRegistry.register("a4988", {

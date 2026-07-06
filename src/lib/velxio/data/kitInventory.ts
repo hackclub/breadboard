@@ -81,8 +81,31 @@ export const ALL_KIT_BOARD_LIMITS: Partial<Record<BoardKind, number>> = {
   esp32: 1,
 };
 
+// Kit-specific display names. The same simulated part ships as a different
+// physical component per kit (the Arduino kit's parts sheet calls the
+// pushbutton a "Tact switch 12*12" and its pot is 5K; the ESP32 kit has a
+// "Button switch" and a 10K pot), so the picker labels follow the sheet of
+// whichever kit the project uses.
+export const KIT_COMPONENT_NAMES: Record<KitType, Record<string, string>> = {
+  arduino: {
+    pushbutton: "Tact Switch 12x12",
+    potentiometer: "Potentiometer 5K",
+  },
+  esp32: {
+    pushbutton: "Button Switch",
+    potentiometer: "Potentiometer 10K",
+  },
+};
+
+export function kitComponentName(
+  metadataId: string,
+  fallback: string,
+  kitType?: string | null,
+): string {
+  return KIT_COMPONENT_NAMES[normalizeKitType(kitType)][metadataId] ?? fallback;
+}
+
 export const MISSING_KIT_A_PARTS = [
-  "Tact switch 12x12 distinct from generic pushbutton",
   "Dupont/battery/USB/bread pan wires as placeable parts",
 ];
 

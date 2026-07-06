@@ -268,11 +268,20 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
 
   // Track wires connected to this component so attachEvents re-runs when
   // wires are added or removed (e.g. disconnecting an LED cathode from GND).
+  // Breadboard attachments count too: plugging into / out of a breadboard
+  // changes connectivity exactly like adding or removing wires.
   const wireFingerprint = useSimulatorStore((s) => {
     const myWires = s.wires.filter(
       (w) => w.start.componentId === id || w.end.componentId === id,
     );
-    return myWires.map((w) => w.id).join(",");
+    const att = s.components.find((c) => c.id === id)?.attachedTo;
+    const attSig = att
+      ? `@${att.breadboardId}:${Object.entries(att.pinMap)
+          .map(([pin, hole]) => `${pin}=${hole}`)
+          .sort()
+          .join(";")}`
+      : "";
+    return myWires.map((w) => w.id).join(",") + attSig;
   });
 
   // Check if component is interactive (has simulation logic with attachEvents)

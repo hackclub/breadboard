@@ -1629,7 +1629,7 @@ void loop() {
     id: "stm32-bluepill-stepper",
     title: "STM32: Stepper Motor",
     description:
-      "Rotate a stepper motor with the four-pin full-step sequence driven by GPIO pins (PA0-PA3) on the STM32 Blue Pill. Pure digital output: the firmware energizes coils A+, B+, A-, B- in order to step the rotor.",
+      "Rotate a 28BYJ-48 stepper motor with the four-phase full-step sequence driven by GPIO pins (PA0-PA3) on the STM32 Blue Pill. Pure digital output: the firmware energizes coil phases A, B, C, D in order to step the rotor.",
     category: "motors",
     difficulty: "intermediate",
     boardFilter: "stm32-bluepill",
@@ -1638,38 +1638,40 @@ void loop() {
         boardKind: "stm32-bluepill",
         x: 100,
         y: 90,
-        code: `// STM32 Blue Pill (F103) — bipolar stepper, full-step sequence
-// Coils: A+ = PA0, A- = PA1, B+ = PA2, B- = PA3
-const int Ap = PA0, An = PA1, Bp = PA2, Bn = PA3;
+        code: `// STM32 Blue Pill (F103) — 28BYJ-48 stepper, full-step sequence
+// Coil phases: A = PA0, B = PA1, C = PA2, D = PA3
+// 32 rotor steps x 64:1 gearbox = 2048 steps per output revolution.
+const int phA = PA0, phB = PA1, phC = PA2, phD = PA3;
 
-// Full-step order energizing one coil at a time: A+, B+, A-, B-
+// Full-step order energizing one phase at a time: A, B, C, D
 const uint8_t seq[4][4] = {
-  { 1, 0, 0, 0 },   // A+
-  { 0, 0, 1, 0 },   // B+
-  { 0, 1, 0, 0 },   // A-
-  { 0, 0, 0, 1 },   // B-
+  { 1, 0, 0, 0 },   // A
+  { 0, 1, 0, 0 },   // B
+  { 0, 0, 1, 0 },   // C
+  { 0, 0, 0, 1 },   // D
 };
 
 void setup() {
   Serial.begin(115200);
-  pinMode(Ap, OUTPUT); pinMode(An, OUTPUT);
-  pinMode(Bp, OUTPUT); pinMode(Bn, OUTPUT);
-  Serial.println("Stepper running");
+  pinMode(phA, OUTPUT); pinMode(phB, OUTPUT);
+  pinMode(phC, OUTPUT); pinMode(phD, OUTPUT);
+  Serial.println("28BYJ-48 stepper running");
 }
 
 void loop() {
   static int s = 0;
-  digitalWrite(Ap, seq[s][0]); digitalWrite(An, seq[s][1]);
-  digitalWrite(Bp, seq[s][2]); digitalWrite(Bn, seq[s][3]);
-  Serial.print("step "); Serial.println(s);
+  digitalWrite(phA, seq[s][0]); digitalWrite(phB, seq[s][1]);
+  digitalWrite(phC, seq[s][2]); digitalWrite(phD, seq[s][3]);
   s = (s + 1) % 4;
-  delay(300);
+  delay(5);   // ~0.176° per step, so keep the step rate high
 }`,
       },
     ],
     code: "",
     components: [
       {
+        // Strips to metadataId "stepper-motor" — rendered as the 28BYJ-48
+        // element via the registry's tagName.
         type: "wokwi-stepper-motor",
         id: "stp1",
         x: 470,
@@ -1679,37 +1681,37 @@ void loop() {
     ],
     wires: [
       {
-        id: "stp-ap",
+        id: "stp-a",
         start: { componentId: "stm32-bluepill", pinName: "PA0" },
-        end: { componentId: "stp1", pinName: "A+" },
+        end: { componentId: "stp1", pinName: "A" },
         color: "#ff5555",
       },
       {
-        id: "stp-an",
+        id: "stp-b",
         start: { componentId: "stm32-bluepill", pinName: "PA1" },
-        end: { componentId: "stp1", pinName: "A-" },
+        end: { componentId: "stp1", pinName: "B" },
         color: "#ff9955",
       },
       {
-        id: "stp-bp",
+        id: "stp-c",
         start: { componentId: "stm32-bluepill", pinName: "PA2" },
-        end: { componentId: "stp1", pinName: "B+" },
+        end: { componentId: "stp1", pinName: "C" },
         color: "#55aaff",
       },
       {
-        id: "stp-bn",
+        id: "stp-d",
         start: { componentId: "stm32-bluepill", pinName: "PA3" },
-        end: { componentId: "stp1", pinName: "B-" },
+        end: { componentId: "stp1", pinName: "D" },
         color: "#aa77ff",
       },
     ],
     tags: ["stm32", "blue pill", "gpio", "stepper", "motor"],
   },
   {
-    id: "uno-stepper-a4988",
-    title: "Arduino Uno: Stepper + A4988",
+    id: "uno-stepper-uln2003",
+    title: "Arduino Uno: Stepper + ULN2003",
     description:
-      "Spin a bipolar stepper motor from an Arduino Uno through an A4988 driver. The MCU only pulses STEP and sets DIR; the A4988 drives the coils. The rotor turns continuously.",
+      "Spin the kit's 28BYJ-48 stepper motor from an Arduino Uno through the ULN2003 driver module, using the built-in Stepper library. One full turn clockwise, then one back.",
     category: "motors",
     difficulty: "intermediate",
     boardFilter: "arduino-uno",
@@ -1718,29 +1720,39 @@ void loop() {
         boardKind: "arduino-uno",
         x: 40,
         y: 80,
-        code: `// Arduino Uno + A4988 stepper driver (STEP/DIR)
-// D3 -> STEP, D4 -> DIR. One STEP pulse = one step; DIR sets direction.
-const int STEP_PIN = 3, DIR_PIN = 4;
+        code: `// Arduino Uno + ULN2003 driving the 28BYJ-48 stepper
+// D8 -> IN1, D9 -> IN2, D10 -> IN3, D11 -> IN4
+#include <Stepper.h>
+
+// 32 rotor steps x 64:1 gearbox = 2048 steps per output revolution.
+const int stepsPerRevolution = 2048;
+
+// The Stepper library wants the coil order IN1, IN3, IN2, IN4.
+Stepper stepper(stepsPerRevolution, 8, 10, 9, 11);
 
 void setup() {
-  pinMode(STEP_PIN, OUTPUT);
-  pinMode(DIR_PIN, OUTPUT);
-  digitalWrite(DIR_PIN, HIGH);   // HIGH = clockwise
+  stepper.setSpeed(10);   // RPM of the output shaft
   Serial.begin(115200);
-  Serial.println("A4988 stepper running");
+  Serial.println("28BYJ-48 stepper running");
 }
 
 void loop() {
-  digitalWrite(STEP_PIN, HIGH);
-  delayMicroseconds(800);
-  digitalWrite(STEP_PIN, LOW);
-  delayMicroseconds(800);
+  stepper.step(stepsPerRevolution);    // one turn clockwise
+  delay(500);
+  stepper.step(-stepsPerRevolution);   // one turn back
+  delay(500);
 }`,
       },
     ],
     code: "",
     components: [
-      { type: "velxio-a4988", id: "drv1", x: 330, y: 70, properties: {} },
+      {
+        type: "velxio-uln2003-driver",
+        id: "drv1",
+        x: 330,
+        y: 70,
+        properties: {},
+      },
       {
         type: "wokwi-stepper-motor",
         id: "stp1",
@@ -1751,49 +1763,73 @@ void loop() {
     ],
     wires: [
       {
-        id: "u-step",
-        start: { componentId: "arduino-uno", pinName: "3" },
-        end: { componentId: "drv1", pinName: "STEP" },
+        id: "u-in1",
+        start: { componentId: "arduino-uno", pinName: "8" },
+        end: { componentId: "drv1", pinName: "IN1" },
         color: "#f59e0b",
       },
       {
-        id: "u-dir",
-        start: { componentId: "arduino-uno", pinName: "4" },
-        end: { componentId: "drv1", pinName: "DIR" },
+        id: "u-in2",
+        start: { componentId: "arduino-uno", pinName: "9" },
+        end: { componentId: "drv1", pinName: "IN2" },
         color: "#10b981",
       },
       {
-        id: "u-1a",
-        start: { componentId: "drv1", pinName: "1A" },
-        end: { componentId: "stp1", pinName: "B+" },
+        id: "u-in3",
+        start: { componentId: "arduino-uno", pinName: "10" },
+        end: { componentId: "drv1", pinName: "IN3" },
+        color: "#38bdf8",
+      },
+      {
+        id: "u-in4",
+        start: { componentId: "arduino-uno", pinName: "11" },
+        end: { componentId: "drv1", pinName: "IN4" },
+        color: "#a78bfa",
+      },
+      {
+        id: "u-vcc",
+        start: { componentId: "arduino-uno", pinName: "5V" },
+        end: { componentId: "drv1", pinName: "VCC" },
+        color: "#ef4444",
+      },
+      {
+        id: "u-gnd",
+        start: { componentId: "arduino-uno", pinName: "GND" },
+        end: { componentId: "drv1", pinName: "GND" },
+        color: "#111827",
+      },
+      {
+        id: "u-a",
+        start: { componentId: "drv1", pinName: "A" },
+        end: { componentId: "stp1", pinName: "A" },
         color: "#ff5555",
       },
       {
-        id: "u-1b",
-        start: { componentId: "drv1", pinName: "1B" },
-        end: { componentId: "stp1", pinName: "B-" },
+        id: "u-b",
+        start: { componentId: "drv1", pinName: "B" },
+        end: { componentId: "stp1", pinName: "B" },
         color: "#ff9955",
       },
       {
-        id: "u-2a",
-        start: { componentId: "drv1", pinName: "2A" },
-        end: { componentId: "stp1", pinName: "A+" },
+        id: "u-c",
+        start: { componentId: "drv1", pinName: "C" },
+        end: { componentId: "stp1", pinName: "C" },
         color: "#55aaff",
       },
       {
-        id: "u-2b",
-        start: { componentId: "drv1", pinName: "2B" },
-        end: { componentId: "stp1", pinName: "A-" },
+        id: "u-d",
+        start: { componentId: "drv1", pinName: "D" },
+        end: { componentId: "stp1", pinName: "D" },
         color: "#aa77ff",
       },
     ],
-    tags: ["arduino", "uno", "stepper", "motor", "a4988", "driver"],
+    tags: ["arduino", "uno", "stepper", "motor", "uln2003", "28byj-48"],
   },
   {
     id: "esp32-stepper-a4988",
     title: "ESP32: Stepper + A4988",
     description:
-      "Spin a bipolar stepper motor from an ESP32 through an A4988 driver (STEP = GPIO26, DIR = GPIO27).",
+      "Spin a stepper motor from an ESP32 through an A4988 driver (STEP = GPIO26, DIR = GPIO27). The MCU only pulses STEP; the driver sequences the coils.",
     category: "motors",
     difficulty: "intermediate",
     boardFilter: "esp32",
@@ -1849,25 +1885,25 @@ void loop() {
       {
         id: "e-1a",
         start: { componentId: "drv1", pinName: "1A" },
-        end: { componentId: "stp1", pinName: "B+" },
+        end: { componentId: "stp1", pinName: "A" },
         color: "#ff5555",
       },
       {
         id: "e-1b",
         start: { componentId: "drv1", pinName: "1B" },
-        end: { componentId: "stp1", pinName: "B-" },
+        end: { componentId: "stp1", pinName: "B" },
         color: "#ff9955",
       },
       {
         id: "e-2a",
         start: { componentId: "drv1", pinName: "2A" },
-        end: { componentId: "stp1", pinName: "A+" },
+        end: { componentId: "stp1", pinName: "C" },
         color: "#55aaff",
       },
       {
         id: "e-2b",
         start: { componentId: "drv1", pinName: "2B" },
-        end: { componentId: "stp1", pinName: "A-" },
+        end: { componentId: "stp1", pinName: "D" },
         color: "#aa77ff",
       },
     ],
@@ -1877,7 +1913,7 @@ void loop() {
     id: "pico-stepper-a4988",
     title: "Raspberry Pi Pico: Stepper + A4988",
     description:
-      "Spin a bipolar stepper motor from a Raspberry Pi Pico through an A4988 driver (STEP = GP3, DIR = GP4).",
+      "Spin a stepper motor from a Raspberry Pi Pico through an A4988 driver (STEP = GP3, DIR = GP4). The MCU only pulses STEP; the driver sequences the coils.",
     category: "motors",
     difficulty: "intermediate",
     boardFilter: "raspberry-pi-pico",
@@ -1933,25 +1969,25 @@ void loop() {
       {
         id: "p-1a",
         start: { componentId: "drv1", pinName: "1A" },
-        end: { componentId: "stp1", pinName: "B+" },
+        end: { componentId: "stp1", pinName: "A" },
         color: "#ff5555",
       },
       {
         id: "p-1b",
         start: { componentId: "drv1", pinName: "1B" },
-        end: { componentId: "stp1", pinName: "B-" },
+        end: { componentId: "stp1", pinName: "B" },
         color: "#ff9955",
       },
       {
         id: "p-2a",
         start: { componentId: "drv1", pinName: "2A" },
-        end: { componentId: "stp1", pinName: "A+" },
+        end: { componentId: "stp1", pinName: "C" },
         color: "#55aaff",
       },
       {
         id: "p-2b",
         start: { componentId: "drv1", pinName: "2B" },
-        end: { componentId: "stp1", pinName: "A-" },
+        end: { componentId: "stp1", pinName: "D" },
         color: "#aa77ff",
       },
     ],

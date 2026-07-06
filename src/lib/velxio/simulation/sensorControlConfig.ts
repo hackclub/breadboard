@@ -367,6 +367,24 @@ export const SENSOR_CONTROLS: Record<string, SensorControlDef> = {
     defaultValues: { cardPresent: true },
   },
 
+  // ── LCD1602 I2C Adapter (PCF8574) ─────────────────────────────────────────
+  "lcd1602-i2c": {
+    title: "LCD1602 I2C Adapter",
+    controls: [
+      {
+        type: "slider",
+        key: "contrast",
+        label: "Contrast trimpot",
+        min: 0,
+        max: 100,
+        step: 1,
+        unit: "%",
+        defaultValue: 50,
+      },
+    ],
+    defaultValues: { contrast: 50 },
+  },
+
   // ── Gas Sensor (MQ-series) ────────────────────────────────────────────────
   "gas-sensor": {
     title: "Gas Sensor (MQ-series)",

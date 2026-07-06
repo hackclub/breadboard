@@ -25,15 +25,15 @@ const DESCRIPTION_FALLBACKS: Record<string, string> = {
   lcd1602:
     "16x2 character LCD wired in classic HD44780 parallel mode.",
   "lcd1602-i2c":
-    "16x2 character LCD with an I2C backpack, needs only SDA, SCL and power.",
+    "IIC/I2C/TWI serial interface adapter module (PCF8574). Wire all 16 header pins pin-for-pin to the LCD1602 and GND/VCC/SDA/SCL to the board — then use LiquidCrystal_I2C.",
   "ssd1306-i2c":
     "128x64 monochrome OLED display on I2C address 0x3C.",
   "membrane-keypad":
-    "4x4 membrane keypad read by scanning its row and column pins.",
+    "4x4 button module (membrane keypad) read by scanning its row and column pins.",
   potentiometer:
-    "Rotary potentiometer, turn the knob to change the voltage on SIG.",
+    "Rotary potentiometer (5K in the Arduino kit, 10K in the ESP32 kit), turn the knob to change the voltage on SIG.",
   pushbutton:
-    "Momentary tact switch that conducts while pressed.",
+    "Momentary 12x12 tact switch that conducts while pressed.",
   "stepper-motor":
     "28BYJ-48 style 5V stepper motor, usually driven through the ULN2003 board.",
   "7segment":
@@ -49,11 +49,11 @@ const DESCRIPTION_FALLBACKS: Record<string, string> = {
   resistor:
     "Resistor with a configurable value for current limiting, pull-ups and dividers.",
   "resistor-220":
-    "220 ohm resistor, the usual pick for LED current limiting.",
+    "220 ohm 1/6W resistor, the usual pick for LED current limiting.",
   "resistor-1k":
-    "1 kOhm resistor for current limiting and voltage dividers.",
+    "1 kOhm 1/6W resistor for current limiting and voltage dividers.",
   "resistor-10k":
-    "10 kOhm resistor, commonly used as a pull-up or pull-down.",
+    "10 kOhm 1/6W resistor, commonly used as a pull-up or pull-down.",
   "photoresistor-sensor":
     "Light-dependent resistor module whose analog output tracks brightness.",
   "pir-motion-sensor":

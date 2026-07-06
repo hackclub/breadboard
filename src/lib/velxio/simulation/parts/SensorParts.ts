@@ -474,12 +474,19 @@ PartSimulationRegistry.register("small-sound-sensor", {
   },
 });
 
-// ─── Stepper Motor (NEMA full-step decode) ───────────────────────────────────
+// ─── Stepper Motor (28BYJ-48 unipolar / legacy NEMA decode) ──────────────────
 
 /**
- * Stepper motor — monitors the 4 coil pins (A-, A+, B+, B-).
- * Uses a full-step lookup table to detect direction of rotation and
- * accumulates the shaft angle (1.8° per step = 200 steps per revolution).
+ * Stepper motor — the kit's 28BYJ-48 geared unipolar stepper (coil pins
+ * A/B/C/D, usually driven through the ULN2003 module; 2048 full steps per
+ * output-shaft revolution). Wires named with the legacy wokwi NEMA terminals
+ * (A-, A+, B+, B-) are still decoded so old projects and the GPIO/A4988
+ * examples keep rotating; those step at the NEMA 1.8°.
+ *
+ * Both decoders track the magnetic-field electrical angle instead of
+ * matching a fixed coil table. The rotor follows the net field vector, so
+ * this works for ANY drive mode the firmware (or a driver) produces:
+ * wave-drive (one coil), full-step two-phase (two coils), or half-step.
  */
 PartSimulationRegistry.register("stepper-motor", {
   attachEvents: (element, simulator, getArduinoPinHelper) => {
@@ -487,25 +494,14 @@ PartSimulationRegistry.register("stepper-motor", {
     if (!pinManager) return () => {};
 
     const el = element as any;
-    const STEP_ANGLE = 1.8; // degrees per step
+    // 28BYJ-48: 32 rotor steps × 64:1 gearbox = 2048 steps per revolution.
+    const STEP_ANGLE_28BYJ = 360 / 2048;
+    const STEP_ANGLE_NEMA = 1.8;
 
-    const pinAMinus = getArduinoPinHelper("A-");
-    const pinAPlus = getArduinoPinHelper("A+");
-    const pinBPlus = getArduinoPinHelper("B+");
-    const pinBMinus = getArduinoPinHelper("B-");
-
-    const coils = { aMinus: false, aPlus: false, bPlus: false, bMinus: false };
     let cumAngle = el.angle ?? 0;
-    // Track the magnetic-field electrical angle instead of matching a fixed
-    // coil table. The rotor follows the net field vector of the two coils, so
-    // this works for ANY drive mode the firmware (or a driver) produces:
-    // wave-drive (one coil), full-step two-phase (two coils), or half-step.
     let prevField = Number.NaN; // previous field angle in radians, NaN = unset
 
-    function onCoilChange() {
-      // Coil currents: +1 / 0 / -1 from the H-bridge terminal pair.
-      const a = (coils.aPlus ? 1 : 0) - (coils.aMinus ? 1 : 0);
-      const b = (coils.bPlus ? 1 : 0) - (coils.bMinus ? 1 : 0);
+    function onFieldChange(a: number, b: number, stepAngle: number) {
       if (a === 0 && b === 0) return; // no field → rotor holds position
 
       const field = Math.atan2(b, a); // electrical angle of the field vector
@@ -520,44 +516,68 @@ PartSimulationRegistry.register("stepper-motor", {
       prevField = field;
 
       // One quarter electrical turn (90°, π/2 rad) = one full mechanical step.
-      cumAngle += (delta / (Math.PI / 2)) * STEP_ANGLE;
+      cumAngle += (delta / (Math.PI / 2)) * stepAngle;
       el.angle = ((cumAngle % 360) + 360) % 360;
     }
 
     const unsubscribers: (() => void)[] = [];
+    const subscribe = (pinName: string, onState: (s: boolean) => void) => {
+      const pin = getArduinoPinHelper(pinName);
+      if (pin === null) return;
+      unsubscribers.push(
+        pinManager.onPinChange(pin, (_: number, s: boolean) => onState(s)),
+      );
+    };
 
-    if (pinAMinus !== null) {
-      unsubscribers.push(
-        pinManager.onPinChange(pinAMinus, (_: number, s: boolean) => {
-          coils.aMinus = s;
-          onCoilChange();
-        }),
+    // 28BYJ-48 phases at electrical 0° / 90° / 180° / 270°.
+    const phases = { a: false, b: false, c: false, d: false };
+    const onPhaseChange = () =>
+      onFieldChange(
+        (phases.a ? 1 : 0) - (phases.c ? 1 : 0),
+        (phases.b ? 1 : 0) - (phases.d ? 1 : 0),
+        STEP_ANGLE_28BYJ,
       );
-    }
-    if (pinAPlus !== null) {
-      unsubscribers.push(
-        pinManager.onPinChange(pinAPlus, (_: number, s: boolean) => {
-          coils.aPlus = s;
-          onCoilChange();
-        }),
+    subscribe("A", (s) => {
+      phases.a = s;
+      onPhaseChange();
+    });
+    subscribe("B", (s) => {
+      phases.b = s;
+      onPhaseChange();
+    });
+    subscribe("C", (s) => {
+      phases.c = s;
+      onPhaseChange();
+    });
+    subscribe("D", (s) => {
+      phases.d = s;
+      onPhaseChange();
+    });
+
+    // Legacy bipolar terminal pairs (wokwi-stepper-motor pin names).
+    const coils = { aMinus: false, aPlus: false, bPlus: false, bMinus: false };
+    const onCoilChange = () =>
+      onFieldChange(
+        (coils.aPlus ? 1 : 0) - (coils.aMinus ? 1 : 0),
+        (coils.bPlus ? 1 : 0) - (coils.bMinus ? 1 : 0),
+        STEP_ANGLE_NEMA,
       );
-    }
-    if (pinBPlus !== null) {
-      unsubscribers.push(
-        pinManager.onPinChange(pinBPlus, (_: number, s: boolean) => {
-          coils.bPlus = s;
-          onCoilChange();
-        }),
-      );
-    }
-    if (pinBMinus !== null) {
-      unsubscribers.push(
-        pinManager.onPinChange(pinBMinus, (_: number, s: boolean) => {
-          coils.bMinus = s;
-          onCoilChange();
-        }),
-      );
-    }
+    subscribe("A-", (s) => {
+      coils.aMinus = s;
+      onCoilChange();
+    });
+    subscribe("A+", (s) => {
+      coils.aPlus = s;
+      onCoilChange();
+    });
+    subscribe("B+", (s) => {
+      coils.bPlus = s;
+      onCoilChange();
+    });
+    subscribe("B-", (s) => {
+      coils.bMinus = s;
+      onCoilChange();
+    });
 
     return () => {
       for (const unsubscribe of unsubscribers) unsubscribe();

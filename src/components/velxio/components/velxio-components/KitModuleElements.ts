@@ -8,6 +8,7 @@ const power = (signal: string, voltage?: number) => ({
 });
 const analog = (channel: number) => ({ type: "analog", channel });
 const spi = (signal: string) => ({ type: "spi", signal, bus: 0 });
+const i2c = (signal: string) => ({ type: "i2c", signal, bus: 0 });
 
 type Pin = { name: string; x: number; y: number; signals?: Array<unknown> };
 
@@ -328,7 +329,217 @@ class Dht11Element extends SvgPartElement {
   }
 }
 
+class Ssd1306I2cElement extends SvgPartElement {
+  imageData = new ImageData(128, 64);
+  private readonly ctx: CanvasRenderingContext2D | null;
+
+  constructor() {
+    const pins = [
+      { name: "GND", x: 60, y: 5, signals: [power("GND")] },
+      { name: "VCC", x: 70, y: 5, signals: [power("VCC")] },
+      { name: "SCL", x: 80, y: 5, signals: [i2c("SCL")] },
+      { name: "SDA", x: 90, y: 5, signals: [i2c("SDA")] },
+    ];
+    super(
+      pins,
+      `<div style="position:relative;width:150px;height:96px">
+        <svg width="150" height="96" viewBox="0 0 150 96">
+          <rect class="pcb" x=".5" y=".5" width="149" height="95" rx="8" fill="#025caf" stroke="#01417d"/>
+          <g fill="#59340a" stroke="#be9b72" stroke-width=".6">
+            <circle cx="8" cy="8" r="4"/><circle cx="142" cy="8" r="4"/>
+            <circle cx="8" cy="88" r="4"/><circle cx="142" cy="88" r="4"/>
+          </g>
+          <circle class="gold" cx="60" cy="5" r="2.6"/>
+          <circle class="gold" cx="70" cy="5" r="2.6"/>
+          <circle class="gold" cx="80" cy="5" r="2.6"/>
+          <circle class="gold" cx="90" cy="5" r="2.6"/>
+          <text class="sub" x="60" y="15">GND</text>
+          <text class="sub" x="70" y="15">VCC</text>
+          <text class="sub" x="80" y="15">SCL</text>
+          <text class="sub" x="90" y="15">SDA</text>
+          <text class="sub" x="34" y="15">0.96&quot; OLED</text>
+          <rect x="11" y="24" width="128" height="64" fill="#1a1a1a"/>
+        </svg>
+        <canvas width="128" height="64" style="position:absolute;left:11px;top:24px"></canvas>
+      </div>`,
+    );
+    this.ctx =
+      this.shadowRoot?.querySelector("canvas")?.getContext("2d") ?? null;
+  }
+
+  redraw() {
+    this.ctx?.putImageData(this.imageData, 0, 0);
+  }
+}
+
+/**
+ * IIC/I2C/TWI serial interface adapter module (PCF8574 backpack) — kit
+ * sheet item "LCD controller 1602 transfer". Standalone board: 4-pin I2C
+ * header up top, 16-pin header below that wires to a bare LCD1602. The
+ * lcd1602-i2c part simulation finds the wired LCD and drives it.
+ */
+class Lcd1602I2cAdapterElement extends SvgPartElement {
+  private _backlight = true;
+  private _contrast = 50;
+
+  set backlight(value: boolean) {
+    this._backlight = Boolean(value);
+    const led = this.shadowRoot?.getElementById("power-led");
+    led?.setAttribute("class", this._backlight ? "red-led-on" : "red-led-off");
+  }
+
+  get backlight() {
+    return this._backlight;
+  }
+
+  /** Trimpot position 0–100; the screw turns with it (~270° travel). */
+  set contrast(value: number) {
+    this._contrast = Math.max(0, Math.min(100, Number(value) || 0));
+    const screw = this.shadowRoot?.getElementById("trimpot-screw");
+    screw?.setAttribute(
+      "transform",
+      `rotate(${(this._contrast - 50) * 2.7} 15 37)`,
+    );
+    // Property-dialog edits land here (DynamicComponent sets el.contrast);
+    // tell the running part simulation so the LCD fade follows.
+    this.dispatchEvent(
+      new CustomEvent("contrast-change", { detail: this._contrast }),
+    );
+  }
+
+  get contrast() {
+    return this._contrast;
+  }
+
+  constructor() {
+    const lcdPinNames = [
+      "VSS", "VDD", "V0", "RS", "RW", "E", "D0", "D1",
+      "D2", "D3", "D4", "D5", "D6", "D7", "A", "K",
+    ];
+    const pins = [
+      { name: "GND", x: 11, y: 3, signals: [power("GND")] },
+      { name: "VCC", x: 18, y: 3, signals: [power("VCC", 5)] },
+      { name: "SDA", x: 25, y: 3, signals: [i2c("SDA")] },
+      { name: "SCL", x: 32, y: 3, signals: [i2c("SCL")] },
+      ...lcdPinNames.map((name, i) => ({
+        name,
+        x: 7.6 + i * 7.5,
+        y: 73,
+      })),
+    ];
+    const bottomPins = lcdPinNames
+      .map((name, i) => {
+        const x = 6.5 + i * 7.5;
+        return `<rect x="${x}" y="62" width="2.2" height="12" fill="#d1d5db"/><text x="${x + 1.1}" y="80" text-anchor="middle" font-family="sans-serif" font-size="2.8" fill="#94a3b8">${name}</text>`;
+      })
+      .join("");
+    super(
+      pins,
+      `<svg width="124" height="82" viewBox="0 0 124 82">
+        <g fill="#f4c430">
+          <rect x="9.9" y="2" width="2.2" height="13"/><rect x="16.9" y="2" width="2.2" height="13"/>
+          <rect x="23.9" y="2" width="2.2" height="13"/><rect x="30.9" y="2" width="2.2" height="13"/>
+        </g>
+        <rect x="6" y="14" width="31" height="6" class="header"/>
+        <rect x="2" y="20" width="120" height="36" rx="2.5" fill="#0f172a" stroke="#334155" stroke-width="1.2"/>
+        <text x="11" y="25.5" text-anchor="middle" font-family="sans-serif" font-size="3" fill="#94a3b8">GND</text>
+        <text x="18" y="25.5" text-anchor="middle" font-family="sans-serif" font-size="3" fill="#94a3b8">VCC</text>
+        <text x="25" y="25.5" text-anchor="middle" font-family="sans-serif" font-size="3" fill="#94a3b8">SDA</text>
+        <text x="32" y="25.5" text-anchor="middle" font-family="sans-serif" font-size="3" fill="#94a3b8">SCL</text>
+        <rect x="8" y="30" width="14" height="14" rx="2" fill="#2563eb" stroke="#1e3a8a"/>
+        <g id="trimpot-screw">
+          <circle cx="15" cy="37" r="3.6" fill="#93c5fd"/>
+          <path d="M12.5 34.5l5 5M17.5 34.5l-5 5" stroke="#1e3a8a" stroke-width="1"/>
+        </g>
+        <g fill="#9ca3af">
+          <rect x="44" y="33" width="2" height="2.6"/><rect x="44" y="37.5" width="2" height="2.6"/><rect x="44" y="42" width="2" height="2.6"/>
+          <rect x="80" y="33" width="2" height="2.6"/><rect x="80" y="37.5" width="2" height="2.6"/><rect x="80" y="42" width="2" height="2.6"/>
+        </g>
+        <rect x="46" y="31" width="34" height="15" rx="1.5" fill="#1f2937" stroke="#4b5563"/>
+        <circle cx="50" cy="35" r="1.1" fill="#6b7280"/>
+        <text x="63" y="38" text-anchor="middle" font-family="monospace" font-size="4.6" fill="#e5e7eb">PCF8574</text>
+        <text x="63" y="43" text-anchor="middle" font-family="monospace" font-size="3.2" fill="#9ca3af">IIC/I2C/TWI</text>
+        <circle id="power-led" class="red-led-on" cx="90" cy="27" r="2"/>
+        <text x="90" y="33" text-anchor="middle" font-family="sans-serif" font-size="2.8" fill="#94a3b8">PWR</text>
+        <g fill="#d6d3d1">
+          <rect x="86" y="37" width="7" height="3.2" rx="0.6"/><rect x="86" y="42" width="7" height="3.2" rx="0.6"/>
+        </g>
+        <g fill="#292524">
+          <rect x="86" y="37" width="1.7" height="3.2"/><rect x="91.3" y="37" width="1.7" height="3.2"/>
+          <rect x="86" y="42" width="1.7" height="3.2"/><rect x="91.3" y="42" width="1.7" height="3.2"/>
+        </g>
+        <rect x="99" y="31" width="10" height="8" rx="1" fill="#111827" stroke="#374151" stroke-width="0.8"/>
+        <rect x="101" y="26" width="2" height="6" fill="#9ca3af"/>
+        <rect x="105" y="26" width="2" height="6" fill="#9ca3af"/>
+        <text x="104" y="45" text-anchor="middle" font-family="sans-serif" font-size="2.8" fill="#94a3b8">JMP</text>
+        <rect x="2" y="56" width="120" height="6" class="header"/>
+        ${bottomPins}
+      </svg>`,
+    );
+  }
+}
+
+class Stepper28byj48Element extends SvgPartElement {
+  private _angle = 0;
+
+  set angle(value: number) {
+    this._angle = Number(value) || 0;
+    const marker = this.shadowRoot?.getElementById("shaft-marker");
+    marker?.setAttribute("transform", `rotate(${this._angle} 55 44)`);
+  }
+
+  get angle() {
+    return this._angle;
+  }
+
+  constructor() {
+    const pins = [
+      { name: "A", x: 15, y: 103 },
+      { name: "B", x: 35, y: 103 },
+      { name: "C", x: 55, y: 103 },
+      { name: "D", x: 75, y: 103 },
+      { name: "+5V", x: 95, y: 103, signals: [power("VCC", 5)] },
+    ];
+    super(
+      pins,
+      `<svg width="110" height="116" viewBox="0 0 110 116">
+        <rect x="2" y="36" width="106" height="16" rx="8" class="metal"/>
+        <circle cx="9" cy="44" r="2.6" fill="#475569"/>
+        <circle cx="101" cy="44" r="2.6" fill="#475569"/>
+        <circle cx="55" cy="44" r="37" fill="#d1d5db" stroke="#64748b" stroke-width="1.4"/>
+        <path d="M22 68 a37 37 0 0 0 66 0 z" fill="#1d4ed8" stroke="#1e3a8a" stroke-width="1"/>
+        <text x="55" y="66" text-anchor="middle" font-family="Arial" font-size="7.5" font-weight="800" fill="#334155">28BYJ-48</text>
+        <text x="55" y="78" text-anchor="middle" font-family="Arial" font-size="5.5" font-weight="700" fill="#dbeafe">5V DC</text>
+        <circle cx="55" cy="44" r="9" class="metal"/>
+        <g id="shaft-marker"><rect x="53.6" y="31" width="2.8" height="14" rx="1.2" fill="#ef4444"/></g>
+        <circle cx="55" cy="44" r="2.4" fill="#94a3b8"/>
+        <path d="M15 86v11M35 86v11M55 84v13M75 86v11M95 86v11" stroke-width="2.2" fill="none" stroke-linecap="round"
+          stroke="#94a3b8"/>
+        <path d="M15 86v6" stroke="#3b82f6" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M35 86v6" stroke="#ec4899" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M55 84v8" stroke="#eab308" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M75 86v6" stroke="#f97316" stroke-width="2.2" stroke-linecap="round"/>
+        <path d="M95 86v6" stroke="#dc2626" stroke-width="2.2" stroke-linecap="round"/>
+        <rect x="5" y="97" width="100" height="9" rx="2" class="header"/>
+        <circle class="gold" cx="15" cy="101.5" r="2.2"/>
+        <circle class="gold" cx="35" cy="101.5" r="2.2"/>
+        <circle class="gold" cx="55" cy="101.5" r="2.2"/>
+        <circle class="gold" cx="75" cy="101.5" r="2.2"/>
+        <circle class="gold" cx="95" cy="101.5" r="2.2"/>
+        <text x="15" y="114" text-anchor="middle" font-family="sans-serif" font-size="5" fill="#475569">A</text>
+        <text x="35" y="114" text-anchor="middle" font-family="sans-serif" font-size="5" fill="#475569">B</text>
+        <text x="55" y="114" text-anchor="middle" font-family="sans-serif" font-size="5" fill="#475569">C</text>
+        <text x="75" y="114" text-anchor="middle" font-family="sans-serif" font-size="5" fill="#475569">D</text>
+        <text x="95" y="114" text-anchor="middle" font-family="sans-serif" font-size="5" fill="#475569">+5V</text>
+      </svg>`,
+    );
+  }
+}
+
 for (const [name, ctor] of [
+  ["velxio-ssd1306-i2c", Ssd1306I2cElement],
+  ["velxio-lcd1602-i2c-adapter", Lcd1602I2cAdapterElement],
+  ["velxio-stepper-28byj48", Stepper28byj48Element],
   ["velxio-lm35dz-v3", Lm35Element],
   ["velxio-rc522-v3", Rc522Element],
   ["velxio-water-level-v3", WaterLevelElement],

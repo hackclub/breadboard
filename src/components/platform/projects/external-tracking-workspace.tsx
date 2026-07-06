@@ -1174,8 +1174,8 @@ function SubmitCard({
               <li>A demo video showing it actually working</li>
               <li>
                 A public repo with README.md, journal.md, your schematic,
-                firmware source, and a BOM listing your parts and quantities
-                (it can be in the README)
+                firmware source, and a BOM listing your parts and quantities (it
+                can be in the README)
               </li>
             </>
           ) : (
@@ -1189,8 +1189,8 @@ function SubmitCard({
               </li>
               <li>
                 A public repo with README.md, journal.md, your schematic,
-                firmware source, and a BOM listing your parts and quantities
-                (it can be in the README)
+                firmware source, and a BOM listing your parts and quantities (it
+                can be in the README)
               </li>
               <li>
                 You&apos;ll build it and submit a demo video once your kit
@@ -1202,7 +1202,9 @@ function SubmitCard({
         <div className="mt-3 rounded-lg border border-[#BD0F32]/20 bg-[#fff5f7] p-3 text-xs font-semibold text-black/70">
           <p className="font-black text-black">Read the requirements first</p>
           <p className="mt-0.5">
-            The full checklist{isBuild ? "" : ", including how to simulate your project,"} is on the{" "}
+            The full checklist
+            {isBuild ? "" : ", including how to simulate your project,"} is on
+            the{" "}
             <Link
               href="/requirements"
               target="_blank"

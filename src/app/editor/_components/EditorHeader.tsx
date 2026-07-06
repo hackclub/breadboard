@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Clock, Github, Plus, Save, Trash2, X } from "lucide-react";
+import {
+  ChevronLeft,
+  Clock,
+  Github,
+  Plus,
+  Save,
+  Trash2,
+  X,
+} from "lucide-react";
 import {
   type EditorSaveState,
   subscribeEditorSaveState,
@@ -530,9 +538,9 @@ export function EditorHeader({
                   </div>
                 ) : null}
                 <span className="text-[#888] text-[11px] font-bold">
-                  The parts you used and how many of each. Goes into your
-                  README as the Bill of Materials. Leave it empty to
-                  auto-generate the list from your schematic.
+                  The parts you used and how many of each. Goes into your README
+                  as the Bill of Materials. Leave it empty to auto-generate the
+                  list from your schematic.
                 </span>
               </div>
               {publishUrl ? (

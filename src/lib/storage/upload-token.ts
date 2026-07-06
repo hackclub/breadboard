@@ -41,5 +41,7 @@ export function verifyUploadToken(
 
   const provided = Buffer.from(signature, "hex");
   const expected = Buffer.from(signUpload(key, contentType, expires), "hex");
-  return provided.length === expected.length && timingSafeEqual(provided, expected);
+  return (
+    provided.length === expected.length && timingSafeEqual(provided, expected)
+  );
 }

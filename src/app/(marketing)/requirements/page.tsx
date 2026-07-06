@@ -238,11 +238,10 @@ export default function RequirementsPage() {
               ✓
             </span>
             <span>
-              A BOM (Bill of Materials) listing the parts you used and how
-              many of each. It can live right in your README!
-              If you design in the Breadboard editor, Publish writes this
-              section for you from your schematic, and you can edit the parts
-              list in the publish dialog.
+              A BOM (Bill of Materials) listing the parts you used and how many
+              of each. It can live right in your README! If you design in the
+              Breadboard editor, Publish writes this section for you from your
+              schematic, and you can edit the parts list in the publish dialog.
             </span>
           </li>
           <li className="flex gap-2">

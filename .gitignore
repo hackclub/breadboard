@@ -75,3 +75,4 @@ next-env.d.ts
 
 # Personal Claude Code overrides
 .claude/settings.local.json
+**/SKILL.md

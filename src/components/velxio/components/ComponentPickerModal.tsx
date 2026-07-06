@@ -23,7 +23,7 @@ import {
   countKitBoards,
   countKitComponents,
   isAnyKitBoard,
-  isAnyKitComponent,
+  isIgnoreStockComponent,
   isKitBoard,
   kitBoardLimit,
   kitComponentLimit,
@@ -41,6 +41,20 @@ import "@/components/velxio/components/velxio-components/Stm32BluePillElement"; 
 import "@wokwi/elements";
 import "../velxio-elements";
 import "@/components/velxio/components/velxio-components/KitElements";
+// Analog/electrical parts surfaced through ignore stock live in these element
+// files (imported by the editor for the canvas). The picker instantiates each
+// tag to draw its card preview, so it needs the same registrations or the
+// cards would render blank.
+import "@/components/velxio/components/velxio-components/DiodeElements";
+import "@/components/velxio/components/velxio-components/TransistorElements";
+import "@/components/velxio/components/velxio-components/OpAmpElements";
+import "@/components/velxio/components/velxio-components/PowerElements";
+import "@/components/velxio/components/velxio-components/LogicICElements";
+import "@/components/velxio/components/velxio-components/LogicGateElements";
+import "@/components/velxio/components/velxio-components/RelayElements";
+import "@/components/velxio/components/velxio-components/MotorDriverElements";
+import "@/components/velxio/components/velxio-components/Bmp280Element";
+import "@/components/velxio/components/velxio-components/EPaperElement";
 import "@/components/velxio/components/ComponentPickerModal.css";
 
 interface ComponentPickerModalProps {
@@ -173,16 +187,28 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
 
     return components.filter((component) =>
       ignoreStock
-        ? isAnyKitComponent(component.id)
+        ? isIgnoreStockComponent(component.id)
         : kitComponentLimit(component.id, kitType) > 0,
     );
   }, [searchQuery, selectedCategory, registry, isLoading, kitType, ignoreStock]);
 
-  // Get available categories
+  // Get available categories — only those with at least one part visible in
+  // the current mode, so kit mode doesn't sprout empty tabs (analog, logic, …)
+  // for the extra parts that only show under ignore stock.
   const categories = useMemo(() => {
     if (isLoading) return [];
-    return registry.getCategories();
-  }, [registry, isLoading]);
+    const visible = new Set(
+      registry
+        .getAllComponents()
+        .filter((c) =>
+          ignoreStock
+            ? isIgnoreStockComponent(c.id)
+            : kitComponentLimit(c.id, kitType) > 0,
+        )
+        .map((c) => c.category),
+    );
+    return registry.getCategories().filter((cat) => visible.has(cat));
+  }, [registry, isLoading, ignoreStock, kitType]);
 
   // Handle ESC key to close modal
   useEffect(() => {
@@ -238,7 +264,7 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
             </button>
             {ignoreStock ? (
               <span className="ignore-stock-note">
-                Showing both kits. Counts are unlimited.
+                Showing all available parts. Counts are unlimited.
               </span>
             ) : null}
           </div>
@@ -426,7 +452,7 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
             <div className="plain-warning-modal" role="alertdialog" aria-modal="true">
               <h3>Ignore stock?</h3>
               <p>This lets you add as many parts as you want.</p>
-              <p>It also shows parts from the other kit.</p>
+              <p>It also shows extra parts beyond your kit, so you can source your own.</p>
               <p>Only use this if you checked that you really have the parts.</p>
               <div className="plain-warning-actions">
                 <button
@@ -498,6 +524,20 @@ const ComponentCard: React.FC<ComponentCardProps> = ({
     if (!thumbnailRef.current) return;
     if (usePresetSvg) return; // SVG is rendered via dangerouslySetInnerHTML below
 
+    // If this tag has no registered custom element (e.g. an element file that
+    // isn't imported here), fall back to the metadata SVG thumbnail so the
+    // card never previews blank.
+    if (
+      !customElements.get(component.tagName) &&
+      typeof component.thumbnail === "string" &&
+      component.thumbnail.trim().startsWith("<svg")
+    ) {
+      thumbnailRef.current.innerHTML = component.thumbnail;
+      return () => {
+        if (thumbnailRef.current) thumbnailRef.current.innerHTML = "";
+      };
+    }
+
     // Create the actual wokwi element
     const element = document.createElement(component.tagName);
 
@@ -555,7 +595,7 @@ const ComponentCard: React.FC<ComponentCardProps> = ({
         thumbnailRef.current.innerHTML = "";
       }
     };
-  }, [component.tagName, component.defaultValues, usePresetSvg]);
+  }, [component.tagName, component.defaultValues, component.thumbnail, usePresetSvg]);
 
   return (
     <button

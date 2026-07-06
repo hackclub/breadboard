@@ -11,7 +11,7 @@ import type {
   ComponentCategory,
   ComponentMetadataCollection,
 } from "@/lib/velxio/types/component-metadata";
-import { filterAnyKitComponents } from "@/lib/velxio/data/kitInventory";
+import { filterAvailableComponents } from "@/lib/velxio/data/kitInventory";
 
 // One-line picker descriptions for entries whose generated metadata ships
 // without one. Fallbacks only: a description already present in
@@ -338,7 +338,7 @@ export class ComponentRegistry {
           "SG90 micro servo, sweeps its arm 0 to 180 degrees from a PWM signal.";
       }
 
-      this.processMetadata(filterAnyKitComponents(data.components));
+      this.processMetadata(filterAvailableComponents(data.components));
       this.loaded = true;
 
       console.log(

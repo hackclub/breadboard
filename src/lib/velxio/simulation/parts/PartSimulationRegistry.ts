@@ -2,6 +2,14 @@
 import { AVRSimulator } from "@/lib/velxio/simulation/AVRSimulator";
 import { RP2040Simulator } from "@/lib/velxio/simulation/RP2040Simulator";
 import type { PinResolver } from "@/lib/velxio/simulation/PinResolver";
+import {
+  checkPowerHookup,
+  POWER_PIN_REQUIREMENTS,
+} from "@/lib/velxio/simulation/parts/netTrace";
+import {
+  clearWiringIssue,
+  reportWiringIssue,
+} from "@/services/velxio/store/useWiringIssuesStore";
 
 /** Any simulator that components can interact with (AVR, RP2040, or ESP32 bridge shim). */
 export type AnySimulator =
@@ -62,13 +70,50 @@ export interface PartSimulationLogic {
 
 class PartRegistry {
   private parts: Map<string, PartSimulationLogic> = new Map();
+  private powerGated: Map<string, PartSimulationLogic> = new Map();
 
   register(metadataId: string, logic: PartSimulationLogic) {
     this.parts.set(metadataId, logic);
+    this.powerGated.delete(metadataId);
   }
 
   get(metadataId: string): PartSimulationLogic | undefined {
-    return this.parts.get(metadataId);
+    const logic = this.parts.get(metadataId);
+    const power = POWER_PIN_REQUIREMENTS[metadataId];
+    if (!logic || !power || !logic.attachEvents) return logic;
+
+    // Real-life hookup enforcement: kit modules with power pins only
+    // attach their simulation when VCC/GND actually trace (through wires
+    // and breadboard strips) to a board's supply and ground. Cached so
+    // callers get a stable object identity across renders.
+    let gated = this.powerGated.get(metadataId);
+    if (!gated) {
+      gated = {
+        ...logic,
+        attachEvents: (element, simulator, getPin, componentId, resolver) => {
+          if (componentId) {
+            const hookup = checkPowerHookup(componentId, power);
+            if (!hookup.ok) {
+              console.info(
+                `[${metadataId}] not powered — check wiring: ${hookup.missing.join(", ")}`,
+              );
+              reportWiringIssue(componentId, metadataId, hookup.missing);
+              return () => clearWiringIssue(componentId);
+            }
+            clearWiringIssue(componentId);
+          }
+          return logic.attachEvents(
+            element,
+            simulator,
+            getPin,
+            componentId,
+            resolver,
+          );
+        },
+      };
+      this.powerGated.set(metadataId, gated);
+    }
+    return gated;
   }
 
   /**

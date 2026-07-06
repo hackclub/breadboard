@@ -1026,6 +1026,17 @@ export const EditorToolbar = ({
         continue;
       }
 
+      // An unprogrammed board is a real-life no-op, not a failure: a spare
+      // Uno sitting on the canvas with no code just stays off. It must not
+      // count as a compile failure, or it would block every other board.
+      const boardFiles = useEditorStore
+        .getState()
+        .getGroupFiles(board.activeFileGroupId);
+      if (!boardFiles.some((f) => f.content.trim().length > 0)) {
+        blog("info", "skipped (no code, board stays off)");
+        continue;
+      }
+
       const fqbn = BOARD_KIND_FQBN[board.boardKind];
       if (!fqbn) {
         blog("error", "no FQBN configured");
@@ -1153,7 +1164,15 @@ export const EditorToolbar = ({
 
     if (needsCompile) {
       const { failed } = await compileAllBoards();
-      if (failed > 0) return; // a board failed — don't start anything
+      // Real-life semantics: a board that failed to compile simply doesn't
+      // power on, while every board that compiled still runs (and opens its
+      // serial monitor). A broken or empty spare never blocks the canvas.
+      if (failed > 0) {
+        setMessage({
+          type: "error",
+          text: `${failed} target${failed === 1 ? "" : "s"} failed to compile and won't run. Everything else started normally.`,
+        });
+      }
     }
 
     // Start every board (compiledProgram may have changed during compile).

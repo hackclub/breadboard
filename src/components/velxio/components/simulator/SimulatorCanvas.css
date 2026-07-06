@@ -296,6 +296,50 @@
   color: #ccc;
 }
 
+/* ── Breadboard auto-plug ────────────────────────── */
+.auto-plug-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: #1e1e1e;
+  border: 1px solid #3a3a3a;
+  border-radius: 5px;
+  color: #666;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.auto-plug-toggle:hover {
+  background: #3a3a3a;
+  color: #ccc;
+}
+
+.auto-plug-toggle.active {
+  color: #4caf50;
+  border-color: #3c5a3e;
+}
+
+.plug-preview-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 40;
+}
+
+.plug-preview-hole {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: rgba(76, 175, 80, 0.45);
+  border: 1.5px solid #4caf50;
+  box-shadow: 0 0 6px rgba(76, 175, 80, 0.8);
+}
+
 .component-label {
   font-size: 11px;
   background-color: #252526;

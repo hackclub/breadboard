@@ -13,6 +13,7 @@ import { ComponentPickerModal } from "@/components/velxio/components/ComponentPi
 import { ComponentPropertyDialog } from "@/components/velxio/components/simulator/ComponentPropertyDialog";
 import { CustomChipDialog } from "@/components/velxio/components/customChips/CustomChipDialog";
 import { SensorControlPanel } from "@/components/velxio/components/simulator/SensorControlPanel";
+import { WiringIssuesPanel } from "@/components/velxio/components/simulator/WiringIssuesPanel";
 import { SENSOR_CONTROLS } from "@/lib/velxio/simulation/sensorControlConfig";
 import {
   DynamicComponent,
@@ -67,6 +68,16 @@ import {
   snapToNearest,
 } from "@/lib/velxio/utils/wireHitDetection";
 import { useIsCoarsePointer } from "@/lib/velxio/utils/useTouchDevice";
+import {
+  computeBreadboardSnap,
+  describeAttachmentIssues,
+  type SnapResult,
+} from "@/lib/velxio/utils/breadboardSnap";
+import { isBreadboard } from "@/lib/velxio/utils/breadboard";
+import {
+  reportWiringIssue,
+  clearWiringIssue,
+} from "@/services/velxio/store/useWiringIssuesStore";
 import type { ComponentMetadata } from "@/lib/velxio/types/component-metadata";
 import type { BoardKind } from "@/lib/velxio/types/board";
 import { boardDisplayName } from "@/lib/velxio/types/board";
@@ -474,6 +485,107 @@ export const SimulatorCanvas = ({
       y: (screenY - rect.top - panRef.current.y) / zoomRef.current,
     };
   }, []);
+
+  // ── Breadboard auto-plug ──────────────────────────────────────────────
+  // While a part drags over a breadboard its pins snap to the hole grid
+  // and the target holes highlight; releasing seats it (attachedTo on the
+  // component). Holding Alt or turning the header toggle off bypasses it.
+  const autoPlugEnabled = useSimulatorStore((s) => s.autoPlugEnabled);
+  const setAutoPlugEnabled = useSimulatorStore((s) => s.setAutoPlugEnabled);
+  /** Latest snap candidate for the in-flight drag (null = free placement). */
+  const plugSnapRef = useRef<SnapResult | null>(null);
+  const [plugPreview, setPlugPreview] = useState<SnapResult | null>(null);
+  /** Signature of the last preview so mousemove doesn't re-render per frame. */
+  const plugPreviewSigRef = useRef("");
+
+  /**
+   * Move a dragged component to (rawX, rawY), snapping onto a breadboard
+   * hole grid when eligible. Shared by the mouse and touch drag paths —
+   * reads everything through getState()/refs so the long-lived touch
+   * handlers can call it via plugDragRef without stale closures.
+   */
+  const applyComponentDrag = useCallback(
+    (componentId: string, rawX: number, rawY: number, bypass: boolean) => {
+      const state = useSimulatorStore.getState();
+      const component = state.components.find((c) => c.id === componentId);
+      if (!component) return;
+
+      let snap: SnapResult | null = null;
+      if (!bypass && state.autoPlugEnabled && !isBreadboard(component.metadataId)) {
+        const breadboards = state.components.filter((c) =>
+          isBreadboard(c.metadataId),
+        );
+        if (breadboards.length > 0) {
+          snap = computeBreadboardSnap(component, rawX, rawY, breadboards);
+        }
+      }
+
+      state.updateComponent(componentId, {
+        x: snap ? snap.x : rawX,
+        y: snap ? snap.y : rawY,
+      } as any);
+
+      plugSnapRef.current = snap;
+      const sig = snap
+        ? `${snap.breadboardId}|${snap.holes.map((h) => h.name).join(",")}`
+        : "";
+      if (sig !== plugPreviewSigRef.current) {
+        plugPreviewSigRef.current = sig;
+        setPlugPreview(snap);
+      }
+    },
+    [],
+  );
+  const applyComponentDragRef = useRef(applyComponentDrag);
+  applyComponentDragRef.current = applyComponentDrag;
+
+  /**
+   * Commit the attachment outcome of a finished drag: seat the part when a
+   * snap is active, unplug it when it was dragged off, and report/clear
+   * partial-plug and same-strip-short findings. Returns the attachment
+   * transition for the caller's undo record (null = nothing changed).
+   */
+  const commitPlugOnDragEnd = useCallback((componentId: string) => {
+    const state = useSimulatorStore.getState();
+    const component = state.components.find((c) => c.id === componentId);
+    plugPreviewSigRef.current = "";
+    setPlugPreview(null);
+    const snap = plugSnapRef.current;
+    plugSnapRef.current = null;
+    if (!component) return null;
+
+    const prev = component.attachedTo ?? null;
+    const next =
+      snap && !isBreadboard(component.metadataId)
+        ? { breadboardId: snap.breadboardId, pinMap: snap.pinMap }
+        : null;
+    const attachSig = (a: typeof prev) =>
+      a
+        ? `${a.breadboardId}|${Object.entries(a.pinMap)
+            .map(([p, h]) => `${p}=${h}`)
+            .sort()
+            .join(",")}`
+        : "";
+    if (attachSig(prev) === attachSig(next)) return null;
+
+    state.setComponentAttachment(componentId, next);
+    if (next && snap) {
+      const bb = state.components.find((c) => c.id === next.breadboardId);
+      const issues = bb
+        ? describeAttachmentIssues(bb.metadataId, next, snap.unmappedPins)
+        : [];
+      if (issues.length > 0) {
+        reportWiringIssue(componentId, component.metadataId, issues);
+      } else {
+        clearWiringIssue(componentId);
+      }
+    } else {
+      clearWiringIssue(componentId);
+    }
+    return { prev, next };
+  }, []);
+  const commitPlugOnDragEndRef = useRef(commitPlugOnDragEnd);
+  commitPlugOnDragEndRef.current = commitPlugOnDragEnd;
 
   // Initialize simulator on mount
   useEffect(() => {
@@ -904,10 +1016,14 @@ export const SimulatorCanvas = ({
             y: world.y - touchDragOffsetRef.current.y,
           });
         } else {
-          updateComponent(touchDraggedComponentIdRef.current!, {
-            x: world.x - touchDragOffsetRef.current.x,
-            y: world.y - touchDragOffsetRef.current.y,
-          } as any);
+          // Touch has no Alt key — the header auto-plug toggle is the
+          // bypass there (checked inside applyComponentDrag).
+          applyComponentDragRef.current(
+            touchDraggedComponentIdRef.current!,
+            world.x - touchDragOffsetRef.current.x,
+            world.y - touchDragOffsetRef.current.y,
+            false,
+          );
         }
       }
     };
@@ -1038,6 +1154,20 @@ export const SimulatorCanvas = ({
               }
             }
           }
+        }
+
+        // Real drag (not a tap) on a part: seat/unseat it on the
+        // breadboard. Touch drags don't push Move history entries, so the
+        // attachment change isn't recorded either — consistent behavior.
+        if (
+          !isShortTap &&
+          !touchId.startsWith("__board__")
+        ) {
+          commitPlugOnDragEndRef.current(touchId);
+        } else {
+          plugSnapRef.current = null;
+          plugPreviewSigRef.current = "";
+          setPlugPreview(null);
         }
 
         recalculateAllWirePositions();
@@ -1467,7 +1597,14 @@ export const SimulatorCanvas = ({
         rotation: nextRotation,
       },
     } as any);
-    recordRotate(componentId, currentRotation, nextRotation);
+    // Rotating a part that's plugged into a breadboard pulls it out of its
+    // holes (its legs no longer line up) — drop it back on to re-seat it.
+    const prevAttachment = component.attachedTo ?? undefined;
+    if (prevAttachment) {
+      useSimulatorStore.getState().setComponentAttachment(componentId, null);
+      clearWiringIssue(componentId);
+    }
+    recordRotate(componentId, currentRotation, nextRotation, prevAttachment);
   };
 
   // Component dragging handlers
@@ -1550,10 +1687,12 @@ export const SimulatorCanvas = ({
           y: world.y - dragOffset.y,
         });
       } else {
-        updateComponent(draggedComponentId, {
-          x: world.x - dragOffset.x,
-          y: world.y - dragOffset.y,
-        } as any);
+        applyComponentDrag(
+          draggedComponentId,
+          world.x - dragOffset.x,
+          world.y - dragOffset.y,
+          e.altKey,
+        );
       }
     }
 
@@ -1815,10 +1954,30 @@ export const SimulatorCanvas = ({
         draggedComponentId &&
         !draggedComponentId.startsWith("__board__")
       ) {
-        const moved = components.find((c) => c.id === draggedComponentId);
-        if (moved && (moved.x !== start.x || moved.y !== start.y)) {
-          recordMove(draggedComponentId, start, { x: moved.x, y: moved.y });
+        // Seat/unseat on the breadboard before recording, so the Move
+        // command captures the attachment transition alongside the
+        // position change (one Ctrl+Z reverts both).
+        const attachment = commitPlugOnDragEnd(draggedComponentId);
+        const moved = useSimulatorStore
+          .getState()
+          .components.find((c) => c.id === draggedComponentId);
+        if (
+          moved &&
+          (moved.x !== start.x || moved.y !== start.y || attachment)
+        ) {
+          recordMove(
+            draggedComponentId,
+            start,
+            { x: moved.x, y: moved.y },
+            attachment ?? undefined,
+          );
         }
+      } else {
+        // Click (or board drag) — drop any transient snap preview without
+        // touching the attachment.
+        plugSnapRef.current = null;
+        plugPreviewSigRef.current = "";
+        setPlugPreview(null);
       }
       dragStartPosRef.current = null;
 
@@ -2555,6 +2714,38 @@ export const SimulatorCanvas = ({
               </div>
 
               <div className="canvas-header-right">
+                {/* Auto-plug into breadboards on drop (Alt bypasses) */}
+                {!shareMode && (
+                  <button
+                    className={`auto-plug-toggle${autoPlugEnabled ? " active" : ""}`}
+                    onClick={() => setAutoPlugEnabled(!autoPlugEnabled)}
+                    title={t(
+                      autoPlugEnabled
+                        ? "editor.canvas.autoPlugOn"
+                        : "editor.canvas.autoPlugOff",
+                    )}
+                    disabled={readOnly}
+                  >
+                    <svg
+                      width="15"
+                      height="15"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      {/* plug glyph */}
+                      <path d="M12 22v-4" />
+                      <path d="M7 12v-2a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2" />
+                      <path d="M7 12h10l-1.5 5a2 2 0 0 1-2 1.5h-3a2 2 0 0 1-2-1.5Z" />
+                      <path d="M9 8V2" />
+                      <path d="M15 8V2" />
+                    </svg>
+                  </button>
+                )}
+
                 {/* Zoom controls */}
                 <div className="zoom-controls">
                   <button
@@ -2773,6 +2964,11 @@ export const SimulatorCanvas = ({
               );
             })()}
 
+          {/* Live "check your wiring" findings from the real-life hookup
+              enforcement — only while the circuit is running, so students
+              aren't nagged about wiring mid-edit. */}
+          {interactionRunning && <WiringIssuesPanel />}
+
           {/* Infinite world — pan+zoom applied here */}
           <div
             className="canvas-world"
@@ -2853,6 +3049,20 @@ export const SimulatorCanvas = ({
             <div className="components-area">
               {registryLoaded && components.map(renderComponent)}
             </div>
+
+            {/* Auto-plug preview: the breadboard holes the dragged part's
+                pins will seat into on release. */}
+            {plugPreview && (
+              <div className="plug-preview-layer">
+                {plugPreview.holes.map((hole) => (
+                  <div
+                    key={hole.name}
+                    className="plug-preview-hole"
+                    style={{ left: hole.x, top: hole.y }}
+                  />
+                ))}
+              </div>
+            )}
 
             {/* Electrical simulation overlay (voltages / warnings) */}
             <ElectricalOverlay />

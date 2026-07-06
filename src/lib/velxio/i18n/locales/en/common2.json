@@ -129,6 +129,8 @@
       "zoomIn": "Zoom in",
       "zoomOut": "Zoom out",
       "resetView": "Reset view (click to reset)",
+      "autoPlugOn": "Auto-plug into breadboards: on (hold Alt while dragging to bypass)",
+      "autoPlugOff": "Auto-plug into breadboards: off",
       "componentCount_one": "{{count}} component",
       "componentCount_other": "{{count}} components",
       "addComponentTitle": "Add Component",

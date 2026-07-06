@@ -8,6 +8,18 @@ import React from "react";
 import type { Wire } from "@/lib/velxio/types/wire";
 import { generateOrthogonalPath } from "@/lib/velxio/utils/wireUtils";
 
+/** True when a hex color is dark enough to blend into the dark crossing outline. */
+function isDarkColor(hex: string): boolean {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return false;
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 0xff;
+  const g = (n >> 8) & 0xff;
+  const b = n & 0xff;
+  // Perceived luminance (ITU-R BT.601).
+  return 0.299 * r + 0.587 * g + 0.114 * b < 40;
+}
+
 interface WireRendererProps {
   wire: Wire;
   isSelected: boolean;
@@ -36,10 +48,25 @@ export const WireRenderer: React.FC<WireRendererProps> = ({
   const outlineW = isSelected ? 6 : 5;
   const opacity = isSelected || isHovered ? 1 : 0.85;
 
+  // Black wires blend into the dark background, so instead of the dark
+  // crossing outline they get a skinny, very faint light outline just to
+  // catch the edge and keep them visible.
+  const isBlackWire = isDarkColor(color);
+
   return (
     <g style={{ pointerEvents: "none" }}>
-      {/* Dark outline for wire crossing effect */}
-      <path d={path} stroke="#1a1a1a" strokeWidth={outlineW} fill="none" />
+      {/* Outline for wire crossing effect */}
+      {isBlackWire ? (
+        <path
+          d={path}
+          stroke="#e6e9ee"
+          strokeWidth={strokeW + 1}
+          fill="none"
+          opacity="0.25"
+        />
+      ) : (
+        <path d={path} stroke="#1a1a1a" strokeWidth={outlineW} fill="none" />
+      )}
 
       {/* Hover highlight (below wire) */}
       {isHovered && !isSelected && (
@@ -79,7 +106,7 @@ export const WireRenderer: React.FC<WireRendererProps> = ({
         cy={wire.start.y}
         r="3"
         fill={color}
-        stroke="#1a1a1a"
+        stroke={isBlackWire ? "#e6e9ee" : "#1a1a1a"}
         strokeWidth="1"
       />
       <circle
@@ -87,7 +114,7 @@ export const WireRenderer: React.FC<WireRendererProps> = ({
         cy={wire.end.y}
         r="3"
         fill={color}
-        stroke="#1a1a1a"
+        stroke={isBlackWire ? "#e6e9ee" : "#1a1a1a"}
         strokeWidth="1"
       />
 

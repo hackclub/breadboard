@@ -32,6 +32,14 @@ import {
   registerSensorUpdate,
   unregisterSensorUpdate,
 } from "@/lib/velxio/simulation/SensorUpdateRegistry";
+import {
+  checkI2cHookup,
+  checkSpiHookup,
+} from "@/lib/velxio/simulation/parts/netTrace";
+import {
+  clearWiringIssue,
+  reportWiringIssue,
+} from "@/services/velxio/store/useWiringIssuesStore";
 import { useSimulatorStore } from "@/services/velxio/store/useSimulatorStore";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -329,9 +337,29 @@ function attachSSD1306(
   simulator: unknown,
   getPin: (n: string) => number | null,
   protocol: "i2c" | "spi",
+  enforceHookupComponentId?: string,
 ): () => void {
   if (protocol === "spi") {
     return attachSSD1306SPI(element, simulator, getPin);
+  }
+  // Kit parts (ssd1306-i2c) enforce real-life hookup: the display only
+  // joins the bus when GND/VCC/SDA/SCL trace to the board. The generic
+  // `ssd1306` entry skips this for backward compat with saved examples.
+  if (enforceHookupComponentId) {
+    const hookup = checkI2cHookup(enforceHookupComponentId, {
+      gnd: ["GND"],
+      vcc: ["VCC", "VIN", "3V3"],
+      sda: ["SDA", "DATA"],
+      scl: ["SCL", "CLK"],
+    });
+    if (!hookup.ok) {
+      console.info(
+        `[ssd1306-i2c] not on the bus — check wiring: ${hookup.missing.join(", ")}`,
+      );
+      reportWiringIssue(enforceHookupComponentId, "ssd1306-i2c", hookup.missing);
+      return () => clearWiringIssue(enforceHookupComponentId);
+    }
+    clearWiringIssue(enforceHookupComponentId);
   }
   const sim = simulator as any;
   const i2cAddr = 0x3c;
@@ -377,7 +405,7 @@ PartSimulationRegistry.register("ssd1306", {
     const protocol = ((comp?.properties?.protocol as string) ?? "i2c") as
       | "i2c"
       | "spi";
-    return attachSSD1306(element, simulator, getPin, protocol);
+    return attachSSD1306(element, simulator, getPin, protocol, componentId);
   },
 });
 
@@ -388,8 +416,8 @@ PartSimulationRegistry.register("ssd1306", {
  * discover the protocol property on the generic ssd1306 entry.
  */
 PartSimulationRegistry.register("ssd1306-i2c", {
-  attachEvents: (element, simulator, getPin) =>
-    attachSSD1306(element, simulator, getPin, "i2c"),
+  attachEvents: (element, simulator, getPin, componentId) =>
+    attachSSD1306(element, simulator, getPin, "i2c", componentId),
 });
 
 /** Picker shortcut: "SSD1306 OLED (SPI)" — counterpart to ssd1306-i2c. */
@@ -796,6 +824,27 @@ if (dhtLogic) {
 
 PartSimulationRegistry.register("rc522-rfid", {
   attachEvents: (element, simulator, _getPin, componentId) => {
+    // Real-life hookup enforcement: the reader only answers on the SPI bus
+    // when SCK/MOSI/MISO trace to the board's hardware SPI pins and its
+    // SDA (chip select) + RST reach some board pin. Power (3V3/GND) is
+    // gated centrally via POWER_PIN_REQUIREMENTS.
+    if (componentId) {
+      const hookup = checkSpiHookup(componentId, {
+        sck: ["SCK"],
+        mosi: ["MOSI"],
+        miso: ["MISO"],
+        anyBoardPin: ["SDA", "RST"],
+      });
+      if (!hookup.ok) {
+        console.info(
+          `[rc522-rfid] not on the SPI bus — check wiring: ${hookup.missing.join(", ")}`,
+        );
+        reportWiringIssue(componentId, "rc522-rfid", hookup.missing);
+        return () => clearWiringIssue(componentId);
+      }
+      clearWiringIssue(componentId);
+    }
+
     const el = element as any;
     el.cardPresent = el.cardPresent ?? true;
     el.uid = el.uid ?? "DE AD BE EF";
@@ -1025,28 +1074,51 @@ function driveNECSequence(
 
 PartSimulationRegistry.register("ir-receiver", {
   attachEvents: (element, simulator, getPin) => {
-    const pin = getPin("OUT") ?? getPin("DATA");
+    // The wokwi-ir-receiver element names its signal pin DAT; OUT/DATA are
+    // kept for older layouts. Without DAT here the part is inert, since no
+    // wire can ever match.
+    const pin = getPin("OUT") ?? getPin("DATA") ?? getPin("DAT");
     if (pin === null) return () => {};
 
     // Idle: pin HIGH (no IR)
     simulator.setPinState(pin, true);
 
-    const onClick = () => {
+    const flash = () => {
       const el = element as any;
-      const address = (el.irAddress ?? 0x00) & 0xff;
-      const command = (el.irCommand ?? 0x45) & 0xff;
       el.receiving = true;
       element.style.filter = "drop-shadow(0 0 8px #ef4444)";
       setTimeout(() => {
         el.receiving = false;
         element.style.filter = "";
       }, 140);
+    };
+
+    // Clicking the receiver itself simulates a generic incoming signal.
+    const onClick = () => {
+      const el = element as any;
+      const address = (el.irAddress ?? 0x00) & 0xff;
+      const command = (el.irCommand ?? 0x45) & 0xff;
+      flash();
+      driveNECSequence(simulator, pin, address, command);
+    };
+
+    // Wireless link: every IR remote on the canvas dispatches a bubbling
+    // ir-signal event on button press. Replaying it here is what makes the
+    // remote work without wires, like the physical kit.
+    const onSignal = (event: Event) => {
+      if (event.target === element) return;
+      const detail = (event as CustomEvent).detail ?? {};
+      const address = Number(detail.address ?? 0) & 0xff;
+      const command = Number(detail.command ?? 0x45) & 0xff;
+      flash();
       driveNECSequence(simulator, pin, address, command);
     };
 
     element.addEventListener("click", onClick);
+    document.addEventListener("ir-signal", onSignal);
     return () => {
       element.removeEventListener("click", onClick);
+      document.removeEventListener("ir-signal", onSignal);
       simulator.setPinState(pin, true);
     };
   },
@@ -1100,8 +1172,13 @@ PartSimulationRegistry.register("ir-remote", {
 
     const el = element as any;
     const address = (el.irAddress ?? 0x00) & 0xff;
+    // A press on a remote button fires the element's button-press event AND
+    // bubbles a native click; without this stamp the click fallback would
+    // send a second, wrong (POWER) frame right after the real one.
+    let lastButtonPressAt = 0;
 
     const onButtonPress = (e: Event) => {
+      lastButtonPressAt = Date.now();
       const key = ((e as CustomEvent).detail?.key ?? "").toLowerCase();
       const command = (IR_REMOTE_COMMANDS[key] ?? 0x45) & 0xff;
       element.dispatchEvent(
@@ -1120,7 +1197,8 @@ PartSimulationRegistry.register("ir-remote", {
     };
 
     const onClick = () => {
-      // Fallback for plain click — send POWER code
+      if (Date.now() - lastButtonPressAt < 400) return;
+      // Fallback for a plain click outside any button: send POWER code
       const command = 0x45;
       element.dispatchEvent(
         new CustomEvent("ir-signal", {
@@ -1471,9 +1549,10 @@ function parseI2cAddress(raw: unknown, fallback: number): number {
 }
 
 /**
- * Build a part attach function for an LCD with an I2C backpack.  The
- * same logic applies to LCD1602 (16×2) and LCD2004 (20×4); only the
- * geometry differs.
+ * Build a part attach function for an LCD with an I2C backpack rendered
+ * as a single combined element (wokwi-lcd2004 in pins='i2c' mode). The
+ * kit's LCD1602 adapter is modelled as a standalone board instead — see
+ * the lcd1602-i2c registration below.
  *
  * On attach:
  *  1. Force the underlying `wokwi-lcd1602` / `wokwi-lcd2004` element
@@ -1561,11 +1640,232 @@ function makeI2cLcdAttach(cols: number, rows: number) {
 }
 
 /**
- * LCD 16×2 with PCF8574 I2C backpack — the classic "I2C LCD" you buy
- * in a single piece on AliExpress.  Default address 0x27.
+ * The LCD-side pin names of the standalone I2C adapter element
+ * (velxio-lcd1602-i2c-adapter) — mirror the wokwi-lcd1602 parallel header.
+ */
+const LCD_ADAPTER_LCD_PINS = new Set([
+  "VSS", "VDD", "V0", "RS", "RW", "E", "D0", "D1",
+  "D2", "D3", "D4", "D5", "D6", "D7", "A", "K",
+]);
+
+/**
+ * Find the bare LCD1602 wired to the adapter's 16-pin header. Strict, like
+ * the real solder joint: ALL 16 pins must be wired pin-for-pin (VSS→VSS …
+ * K→K) to the same LCD before the adapter drives it. A missing or crossed
+ * wire leaves the display blank, exactly as on real hardware.
+ */
+function findAdapterLcd(componentId: string): {
+  lcd: HTMLElement | null;
+  /** Header pins still unwired to the best candidate LCD; null = no candidate. */
+  missingHeaderPins: string[] | null;
+} {
+  const { wires } = useSimulatorStore.getState();
+  // Correctly-matched pin names per candidate LCD component id.
+  const matched = new Map<string, Set<string>>();
+  for (const wire of wires) {
+    for (const [own, other] of [
+      [wire.start, wire.end],
+      [wire.end, wire.start],
+    ]) {
+      if (
+        own.componentId !== componentId ||
+        !LCD_ADAPTER_LCD_PINS.has(own.pinName) ||
+        other.pinName !== own.pinName
+      ) {
+        continue;
+      }
+      const el = document.getElementById(other.componentId);
+      if (el && el.tagName.toLowerCase() === "wokwi-lcd1602") {
+        let pins = matched.get(other.componentId);
+        if (!pins) {
+          pins = new Set();
+          matched.set(other.componentId, pins);
+        }
+        pins.add(own.pinName);
+      }
+    }
+  }
+  let best: Set<string> | null = null;
+  let bestId: string | null = null;
+  for (const [lcdId, pins] of matched) {
+    if (pins.size === LCD_ADAPTER_LCD_PINS.size) {
+      return { lcd: document.getElementById(lcdId), missingHeaderPins: null };
+    }
+    if (!best || pins.size > best.size) {
+      best = pins;
+      bestId = lcdId;
+    }
+  }
+  if (best && bestId) {
+    const missing = [...LCD_ADAPTER_LCD_PINS].filter((p) => !best.has(p));
+    console.info(
+      `[lcd1602-i2c] adapter header partially wired to ${bestId}: ` +
+        `${best.size}/16 pins matched — missing ${missing.join(", ")}`,
+    );
+    return { lcd: null, missingHeaderPins: missing };
+  }
+  return { lcd: null, missingHeaderPins: null };
+}
+
+/**
+ * LCD1602 I2C adapter — the kit's standalone IIC/I2C/TWI serial interface
+ * adapter module (PCF8574, default address 0x27). It sits on the I2C bus
+ * and drives whichever bare LCD1602 is wired to its 16-pin header, exactly
+ * like the physical backpack. DynamicComponent re-runs attachEvents when
+ * wires change, so hooking up the LCD after placement works.
  */
 PartSimulationRegistry.register("lcd1602-i2c", {
-  attachEvents: makeI2cLcdAttach(16, 2),
+  attachEvents: (element, simulator, _getPin, componentId) => {
+    const sim = simulator as any;
+    const adapterEl = element as any;
+    const addr = parseI2cAddress(
+      adapterEl.i2cAddress ?? adapterEl.address,
+      0x27,
+    );
+
+    // Real-life hookup enforcement: the PCF8574 only joins the simulated
+    // bus when GND/VCC/SDA/SCL actually trace — through wires and
+    // breadboard strips — to the board's ground, supply, and I2C pins.
+    // Unpowered / unwired boards stay dark, PWR LED included.
+    if (componentId) {
+      const hookup = checkI2cHookup(componentId, {
+        gnd: ["GND"],
+        vcc: ["VCC"],
+        sda: ["SDA"],
+        scl: ["SCL"],
+      });
+      if (!hookup.ok) {
+        adapterEl.backlight = false;
+        console.info(
+          `[lcd1602-i2c] not on the bus — check wiring: ${hookup.missing.join(", ")}`,
+        );
+        reportWiringIssue(componentId, "lcd1602-i2c", hookup.missing);
+        return () => clearWiringIssue(componentId);
+      }
+      adapterEl.backlight = true;
+    }
+
+    const found = componentId
+      ? findAdapterLcd(componentId)
+      : { lcd: null, missingHeaderPins: null };
+    const lcd = found.lcd as any;
+    if (componentId) {
+      if (found.missingHeaderPins) {
+        reportWiringIssue(componentId, "lcd1602-i2c", [
+          `LCD header: ${found.missingHeaderPins.join(", ")}`,
+        ]);
+      } else if (!lcd) {
+        reportWiringIssue(componentId, "lcd1602-i2c", [
+          "LCD1602 not connected (16-pin header)",
+        ]);
+      } else {
+        clearWiringIssue(componentId);
+      }
+    }
+    if (lcd) {
+      lcd.characters = new Uint8Array(16 * 2).fill(0x20);
+      if (lcd.backlight === undefined) lcd.backlight = true;
+    }
+
+    // The board's trimpot sets the LCD contrast (V0). Model it as character
+    // visibility: below ~10 the text is invisible, fully visible from ~45 up —
+    // so a student who sees a lit but blank screen learns to turn the pot.
+    // Fade the LCD's own pixel colour (white on the kit's blue LCD1602).
+    const baseColor = String(lcd?.color ?? "white");
+    const baseRgb = (() => {
+      const s = baseColor.trim().toLowerCase();
+      if (s.startsWith("#") && s.length === 7) {
+        return [
+          parseInt(s.slice(1, 3), 16),
+          parseInt(s.slice(3, 5), 16),
+          parseInt(s.slice(5, 7), 16),
+        ];
+      }
+      return s === "black" ? [0, 0, 0] : [255, 255, 255];
+    })();
+    const applyContrast = (v: number) => {
+      adapterEl.contrast = v; // turns the screw on the board
+      if (!lcd) return;
+      const alpha = Math.max(0, Math.min(1, (v - 5) / 40));
+      lcd.color =
+        alpha >= 1
+          ? baseColor
+          : `rgba(${baseRgb[0]},${baseRgb[1]},${baseRgb[2]},${alpha.toFixed(2)})`;
+    };
+    if (componentId) {
+      registerSensorUpdate(componentId, (values) => {
+        if (typeof values.contrast === "number") applyContrast(values.contrast);
+      });
+    }
+    // Property-dialog edits arrive as element events (see the element's
+    // contrast setter); the run-time SensorControlPanel arrives via the
+    // registry above.
+    const onContrastEvent = (e: Event) => {
+      const v = (e as CustomEvent).detail;
+      if (typeof v === "number") applyContrast(v);
+    };
+    element.addEventListener("contrast-change", onContrastEvent);
+    applyContrast(
+      typeof adapterEl.contrast === "number" ? adapterEl.contrast : 50,
+    );
+
+    const cleanupContrast = () => {
+      element.removeEventListener("contrast-change", onContrastEvent);
+      if (componentId) {
+        unregisterSensorUpdate(componentId);
+        clearWiringIssue(componentId);
+      }
+    };
+
+    const decoder = new HD44780Decoder({ cols: 16, rows: 2 });
+    decoder.onCharsChange = (chars) => {
+      if (lcd) lcd.characters = Uint8Array.from(chars);
+    };
+    decoder.onBacklightChange = (on) => {
+      adapterEl.backlight = on; // PWR LED on the adapter board
+      if (lcd) lcd.backlight = on;
+    };
+    decoder.onCursorChange = (snap) => {
+      if (!lcd) return;
+      lcd.cursorX = snap.cursorCol;
+      lcd.cursorY = snap.cursorRow;
+      lcd.cursor = snap.cursorOn;
+      lcd.blink = snap.cursorBlink;
+    };
+
+    const pcf = new VirtualPCF8574(addr);
+    pcf.onWrite = (v: number) => decoder.feedPCF8574Byte(v);
+
+    if (typeof sim.registerSensor === "function") {
+      // ── ESP32 path (same trifurcation as makeI2cLcdAttach) ──────────────
+      const virtualPin = 200 + addr;
+      sim.registerSensor("pcf8574", virtualPin, { addr });
+      sim.addI2CTransactionListener?.(addr, (data: number[]) => {
+        for (const b of data) decoder.feedPCF8574Byte(b);
+      });
+      sim.addI2CDevice?.(pcf);
+      return () => {
+        cleanupContrast();
+        sim.unregisterSensor(virtualPin);
+        sim.removeI2CTransactionListener?.(addr);
+        sim.removeI2CDevice?.(addr, 0);
+        decoder.reset();
+      };
+    } else if (typeof sim.addI2CDevice === "function") {
+      // ── AVR / RP2040 path ────────────────────────────────────────────────
+      sim.addI2CDevice(pcf);
+      return () => {
+        cleanupContrast();
+        removeI2CDevice(sim, pcf.address);
+        decoder.reset();
+      };
+    }
+
+    return () => {
+      cleanupContrast();
+      decoder.reset();
+    };
+  },
 });
 
 /**

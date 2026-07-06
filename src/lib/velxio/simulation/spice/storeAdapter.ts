@@ -18,6 +18,7 @@ import type {
 import type { Wire } from "@/lib/velxio/types/wire";
 import type { BoardKind } from "@/lib/velxio/types/board";
 import { BOARD_PIN_GROUPS } from "@/lib/velxio/simulation/spice/boardPinGroups";
+import { attachmentWires } from "@/lib/velxio/utils/breadboardSnap";
 import { parseValueWithUnits } from "@/lib/velxio/simulation/spice/valueParser";
 import { PASSIVE_PRESETS } from "@/lib/velxio/simulation/spice/componentToSpice";
 
@@ -162,6 +163,8 @@ export interface StoreSnapshot {
     id: string;
     metadataId: string;
     properties: Record<string, unknown>;
+    /** Breadboard auto-plug attachment (pin name → hole name). */
+    attachedTo?: { breadboardId: string; pinMap: Record<string, string> };
   }>;
   wires: Wire[];
   boards: Array<{
@@ -187,6 +190,9 @@ export function buildInputFromStore(snap: StoreSnapshot): BuildNetlistInput {
     start: { componentId: w.start.componentId, pinName: w.start.pinName },
     end: { componentId: w.end.componentId, pinName: w.end.pinName },
   }));
+  // Breadboard attachments join the netlist as zero-length wires from each
+  // seated pin into its hole — the union-find then merges the hole's strip.
+  wires.push(...attachmentWires(snap.components));
 
   const boards: BoardForSpice[] = snap.boards.map((b) => {
     const group = BOARD_PIN_GROUPS[b.boardKind] ?? BOARD_PIN_GROUPS.default;

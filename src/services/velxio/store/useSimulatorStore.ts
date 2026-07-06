@@ -33,6 +33,7 @@ import {
   isStm32BoardKind,
 } from "@/lib/velxio/types/board";
 import { calculatePinPosition } from "@/lib/velxio/utils/pinPositionCalculator";
+import { isBreadboard } from "@/lib/velxio/utils/breadboard";
 import { useOscilloscopeStore } from "@/services/velxio/store/useOscilloscopeStore";
 import { RaspberryPi3Bridge } from "@/lib/velxio/simulation/RaspberryPi3Bridge";
 import { Esp32Bridge } from "@/lib/velxio/simulation/Esp32Bridge";
@@ -61,6 +62,8 @@ import {
 import {
   countKitBoards,
   countKitComponents,
+  isAnyKitBoard,
+  isAnyKitComponent,
   isKitBoard,
   isKitComponent,
   kitBoardLimit,
@@ -805,12 +808,25 @@ function isRiscVEsp32Kind(kind: BoardKind): boolean {
 }
 
 // ── Component type ────────────────────────────────────────────────────────
+/**
+ * A part plugged into a breadboard. Each entry in pinMap seats one part
+ * pin in one hole (e.g. { S: "F12", "+": "G12" }); electrically it acts
+ * like a zero-length wire into that hole's strip. Set/cleared on drop by
+ * the canvas auto-plug snap; parts with an attachment follow their
+ * breadboard when it moves.
+ */
+export interface BreadboardAttachment {
+  breadboardId: string;
+  pinMap: Record<string, string>;
+}
+
 interface Component {
   id: string;
   metadataId: string;
   x: number;
   y: number;
   properties: Record<string, unknown>;
+  attachedTo?: BreadboardAttachment;
 }
 
 // ── Undo/redo history ────────────────────────────────────────────────────
@@ -838,6 +854,34 @@ export interface CanvasCommand {
 }
 
 const HISTORY_MAX = 50;
+
+// Some kit parts used to render as generic wokwi elements with different
+// pin names (ssd1306-i2c was the 8-pin wokwi-ssd1306 board, stepper-motor
+// the 4-terminal NEMA element). Remap wires saved against the old pin names
+// so existing projects reload with their wiring attached to the kit-accurate
+// elements.
+const LEGACY_PIN_RENAMES: Record<string, Record<string, string>> = {
+  "ssd1306-i2c": { DATA: "SDA", CLK: "SCL", VIN: "VCC", "3V3": "VCC" },
+  "stepper-motor": { "A-": "A", "A+": "B", "B+": "C", "B-": "D" },
+};
+
+function migrateLegacyPinNames(components, wires) {
+  const renamesByComponentId = new Map();
+  for (const c of components) {
+    const renames = LEGACY_PIN_RENAMES[c.metadataId];
+    if (renames) renamesByComponentId.set(c.id, renames);
+  }
+  if (renamesByComponentId.size === 0) return wires;
+  const remap = (end) => {
+    const renamed = renamesByComponentId.get(end.componentId)?.[end.pinName];
+    return renamed ? { ...end, pinName: renamed } : end;
+  };
+  return wires.map((w) => {
+    const start = remap(w.start);
+    const end = remap(w.end);
+    return start === w.start && end === w.end ? w : { ...w, start, end };
+  });
+}
 
 // ── Store interface ───────────────────────────────────────────────────────
 interface SimulatorState {
@@ -945,6 +989,14 @@ interface SimulatorState {
     data?: unknown,
   ) => void;
   setComponents: (components: Component[]) => void;
+  /** Raw (non-recorded) attach/detach — pass null to unplug. */
+  setComponentAttachment: (
+    id: string,
+    attachment: BreadboardAttachment | null,
+  ) => void;
+  /** Whether dropping a part over a breadboard auto-plugs it in. */
+  autoPlugEnabled: boolean;
+  setAutoPlugEnabled: (enabled: boolean) => void;
 
   // ── Wires ───────────────────────────────────────────────────────────────
   wires: Wire[];
@@ -990,11 +1042,17 @@ interface SimulatorState {
     id: string,
     from: { x: number; y: number },
     to: { x: number; y: number },
+    attachment?: {
+      prev: BreadboardAttachment | null;
+      next: BreadboardAttachment | null;
+    },
   ) => void;
   recordRotate: (
     id: string,
     prevRotation: number,
     nextRotation: number,
+    /** Rotating a plugged part unseats it — captured so undo re-plugs. */
+    prevAttachment?: BreadboardAttachment | null,
   ) => void;
   recordSetProperty: (
     id: string,
@@ -1454,7 +1512,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
 
       // Components and wires
       setComponents(payload.components);
-      setWires(payload.wires);
+      setWires(migrateLegacyPinNames(payload.components, payload.wires));
 
       // Active board: prefer the saved one, fall back to the first.
       const targetActive =
@@ -2532,13 +2590,21 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
 
     removeComponent: (id) =>
       set((state) => ({
-        components: state.components.filter((c) => c.id !== id),
+        // Removing a breadboard unplugs everything seated in it.
+        components: state.components
+          .filter((c) => c.id !== id)
+          .map((c) =>
+            c.attachedTo?.breadboardId === id
+              ? { ...c, attachedTo: undefined }
+              : c,
+          ),
         wires: state.wires.filter(
           (w) => w.start.componentId !== id && w.end.componentId !== id,
         ),
       })),
 
     updateComponent: (id, updates) => {
+      const prev = get().components.find((c) => c.id === id);
       set((state) => ({
         components: state.components.map((c) =>
           c.id === id ? { ...c, ...updates } : c,
@@ -2557,7 +2623,35 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       ) {
         get().updateWirePositions(id);
       }
+      // Moving a breadboard carries every plugged part with it (they're
+      // physically seated in its holes). Depth-one recursion: attached
+      // parts are never breadboards themselves.
+      if (prev && isBreadboard(prev.metadataId)) {
+        const dx = (updates.x ?? prev.x) - prev.x;
+        const dy = (updates.y ?? prev.y) - prev.y;
+        if (dx !== 0 || dy !== 0) {
+          const children = get().components.filter(
+            (c) => c.attachedTo?.breadboardId === id,
+          );
+          for (const child of children) {
+            get().updateComponent(child.id, {
+              x: child.x + dx,
+              y: child.y + dy,
+            });
+          }
+        }
+      }
     },
+
+    setComponentAttachment: (id, attachment) =>
+      set((state) => ({
+        components: state.components.map((c) =>
+          c.id === id ? { ...c, attachedTo: attachment ?? undefined } : c,
+        ),
+      })),
+
+    autoPlugEnabled: true,
+    setAutoPlugEnabled: (enabled) => set({ autoPlugEnabled: enabled }),
 
     updateComponentState: (id, state) => {
       set((prevState) => ({
@@ -2901,52 +2995,73 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       const removedWires = state.wires.filter(
         (w) => w.start.componentId === id || w.end.componentId === id,
       );
+      // Removing a breadboard also unplugs its seated parts — capture
+      // their attachments so undo re-seats them.
+      const detached = state.components
+        .filter((c) => c.attachedTo?.breadboardId === id)
+        .map((c) => ({ id: c.id, attachment: c.attachedTo }));
       get().pushCommand({
         description: `Remove ${removed.metadataId}`,
         execute: () =>
           set((s) => ({
-            components: s.components.filter((c) => c.id !== id),
+            components: s.components
+              .filter((c) => c.id !== id)
+              .map((c) =>
+                c.attachedTo?.breadboardId === id
+                  ? { ...c, attachedTo: undefined }
+                  : c,
+              ),
             wires: s.wires.filter(
               (w) => w.start.componentId !== id && w.end.componentId !== id,
             ),
           })),
         undo: () =>
-          set((s) => ({
-            components: [...s.components, removed],
-            wires: [...s.wires, ...removedWires],
-          })),
+          set((s) => {
+            const attachmentOf = new Map(
+              detached.map((d) => [d.id, d.attachment]),
+            );
+            return {
+              components: [
+                ...s.components.map((c) =>
+                  attachmentOf.has(c.id)
+                    ? { ...c, attachedTo: attachmentOf.get(c.id) }
+                    : c,
+                ),
+                removed,
+              ],
+              wires: [...s.wires, ...removedWires],
+            };
+          }),
       });
     },
 
-    recordMove: (id, from, to) => {
+    recordMove: (id, from, to, attachment) => {
       // The state is already at `to` (caller mutated during drag). We push
       // applyNow:false so we don't redundantly re-apply on first push;
       // execute()/undo() are only invoked on future redo/undo.
+      // Position is applied through updateComponent so a breadboard move
+      // replays its plugged-parts cascade on undo/redo too.
       get().pushCommand(
         {
           description: "Move component",
           execute: () => {
-            set((s) => ({
-              components: s.components.map((c) =>
-                c.id === id ? { ...c, x: to.x, y: to.y } : c,
-              ),
-            }));
-            get().updateWirePositions(id);
+            get().updateComponent(id, { x: to.x, y: to.y });
+            if (attachment) {
+              get().setComponentAttachment(id, attachment.next);
+            }
           },
           undo: () => {
-            set((s) => ({
-              components: s.components.map((c) =>
-                c.id === id ? { ...c, x: from.x, y: from.y } : c,
-              ),
-            }));
-            get().updateWirePositions(id);
+            get().updateComponent(id, { x: from.x, y: from.y });
+            if (attachment) {
+              get().setComponentAttachment(id, attachment.prev);
+            }
           },
         },
         { applyNow: false },
       );
     },
 
-    recordRotate: (id, prevRotation, nextRotation) => {
+    recordRotate: (id, prevRotation, nextRotation, prevAttachment) => {
       get().pushCommand(
         {
           description: "Rotate component",
@@ -2957,6 +3072,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
                   ? {
                       ...c,
                       properties: { ...c.properties, rotation: nextRotation },
+                      // Rotating unseats a plugged part (its legs leave
+                      // the holes) — mirror what the live rotate did.
+                      ...(prevAttachment !== undefined
+                        ? { attachedTo: undefined }
+                        : {}),
                     }
                   : c,
               ),
@@ -2973,6 +3093,9 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
                   ? {
                       ...c,
                       properties: { ...c.properties, rotation: prevRotation },
+                      ...(prevAttachment !== undefined
+                        ? { attachedTo: prevAttachment ?? undefined }
+                        : {}),
                     }
                   : c,
               ),

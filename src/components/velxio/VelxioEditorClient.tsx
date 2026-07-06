@@ -439,6 +439,17 @@ export function VelxioNextEditor({
     };
   }, [projectId, serverReadOnly, versionQuery]);
 
+  // Error must win over the loading checklist: a load() failure before
+  // setEditorPage() would otherwise render the checklist forever with the
+  // real error silently swallowed.
+  if (state === "error") {
+    return (
+      <div className="grid h-screen place-items-center bg-[#1e1e1e] text-white">
+        {error}
+      </div>
+    );
+  }
+
   if (state === "loading" || !EditorPage) {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-6 bg-[#1e1e1e]">
@@ -477,14 +488,6 @@ export function VelxioNextEditor({
             )}
           </div>
         </div>
-      </div>
-    );
-  }
-
-  if (state === "error") {
-    return (
-      <div className="grid h-screen place-items-center bg-[#1e1e1e] text-white">
-        {error}
       </div>
     );
   }

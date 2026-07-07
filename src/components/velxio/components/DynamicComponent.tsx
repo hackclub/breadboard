@@ -12,7 +12,7 @@
  * - Handles component lifecycle
  */
 
-import React, { useRef, useEffect, useCallback } from "react";
+import React, { useRef, useEffect, useCallback, useState } from "react";
 import type { ComponentMetadata } from "@/lib/velxio/types/component-metadata";
 import { useSimulatorStore } from "@/services/velxio/store/useSimulatorStore";
 import { useElectricalStore } from "@/services/velxio/store/useElectricalStore";
@@ -246,6 +246,10 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
   const elementRef = useRef<HTMLElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(false);
+
+  // Tracks hover over the part graphic itself (not the wrapper's padding or
+  // the label strip below it) — the name label only shows while this is true.
+  const [partHovered, setPartHovered] = useState(false);
 
   const handleComponentEvent = useSimulatorStore((s) => s.handleComponentEvent);
   const running = useSimulatorStore((s) => s.running);
@@ -662,12 +666,22 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
       data-component-type={metadata.id}
     >
       {/* Container for web component */}
-      <div ref={containerRef} className="web-component-container" />
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: hover-only visual affordance on a canvas part; keyboard users see the name via the selection action bar. */}
+      <div
+        ref={containerRef}
+        className="web-component-container"
+        onMouseEnter={() => setPartHovered(true)}
+        onMouseLeave={() => setPartHovered(false)}
+      />
 
-      {/* Component label */}
+      {/* Component label — only visible while the cursor is directly over
+          the part graphic. visibility (not conditional render) keeps the
+          wrapper's layout box stable, which PinOverlay measures for its
+          rotation pivot. */}
       <div
         className="component-label"
         style={{
+          visibility: partHovered ? "visible" : "hidden",
           fontSize: "11px",
           textAlign: "center",
           marginTop: "4px",

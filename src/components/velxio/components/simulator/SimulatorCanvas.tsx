@@ -1120,7 +1120,31 @@ export const SimulatorCanvas = ({
         const touchId = touchDraggedComponentIdRef.current;
 
         if (isShortTap) {
-          if (touchId.startsWith("__board__:")) {
+          // Same wire-priority rule as the mouse path: wires draw above
+          // boards and breadboards but don't take pointer events, so a tap
+          // landing on one should select the wire, not the surface below.
+          const tapWorld = toWorld(changed.clientX, changed.clientY);
+          const tapComponent = componentsRef.current.find(
+            (c) => c.id === touchId,
+          );
+          const tapOnBoardSurface =
+            touchId.startsWith("__board__") ||
+            (!!tapComponent && isBreadboard(tapComponent.metadataId));
+          const wireUnderTap =
+            tapOnBoardSurface && !readOnly && !interactionRunningRef.current
+              ? findWireNearPoint(
+                  wiresRef.current,
+                  tapWorld.x,
+                  tapWorld.y,
+                  (isTouchDeviceRef.current ? 20 : 8) / zoomRef.current,
+                )
+              : null;
+          if (wireUnderTap) {
+            const curr = selectedWireIdRef.current;
+            useSimulatorStore
+              .getState()
+              .setSelectedWire(curr === wireUnderTap.id ? null : wireUnderTap.id);
+          } else if (touchId.startsWith("__board__:")) {
             // Short tap on board: first tap → make it active (so pins show);
             // tap again on the same board → open the touch-friendly pin
             // picker so the user can start a wire by name without poking at
@@ -1637,6 +1661,22 @@ export const SimulatorCanvas = ({
     e.stopPropagation();
     const component = components.find((c) => c.id === componentId);
     if (!component) return;
+
+    // Wires render above the breadboard (WireLayer sits at a higher z-index)
+    // but are pointer-transparent, so a click on a wire crossing the board
+    // lands here instead. Give the wire priority: bail out and let the
+    // canvas-level click handler select it. Only breadboards defer — small
+    // parts keep their click even when a wire ends right at their pins.
+    if (isBreadboard(component.metadataId)) {
+      const world = toWorld(e.clientX, e.clientY);
+      const wireUnder = findWireNearPoint(
+        wiresRef.current,
+        world.x,
+        world.y,
+        8 / zoomRef.current,
+      );
+      if (wireUnder) return;
+    }
 
     setClickStartTime(Date.now());
     setClickStartPos({ x: e.clientX, y: e.clientY });
@@ -3031,9 +3071,20 @@ export const SimulatorCanvas = ({
                     )
                   }
                   onMouseDown={(e) => {
+                    const world = toWorld(e.clientX, e.clientY);
+                    // Same wire-priority rule as breadboards: a wire routed
+                    // across the board draws on top of it, so a click on it
+                    // should select the wire (via the canvas click handler),
+                    // not start a board drag.
+                    const wireUnder = findWireNearPoint(
+                      wiresRef.current,
+                      world.x,
+                      world.y,
+                      8 / zoomRef.current,
+                    );
+                    if (wireUnder) return;
                     setClickStartTime(Date.now());
                     setClickStartPos({ x: e.clientX, y: e.clientY });
-                    const world = toWorld(e.clientX, e.clientY);
                     setDraggedComponentId(`__board__:${board.id}`);
                     setDragOffset({
                       x: world.x - board.x,

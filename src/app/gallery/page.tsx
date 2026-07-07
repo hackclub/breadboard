@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import Image from "next/image";
 import Link from "next/link";
 import { Header } from "@/components/layout/header";
@@ -7,9 +7,20 @@ import { pageGridClass } from "@/components/shared/styles";
 import { PageHero } from "@/components/ui/page-header";
 import { Surface } from "@/components/ui/card";
 import { Steps } from "@/components/marketing/steps";
+import {
+  ProjectCircuitPreview,
+  type CircuitSnapshot,
+} from "@/components/gallery/ProjectCircuitPreview";
 import { db } from "@/lib/db/db";
-import { projectSubmissions, projects, user } from "@/lib/db/schema";
+import {
+  editorActivitySessions,
+  projectMaterials,
+  projectSubmissions,
+  projects,
+  user,
+} from "@/lib/db/schema";
 import { storageReadUrl } from "@/lib/storage/urls";
+import componentsMetadata from "../../../public/components-metadata.json";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +36,192 @@ type GalleryProject = {
   approvedHours: number | null;
   submittedAt: Date;
   kitType: string;
+  circuit: CircuitSnapshot | null;
+  shareable: boolean;
 };
+
+type ProgressProject = {
+  projectId: number;
+  title: string;
+  description: string;
+  makerName: string;
+  screenshotUrl: string;
+  kitType: string;
+  status: string;
+  secondsSpent: number;
+  circuit: CircuitSnapshot | null;
+  shareable: boolean;
+};
+
+type ProjectStatus = (typeof projects.status.enumValues)[number];
+
+const STATUS_LABELS: Partial<Record<ProjectStatus, string>> = {
+  draft: "In the editor",
+  materials_review: "In review",
+  kit_approved: "Kit approved",
+  kit_fulfillment: "Kit being packed",
+  kit_sent: "Kit on the way",
+  building: "Building",
+  demo_review: "Demo in review",
+  needs_changes: "Making changes",
+  rejected: "Rejected",
+};
+
+// The gallery walks every non-archived project, grouped by how far along it
+// is. Approved builds come from their submission snapshots (tier 1, rendered
+// separately); everything else falls into one of these tiers by live status.
+const PROGRESS_TIERS: {
+  key: string;
+  title: string;
+  blurb: string;
+  statuses: ProjectStatus[];
+}[] = [
+  {
+    key: "in_review",
+    title: "In review",
+    blurb: "Submitted and waiting on a reviewer.",
+    statuses: ["materials_review", "demo_review"],
+  },
+  {
+    key: "in_progress",
+    title: "In progress",
+    blurb: "Being designed and built right now.",
+    statuses: [
+      "draft",
+      "kit_approved",
+      "kit_fulfillment",
+      "kit_sent",
+      "building",
+      "needs_changes",
+    ],
+  },
+  {
+    key: "rejected",
+    title: "Rejected",
+    blurb: "Didn't make it through review.",
+    statuses: ["rejected"],
+  },
+];
+
+const ALL_TIER_STATUSES = PROGRESS_TIERS.flatMap((tier) => tier.statuses);
+
+// The editor saves components by metadataId ("led-red", "pushbutton", …);
+// CircuitPreview draws wokwi/velxio element tags. components-metadata.json is
+// the id → tagName bridge the canvas itself uses.
+const TAG_BY_METADATA_ID = new Map<string, string>(
+  componentsMetadata.components.map((c) => [c.id, c.tagName]),
+);
+const THUMBNAIL_BY_METADATA_ID = new Map<string, string>(
+  componentsMetadata.components.map((c) => [c.id, c.thumbnail ?? ""]),
+);
+
+// Pull the board/component layout out of a project's saved editorData so the
+// card can draw the circuit as it currently stands when no photo was
+// uploaded. Anything malformed or empty falls back to the static placeholder.
+function parseCircuitSnapshot(editorData: string): CircuitSnapshot | null {
+  if (!editorData) return null;
+  try {
+    const payload = JSON.parse(editorData) as {
+      boards?: unknown;
+      components?: unknown;
+      wires?: unknown;
+    };
+    const boards = (Array.isArray(payload.boards) ? payload.boards : [])
+      .filter(
+        (b): b is { id: string; boardKind: string; x: number; y: number } =>
+          typeof b === "object" &&
+          b !== null &&
+          typeof (b as { boardKind?: unknown }).boardKind === "string" &&
+          Number.isFinite((b as { x?: unknown }).x) &&
+          Number.isFinite((b as { y?: unknown }).y),
+      )
+      .map((b) => ({ id: b.id, boardKind: b.boardKind, x: b.x, y: b.y }));
+    const components = (
+      Array.isArray(payload.components) ? payload.components : []
+    )
+      .flatMap((raw) => {
+        if (typeof raw !== "object" || raw === null) return [];
+        const c = raw as {
+          id?: unknown;
+          type?: unknown;
+          metadataId?: unknown;
+          x?: unknown;
+          y?: unknown;
+          properties?: unknown;
+        };
+        if (!Number.isFinite(c.x) || !Number.isFinite(c.y)) return [];
+        const metadataId =
+          typeof c.metadataId === "string" ? c.metadataId : null;
+        const type =
+          typeof c.type === "string"
+            ? c.type
+            : metadataId
+              ? (TAG_BY_METADATA_ID.get(metadataId) ?? metadataId)
+              : null;
+        if (!type) return [];
+        let properties =
+          typeof c.properties === "object" && c.properties !== null
+            ? (c.properties as Record<string, unknown>)
+            : {};
+        // Attach the catalog thumbnail as a last-resort visual: the preview
+        // canvas renders the real web component and only shows this if the
+        // element tag never registers.
+        if (metadataId) {
+          const thumbnail = THUMBNAIL_BY_METADATA_ID.get(metadataId);
+          if (thumbnail)
+            properties = { ...properties, __thumbnailSvg: thumbnail };
+        }
+        return [
+          {
+            id: String(c.id ?? ""),
+            type,
+            x: c.x as number,
+            y: c.y as number,
+            properties,
+          },
+        ];
+      });
+    const toPoint = (p: unknown) => {
+      const point = p as { x?: unknown; y?: unknown } | null;
+      return point &&
+        Number.isFinite(point.x) &&
+        Number.isFinite(point.y)
+        ? [{ x: point.x as number, y: point.y as number }]
+        : [];
+    };
+    const wires = (Array.isArray(payload.wires) ? payload.wires : []).flatMap(
+      (raw) => {
+        if (typeof raw !== "object" || raw === null) return [];
+        const w = raw as {
+          id?: unknown;
+          color?: unknown;
+          start?: unknown;
+          end?: unknown;
+          waypoints?: unknown;
+        };
+        const [start] = toPoint(w.start);
+        const [end] = toPoint(w.end);
+        if (!start || !end) return [];
+        return [
+          {
+            id: String(w.id ?? ""),
+            color: typeof w.color === "string" ? w.color : "",
+            start,
+            end,
+            waypoints: (Array.isArray(w.waypoints)
+              ? w.waypoints
+              : []
+            ).flatMap(toPoint),
+          },
+        ];
+      },
+    );
+    if (boards.length === 0 && components.length === 0) return null;
+    return { boards, components, wires };
+  } catch {
+    return null;
+  }
+}
 
 function safeUrl(value: string) {
   const storageUrl = storageReadUrl(value);
@@ -52,7 +248,7 @@ function shouldOptimizeImage(src: string) {
   }
 }
 
-async function getGalleryProjects(): Promise<GalleryProject[]> {
+async function getApprovedProjects(): Promise<GalleryProject[]> {
   const rows = await db
     .select({
       projectId: projects.id,
@@ -66,6 +262,7 @@ async function getGalleryProjects(): Promise<GalleryProject[]> {
       approvedHours: projectSubmissions.approvedHours,
       submittedAt: projectSubmissions.submittedAt,
       kitType: projects.kitType,
+      editorData: projects.editorData,
     })
     .from(projectSubmissions)
     .innerJoin(projects, eq(projectSubmissions.projectId, projects.id))
@@ -73,17 +270,148 @@ async function getGalleryProjects(): Promise<GalleryProject[]> {
     .where(inArray(projectSubmissions.status, ["approved", "fulfilled"]))
     .orderBy(desc(projectSubmissions.submittedAt));
 
+  // Rows arrive newest-first, so the first row per project is its latest
+  // approved snapshot.
   const newestByProject = new Map<number, GalleryProject>();
-  for (const row of rows) {
+  for (const { editorData, ...row } of rows) {
     if (!newestByProject.has(row.projectId))
-      newestByProject.set(row.projectId, row);
+      newestByProject.set(row.projectId, {
+        ...row,
+        circuit: row.screenshotUrl ? null : parseCircuitSnapshot(editorData),
+        shareable: editorData.length > 0,
+      });
   }
 
-  return [...newestByProject.values()];
+  return [...newestByProject.values()].sort(
+    (a, b) =>
+      (b.approvedHours ?? b.hoursSpent) - (a.approvedHours ?? a.hoursSpent),
+  );
+}
+
+async function getProgressProjects(): Promise<ProgressProject[]> {
+  const activity = db
+    .select({
+      projectId: editorActivitySessions.projectId,
+      trackedSeconds:
+        sql<number>`coalesce(sum(${editorActivitySessions.activeSeconds}), 0)::int`.as(
+          "tracked_seconds",
+        ),
+    })
+    .from(editorActivitySessions)
+    .groupBy(editorActivitySessions.projectId)
+    .as("activity");
+
+  const rows = await db
+    .select({
+      projectId: projects.id,
+      title: projects.title,
+      description: projects.description,
+      makerName: user.name,
+      screenshotUrl: projects.screenshotUrl,
+      kitType: projects.kitType,
+      status: projects.status,
+      hoursSpent: projects.hoursSpent,
+      editorData: projects.editorData,
+      trackedSeconds: sql<number>`coalesce(${activity.trackedSeconds}, 0)::int`,
+    })
+    .from(projects)
+    .innerJoin(user, eq(projects.userId, user.id))
+    .leftJoin(activity, eq(activity.projectId, projects.id))
+    .where(
+      and(
+        eq(projects.archived, false),
+        inArray(projects.status, ALL_TIER_STATUSES),
+      ),
+    );
+
+  // Off-platform projects have no editor state to draw, but they upload
+  // schematics/screenshots as materials — use the newest of those as the
+  // card image before giving up and showing the placeholder.
+  const materialImageByProject = await getMaterialImages(
+    rows
+      .filter((row) => !row.screenshotUrl && !row.editorData)
+      .map((row) => row.projectId),
+  );
+
+  return rows
+    .map(({ hoursSpent, trackedSeconds, editorData, ...row }) => ({
+      ...row,
+      screenshotUrl:
+        row.screenshotUrl || (materialImageByProject.get(row.projectId) ?? ""),
+      // Editor time is the live signal; self-reported hours cover off-platform
+      // projects that never touch the editor.
+      secondsSpent: trackedSeconds > 0 ? trackedSeconds : hoursSpent * 3600,
+      circuit: row.screenshotUrl ? null : parseCircuitSnapshot(editorData),
+      shareable: editorData.length > 0,
+    }))
+    // Nothing to show (no photo, no circuit, no uploaded materials) means
+    // nothing on the gallery.
+    .filter((project) => project.screenshotUrl || project.circuit);
+}
+
+// Newest active screenshot material per project, falling back to a schematic
+// when it's clearly an image file (schematics may also be PDFs).
+async function getMaterialImages(
+  projectIds: number[],
+): Promise<Map<number, string>> {
+  if (projectIds.length === 0) return new Map();
+  const rows = await db
+    .select({
+      projectId: projectMaterials.projectId,
+      type: projectMaterials.type,
+      url: projectMaterials.url,
+    })
+    .from(projectMaterials)
+    .where(
+      and(
+        eq(projectMaterials.active, true),
+        inArray(projectMaterials.type, ["screenshot", "schematic"]),
+        inArray(projectMaterials.projectId, projectIds),
+      ),
+    )
+    .orderBy(desc(projectMaterials.createdAt));
+
+  // Rows arrive newest-first; keep the newest of each type per project.
+  const screenshots = new Map<number, string>();
+  const schematics = new Map<number, string>();
+  for (const row of rows) {
+    if (!row.url) continue;
+    if (row.type === "screenshot") {
+      if (!screenshots.has(row.projectId))
+        screenshots.set(row.projectId, row.url);
+    } else if (/\.(png|jpe?g|webp|gif|svg|avif)(\?|$)/i.test(row.url)) {
+      if (!schematics.has(row.projectId))
+        schematics.set(row.projectId, row.url);
+    }
+  }
+  const byProject = new Map(schematics);
+  for (const [projectId, url] of screenshots) byProject.set(projectId, url);
+  return byProject;
 }
 
 export default async function GalleryPage() {
-  const galleryProjects = await getGalleryProjects();
+  const [approvedProjects, progressProjects] = await Promise.all([
+    getApprovedProjects(),
+    getProgressProjects(),
+  ]);
+
+  // A project with an approved submission already has a card in the top
+  // section; don't show its live row again further down.
+  const approvedIds = new Set(approvedProjects.map((p) => p.projectId));
+  const tiers = PROGRESS_TIERS.map((tier) => ({
+    ...tier,
+    projects: progressProjects
+      .filter(
+        (p) =>
+          !approvedIds.has(p.projectId) &&
+          tier.statuses.includes(p.status as ProjectStatus),
+      )
+      .sort((a, b) => b.secondsSpent - a.secondsSpent),
+  }));
+
+  const isEmpty =
+    approvedProjects.length === 0 &&
+    tiers.every((tier) => tier.projects.length === 0);
 
   return (
     <div className={`${pageGridClass} min-h-screen`}>
@@ -91,21 +419,39 @@ export default async function GalleryPage() {
       <main className="min-h-screen px-6 pt-24 pb-16 md:pt-28 md:px-8">
         <PageHero title="Gallery">
           <p className="mt-2 text-base text-black/80">
-            Newest approved shipments from Breadboard builders.
+            Every Breadboard project, from first wire to approved shipment.
           </p>
         </PageHero>
-        {galleryProjects.length > 0 ? (
-          <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-            {galleryProjects.map((project) => (
-              <GalleryCard key={project.projectId} project={project} />
-            ))}
-          </section>
-        ) : (
+        {isEmpty ? (
           <Surface className="bg-[#f4f4f4] p-8">
-            <p className="text-base text-black/50 italic">
-              No approved projects yet.
-            </p>
+            <p className="text-base text-black/50 italic">No projects yet.</p>
           </Surface>
+        ) : (
+          <>
+            {approvedProjects.length > 0 ? (
+              <GallerySection
+                title="Approved"
+                blurb="Finished builds that passed demo review."
+              >
+                {approvedProjects.map((project) => (
+                  <GalleryCard key={project.projectId} project={project} />
+                ))}
+              </GallerySection>
+            ) : null}
+            {tiers.map((tier) =>
+              tier.projects.length > 0 ? (
+                <GallerySection
+                  key={tier.key}
+                  title={tier.title}
+                  blurb={tier.blurb}
+                >
+                  {tier.projects.map((project) => (
+                    <ProgressCard key={project.projectId} project={project} />
+                  ))}
+                </GallerySection>
+              ) : null,
+            )}
+          </>
         )}
         <Steps />
       </main>
@@ -114,54 +460,109 @@ export default async function GalleryPage() {
   );
 }
 
-function GalleryCard({ project }: { project: GalleryProject }) {
-  const screenshot = safeUrl(project.screenshotUrl);
-  const demo = safeUrl(project.playableUrl);
-  const code = safeUrl(project.codeUrl);
-  const hours = project.approvedHours ?? project.hoursSpent;
+function GallerySection({
+  title,
+  blurb,
+  children,
+}: {
+  title: string;
+  blurb: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="mb-14">
+      <h2 className="text-3xl font-black text-black">{title}</h2>
+      <p className="mt-1 mb-6 text-base text-black/60">{blurb}</p>
+      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">{children}</div>
+    </section>
+  );
+}
+
+function CardImage({
+  screenshotUrl,
+  title,
+  kitType,
+  circuit,
+}: {
+  screenshotUrl: string;
+  title: string;
+  kitType: string;
+  circuit: CircuitSnapshot | null;
+}) {
+  const screenshot = safeUrl(screenshotUrl);
 
   return (
-    <article className="group overflow-hidden rounded-[22px] border border-black bg-white shadow-[5px_5px_0_#000] transition hover:-translate-y-1 hover:shadow-[7px_7px_0_#BD0F32]">
-      <div className="relative aspect-[4/3] overflow-hidden border-b border-black bg-[#f4f4f4]">
-        {screenshot ? (
-          <Image
-            src={screenshot}
-            alt={`${project.title} screenshot`}
-            fill
-            sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"
-            unoptimized={!shouldOptimizeImage(screenshot)}
-            className="object-cover transition duration-300 group-hover:scale-[1.04]"
-          />
-        ) : (
-          <Image
-            src="/assets/design.png"
-            alt="Breadboard project placeholder"
-            fill
-            sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"
-            className="object-cover opacity-85 transition duration-300 group-hover:scale-[1.04]"
-          />
-        )}
-        <div className="absolute top-3 left-3 rounded-full border border-black bg-white px-3 py-1 text-xs font-black text-black shadow-[2px_2px_0_#000]">
-          {project.kitType === "esp32" ? "ESP32" : "Arduino"}
-        </div>
+    <div className="relative aspect-[4/3] overflow-hidden border-b border-black bg-[#f4f4f4]">
+      {screenshot ? (
+        <Image
+          src={screenshot}
+          alt={`${title} screenshot`}
+          fill
+          sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"
+          unoptimized={!shouldOptimizeImage(screenshot)}
+          className="object-cover transition duration-300 group-hover:scale-[1.04]"
+        />
+      ) : circuit ? (
+        <ProjectCircuitPreview circuit={circuit} />
+      ) : (
+        <Image
+          src="/assets/design.png"
+          alt="Breadboard project placeholder"
+          fill
+          sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"
+          className="object-cover opacity-85 transition duration-300 group-hover:scale-[1.04]"
+        />
+      )}
+      <div className="absolute top-3 left-3 rounded-full border border-black bg-white px-3 py-1 text-xs font-black text-black shadow-[2px_2px_0_#000]">
+        {kitType === "esp32" ? "ESP32" : "Arduino"}
       </div>
+    </div>
+  );
+}
+
+// Stretched over the whole card so any click opens the project's read-only
+// share page. Inner links (Demo/Code) sit above it via z-index.
+function CardShareLink({
+  projectId,
+  title,
+}: {
+  projectId: number;
+  title: string;
+}) {
+  return (
+    <Link
+      href={`/share/${projectId}`}
+      target="_blank"
+      aria-label={`Open ${title || "Untitled project"} in the viewer`}
+      className="absolute inset-0 z-10"
+    />
+  );
+}
+
+function GalleryCard({ project }: { project: GalleryProject }) {
+  const demo = safeUrl(project.playableUrl);
+  const code = safeUrl(project.codeUrl);
+
+  return (
+    <article className="group relative overflow-hidden rounded-[22px] border border-black bg-white shadow-[5px_5px_0_#000] transition hover:-translate-y-1 hover:shadow-[7px_7px_0_#BD0F32]">
+      {project.shareable ? (
+        <CardShareLink projectId={project.projectId} title={project.title} />
+      ) : null}
+      <CardImage
+        screenshotUrl={project.screenshotUrl}
+        title={project.title}
+        kitType={project.kitType}
+        circuit={project.circuit}
+      />
 
       <div className="flex min-h-72 flex-col p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="line-clamp-2 text-2xl font-black leading-tight text-black">
-              {project.title || "Untitled project"}
-            </h2>
-            <p className="mt-1 text-sm font-bold text-[#BD0F32]">
-              by {project.makerName}
-            </p>
-          </div>
-          <div className="shrink-0 rounded-xl border border-black bg-[#BD0F32] px-3 py-2 text-center text-white shadow-[2px_2px_0_#000]">
-            <p className="text-xl font-black leading-none">{hours}</p>
-            <p className="text-[10px] font-black uppercase tracking-[0.12em]">
-              hrs
-            </p>
-          </div>
+        <div className="min-w-0">
+          <h3 className="line-clamp-2 text-2xl font-black leading-tight text-black">
+            {project.title || "Untitled project"}
+          </h3>
+          <p className="mt-1 text-sm font-bold text-[#BD0F32]">
+            by {project.makerName}
+          </p>
         </div>
 
         <p className="mt-4 line-clamp-4 text-sm leading-relaxed text-black/60">
@@ -173,7 +574,7 @@ function GalleryCard({ project }: { project: GalleryProject }) {
             <Link
               href={demo}
               target="_blank"
-              className="rounded-xl border border-black bg-black px-4 py-2 text-sm font-black text-white no-underline shadow-[2px_2px_0_#BD0F32] transition hover:bg-[#BD0F32]"
+              className="relative z-20 rounded-xl border border-black bg-black px-4 py-2 text-sm font-black text-white no-underline shadow-[2px_2px_0_#BD0F32] transition hover:bg-[#BD0F32]"
             >
               Demo
             </Link>
@@ -182,11 +583,51 @@ function GalleryCard({ project }: { project: GalleryProject }) {
             <Link
               href={code}
               target="_blank"
-              className="rounded-xl border border-black bg-white px-4 py-2 text-sm font-black text-black no-underline shadow-[2px_2px_0_#000] transition hover:bg-black hover:text-white"
+              className="relative z-20 rounded-xl border border-black bg-white px-4 py-2 text-sm font-black text-black no-underline shadow-[2px_2px_0_#000] transition hover:bg-black hover:text-white"
             >
               Code
             </Link>
           ) : null}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function ProgressCard({ project }: { project: ProgressProject }) {
+  const statusLabel =
+    STATUS_LABELS[project.status as ProjectStatus] ?? "In progress";
+
+  return (
+    <article className="group relative overflow-hidden rounded-[22px] border border-black bg-white shadow-[5px_5px_0_#000] transition hover:-translate-y-1 hover:shadow-[7px_7px_0_#BD0F32]">
+      {project.shareable ? (
+        <CardShareLink projectId={project.projectId} title={project.title} />
+      ) : null}
+      <CardImage
+        screenshotUrl={project.screenshotUrl}
+        title={project.title}
+        kitType={project.kitType}
+        circuit={project.circuit}
+      />
+
+      <div className="flex flex-col p-5">
+        <div className="min-w-0">
+          <h3 className="line-clamp-2 text-2xl font-black leading-tight text-black">
+            {project.title || "Untitled project"}
+          </h3>
+          <p className="mt-1 text-sm font-bold text-[#BD0F32]">
+            by {project.makerName}
+          </p>
+        </div>
+
+        <p className="mt-4 line-clamp-3 text-sm leading-relaxed text-black/60">
+          {project.description || "No description yet."}
+        </p>
+
+        <div className="mt-auto pt-5">
+          <span className="inline-block rounded-full border border-black bg-[#f4f4f4] px-3 py-1 text-xs font-black uppercase tracking-[0.08em] text-black shadow-[2px_2px_0_#000]">
+            {statusLabel}
+          </span>
         </div>
       </div>
     </article>

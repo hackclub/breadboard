@@ -138,54 +138,50 @@ function parseCircuitSnapshot(editorData: string): CircuitSnapshot | null {
       .map((b) => ({ id: b.id, boardKind: b.boardKind, x: b.x, y: b.y }));
     const components = (
       Array.isArray(payload.components) ? payload.components : []
-    )
-      .flatMap((raw) => {
-        if (typeof raw !== "object" || raw === null) return [];
-        const c = raw as {
-          id?: unknown;
-          type?: unknown;
-          metadataId?: unknown;
-          x?: unknown;
-          y?: unknown;
-          properties?: unknown;
-        };
-        if (!Number.isFinite(c.x) || !Number.isFinite(c.y)) return [];
-        const metadataId =
-          typeof c.metadataId === "string" ? c.metadataId : null;
-        const type =
-          typeof c.type === "string"
-            ? c.type
-            : metadataId
-              ? (TAG_BY_METADATA_ID.get(metadataId) ?? metadataId)
-              : null;
-        if (!type) return [];
-        let properties =
-          typeof c.properties === "object" && c.properties !== null
-            ? (c.properties as Record<string, unknown>)
-            : {};
-        // Attach the catalog thumbnail as a last-resort visual: the preview
-        // canvas renders the real web component and only shows this if the
-        // element tag never registers.
-        if (metadataId) {
-          const thumbnail = THUMBNAIL_BY_METADATA_ID.get(metadataId);
-          if (thumbnail)
-            properties = { ...properties, __thumbnailSvg: thumbnail };
-        }
-        return [
-          {
-            id: String(c.id ?? ""),
-            type,
-            x: c.x as number,
-            y: c.y as number,
-            properties,
-          },
-        ];
-      });
+    ).flatMap((raw) => {
+      if (typeof raw !== "object" || raw === null) return [];
+      const c = raw as {
+        id?: unknown;
+        type?: unknown;
+        metadataId?: unknown;
+        x?: unknown;
+        y?: unknown;
+        properties?: unknown;
+      };
+      if (!Number.isFinite(c.x) || !Number.isFinite(c.y)) return [];
+      const metadataId = typeof c.metadataId === "string" ? c.metadataId : null;
+      const type =
+        typeof c.type === "string"
+          ? c.type
+          : metadataId
+            ? (TAG_BY_METADATA_ID.get(metadataId) ?? metadataId)
+            : null;
+      if (!type) return [];
+      let properties =
+        typeof c.properties === "object" && c.properties !== null
+          ? (c.properties as Record<string, unknown>)
+          : {};
+      // Attach the catalog thumbnail as a last-resort visual: the preview
+      // canvas renders the real web component and only shows this if the
+      // element tag never registers.
+      if (metadataId) {
+        const thumbnail = THUMBNAIL_BY_METADATA_ID.get(metadataId);
+        if (thumbnail)
+          properties = { ...properties, __thumbnailSvg: thumbnail };
+      }
+      return [
+        {
+          id: String(c.id ?? ""),
+          type,
+          x: c.x as number,
+          y: c.y as number,
+          properties,
+        },
+      ];
+    });
     const toPoint = (p: unknown) => {
       const point = p as { x?: unknown; y?: unknown } | null;
-      return point &&
-        Number.isFinite(point.x) &&
-        Number.isFinite(point.y)
+      return point && Number.isFinite(point.x) && Number.isFinite(point.y)
         ? [{ x: point.x as number, y: point.y as number }]
         : [];
     };
@@ -208,10 +204,9 @@ function parseCircuitSnapshot(editorData: string): CircuitSnapshot | null {
             color: typeof w.color === "string" ? w.color : "",
             start,
             end,
-            waypoints: (Array.isArray(w.waypoints)
-              ? w.waypoints
-              : []
-            ).flatMap(toPoint),
+            waypoints: (Array.isArray(w.waypoints) ? w.waypoints : []).flatMap(
+              toPoint,
+            ),
           },
         ];
       },
@@ -333,20 +328,23 @@ async function getProgressProjects(): Promise<ProgressProject[]> {
       .map((row) => row.projectId),
   );
 
-  return rows
-    .map(({ hoursSpent, trackedSeconds, editorData, ...row }) => ({
-      ...row,
-      screenshotUrl:
-        row.screenshotUrl || (materialImageByProject.get(row.projectId) ?? ""),
-      // Editor time is the live signal; self-reported hours cover off-platform
-      // projects that never touch the editor.
-      secondsSpent: trackedSeconds > 0 ? trackedSeconds : hoursSpent * 3600,
-      circuit: row.screenshotUrl ? null : parseCircuitSnapshot(editorData),
-      shareable: editorData.length > 0,
-    }))
-    // Nothing to show (no photo, no circuit, no uploaded materials) means
-    // nothing on the gallery.
-    .filter((project) => project.screenshotUrl || project.circuit);
+  return (
+    rows
+      .map(({ hoursSpent, trackedSeconds, editorData, ...row }) => ({
+        ...row,
+        screenshotUrl:
+          row.screenshotUrl ||
+          (materialImageByProject.get(row.projectId) ?? ""),
+        // Editor time is the live signal; self-reported hours cover off-platform
+        // projects that never touch the editor.
+        secondsSpent: trackedSeconds > 0 ? trackedSeconds : hoursSpent * 3600,
+        circuit: row.screenshotUrl ? null : parseCircuitSnapshot(editorData),
+        shareable: editorData.length > 0,
+      }))
+      // Nothing to show (no photo, no circuit, no uploaded materials) means
+      // nothing on the gallery.
+      .filter((project) => project.screenshotUrl || project.circuit)
+  );
 }
 
 // Newest active screenshot material per project, falling back to a schematic

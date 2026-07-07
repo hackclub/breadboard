@@ -251,6 +251,7 @@ function WireOverlay({ wires }: { wires: CircuitSnapshot["wires"] }) {
         pointerEvents: "none",
       }}
     >
+      <title>Circuit wiring</title>
       {wires.map((wire, i) => {
         const path = generateOrthogonalPath(
           wire.start,
@@ -296,8 +297,14 @@ function WireOverlay({ wires }: { wires: CircuitSnapshot["wires"] }) {
               stroke={black ? "#e6e9ee" : "#1a1a1a"}
               strokeWidth={1}
             />
-            {wire.waypoints.map((wp, j) => (
-              <circle key={j} cx={wp.x} cy={wp.y} r={2} fill={color} />
+            {wire.waypoints.map((wp) => (
+              <circle
+                key={`${wp.x},${wp.y}`}
+                cx={wp.x}
+                cy={wp.y}
+                r={2}
+                fill={color}
+              />
             ))}
           </g>
         );

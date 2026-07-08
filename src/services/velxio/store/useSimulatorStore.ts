@@ -1884,6 +1884,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       // the toolbar calls startBoard directly — otherwise a part damaged once
       // stays damaged for the whole session and masks later wiring feedback.
       get().clearDamage();
+      set({ esp32CrashBoardId: null, esp32CrashInfo: null });
 
       // Power-only: energize the board's analog rails (3V3/5V/GND come from
       // the netlist, independent of the MCU) and mark it running so the canvas

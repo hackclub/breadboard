@@ -679,6 +679,14 @@ const MAPPERS: Record<string, Mapper> = {
     const R = pressed ? 0.01 : 1e9;
     return emitResistor(comp, alt, R);
   },
+  "pushbutton-6mm": (comp, netLookup) => {
+    const pins = twoPin(comp, netLookup, "1.l", "2.l");
+    const alt = pins ?? twoPin(comp, netLookup, "A", "B");
+    if (!alt) return null;
+    const pressed = Boolean(comp.properties.pressed);
+    const R = pressed ? 0.01 : 1e9;
+    return emitResistor(comp, alt, R);
+  },
   "slide-switch": (comp, netLookup) => {
     const pins = twoPin(comp, netLookup, "1", "2");
     if (!pins) return null;

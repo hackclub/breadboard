@@ -71,15 +71,15 @@ export function diagnoseLed(e: LedElectrical): LedDiagnosis {
   const anodeOpen = !e.anodeNet || e.floatingNets.has(e.anodeNet);
   const cathodeOpen = !e.cathodeNet || e.floatingNets.has(e.cathodeNet);
   if (anodeOpen || cathodeOpen) {
-    const leg =
+    const legClause =
       anodeOpen && cathodeOpen
-        ? "Neither leg is"
+        ? "Neither leg is part of a complete circuit"
         : anodeOpen
-          ? "The + leg (anode) is"
-          : "The − leg (cathode) is";
+          ? "The + leg (anode) is not part of a complete circuit"
+          : "The − leg (cathode) is not part of a complete circuit";
     return {
       state: "open",
-      message: `${leg} not part of a complete circuit, so no current can flow. Current flows in a loop: from + (power), through the LED, back to − (ground).`,
+      message: `${legClause}, so no current can flow. Current flows in a loop: from + (power), through the LED, back to − (ground).`,
     };
   }
 

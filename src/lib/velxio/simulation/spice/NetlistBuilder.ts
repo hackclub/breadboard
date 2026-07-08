@@ -428,12 +428,40 @@ function hasNet(netNames: Map<string, string>, name: string): boolean {
   return false;
 }
 
+/** Node terminals of a SPICE card, by element letter (SPICE node-count rules).
+ * Everything after them is a value, model name, source reference, or gain —
+ * NOT a node — so extracting positionally (instead of "stop at the first token
+ * that isn't a known net") lets us walk through internal helper nodes like a
+ * battery's `<id>_int` or an ammeter's `<id>_mid`, which are real DC vertices
+ * but never appear in `netNames`. */
+function nodeTerminals(prefix: string, tokens: string[]): string[] {
+  // X (subckt): every token between the instance name and the subckt name.
+  if (prefix === "X") return tokens.slice(1, Math.max(1, tokens.length - 1));
+  // E/G (controlled sources) and S (switch) list four nodes; the two-terminal
+  // elements list two. F/H name a controlling source after their two nodes,
+  // which the 2-count skips for free.
+  const count = prefix === "E" || prefix === "G" || prefix === "S" ? 4 : 2;
+  return tokens.slice(1, 1 + count);
+}
+
+/** Whether a card is a source that actively drives the circuit, so its
+ * terminals anchor a complete loop the way a rail does. A 0 V sense shunt —
+ * the series element LEDs and ammeters emit — carries no drive and must NOT
+ * anchor, or every dangling leg downstream of one would look connected. */
+function isDrivingSource(prefix: string, tokens: string[]): boolean {
+  if (prefix === "B") return true; // behavioural source: always driving
+  if (prefix !== "V" && prefix !== "I") return false;
+  const dcIdx = tokens.findIndex((t) => t.toUpperCase() === "DC");
+  if (dcIdx >= 0) return Number.parseFloat(tokens[dcIdx + 1]) !== 0;
+  return true; // SIN / PULSE / AC etc. always drive
+}
+
 /**
- * Detect nets that lack a DC path to ground.
+ * Detect nets that lack a DC path back to a source.
  *
- * Does a graph walk starting from node "0" and "vcc_rail" (both have a
- * hard-wired source in every circuit that references them), traversing only
- * DC-conducting cards:
+ * Does a graph walk that starts from every circuit anchor — node "0", the
+ * supply rails ("vcc_rail…"), and the terminals of every driving source —
+ * traversing only DC-conducting cards:
  *   - resistor (R...)
  *   - voltage source (V...)           — V-source is a DC short for connectivity
  *   - current source (I...)
@@ -443,15 +471,26 @@ function hasNet(netNames: Map<string, string>, name: string): boolean {
  *   - MNA-controlled source (E..., G..., F..., H...)
  *   - subckt instance (X...)           — optimistic: assume any X instance exposes DC paths
  *
- * Capacitors (C...) are intentionally NOT conductive in this walk — they are
- * OPEN at DC, so a net connected only via a C to another node is still floating.
+ * Capacitors (C...) and diodes (D...) are intentionally NOT conductive in this
+ * walk — a cap is OPEN at DC and a diode passes no DC on its own, so a net
+ * connected onward only through one is still floating.
+ *
+ * Two things make the walk match real topology. First, node terminals are
+ * read positionally (see nodeTerminals) rather than by "stop at the first
+ * unknown token", so the internal helper nodes our emitters insert — a
+ * battery's `<id>_int`, an ammeter's `<id>_mid`, a relay coil's `<id>_coilmid`
+ * — are walked through instead of silently cutting the path. Second, a circuit
+ * powered by a battery or bench supply anchors on that source's own terminals:
+ * its "+" / "−" pins never canonicalize onto "0" / "vcc_rail", so seeding only
+ * from those names would mark every net in a railless-but-sourced loop as
+ * floating — which is the false "not part of a complete circuit" this fixes.
  *
  * An older version of this function used a "touched-by-R" heuristic: a net
  * was marked safe if ANY resistor terminal referenced it. That was wrong for
  * topologies like `V0-R1-n0-R2-n1-C-0` where n0 and n1 are chained through
  * R's but neither has a DC path to ground (shipping RC-low-pass example).
  * The graph walk fixes that — it only considers a net safe when a DC path
- * actually traces back to node "0".
+ * actually traces back to a source anchor.
  *
  * Returns the set of nets that should receive an auto 100 MΩ pull-down.
  */
@@ -461,11 +500,12 @@ function detectFloatingNets(
 ): Set<string> {
   const nets = new Set(netNames.values());
 
-  // Build an undirected adjacency list over DC-conducting elements.
-  // For a 2-terminal element the two nets on it become connected.
-  // For 3+ terminal (E/G/F/H, S, X) we connect every pair of listed nets —
+  // Build an undirected adjacency list over DC-conducting elements. Vertices
+  // include internal helper nodes (not in `nets`) — they still carry DC.
+  // For a 2-terminal element the two nodes on it become connected.
+  // For 3+ terminal (E/G/F/H, S, X) we connect every pair of listed nodes —
   // this is conservative (over-connects), which is the safe side for a
-  // "does this net have SOME DC path to ground" question.
+  // "does this net have SOME DC path to a source" question.
   const adj = new Map<string, Set<string>>();
   function ensure(n: string) {
     if (!adj.has(n)) adj.set(n, new Set());
@@ -477,38 +517,34 @@ function detectFloatingNets(
     ensure(b).add(a);
   }
 
-  // Cards that define a DC path between their listed nets. Capacitor ('C')
-  // is deliberately excluded.
+  // Cards that define a DC path between their listed nodes. Capacitor ('C')
+  // and diode ('D') are deliberately excluded.
   const DC_PREFIXES = "RLVISBEGFHX";
 
+  // Every net that anchors a complete circuit. Ground is always one; the rails
+  // and driving-source terminals are added as we scan the cards.
+  const seeds = new Set<string>(["0"]);
+
   for (const line of cards) {
-    const prefix = line[0];
-    if (DC_PREFIXES.indexOf(prefix) < 0) continue;
+    const prefix = line[0]?.toUpperCase();
+    if (!prefix || DC_PREFIXES.indexOf(prefix) < 0) continue;
     const tokens = line.split(/\s+/);
-    // tokens[0] is the element name (e.g. "R_r1", "V_VCC_RAIL"). The nets
-    // appear next; stop at the first token that isn't a valid net name.
-    const pinNets: string[] = [];
-    for (let i = 1; i < tokens.length; i++) {
-      const t = tokens[i];
-      if (!nets.has(t) && t !== "0" && t !== "vcc_rail") break;
-      pinNets.push(t);
-    }
-    // Connect every pair of pins — handles both 2-terminal and N-terminal.
-    for (let i = 0; i < pinNets.length; i++) {
-      for (let j = i + 1; j < pinNets.length; j++) {
-        link(pinNets[i], pinNets[j]);
+    const nodes = nodeTerminals(prefix, tokens);
+    // Connect every pair of nodes — handles both 2-terminal and N-terminal.
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        link(nodes[i], nodes[j]);
       }
     }
-  }
-
-  // BFS from node "0" and every supply rail (each has a V-source → 0 edge).
-  const reachable = new Set<string>();
-  const queue: string[] = ["0"];
-  for (const net of nets) {
-    if (net !== "0" && net.startsWith("vcc_rail") && adj.has(net)) {
-      queue.push(net);
+    if (isDrivingSource(prefix, tokens)) {
+      for (const n of nodes) seeds.add(n);
     }
   }
+  for (const net of nets) if (net.startsWith("vcc_rail")) seeds.add(net);
+
+  // BFS from every anchor.
+  const reachable = new Set<string>();
+  const queue: string[] = [...seeds];
   while (queue.length) {
     const n = queue.shift()!;
     if (reachable.has(n)) continue;

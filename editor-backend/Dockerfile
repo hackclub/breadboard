@@ -19,15 +19,19 @@ RUN cd /qemu \
       arm64) qemu_arch="aarch64" ;; \
       *) qemu_arch="${target_arch}" ;; \
     esac \
- && have_libs=1 && arch_ok=1 && for base in libqemu-xtensa libqemu-riscv32; do \
+ && have_libs=1 && for base in libqemu-xtensa libqemu-riscv32; do \
+      arch_file="${base}-${target_arch}.so" ; \
+      if [ -f "$arch_file" ]; then \
+        cp "$arch_file" "${base}.so" ; \
+      fi ; \
       if [ ! -f "${base}.so" ]; then \
         have_libs=0 ; \
       elif ! file "${base}.so" | grep -qi "${qemu_arch}"; then \
         echo "[qemu-provider] local ${base}.so does not match TARGETARCH=${target_arch}: $(file "${base}.so")" ; \
-        arch_ok=0 ; \
+        have_libs=0 ; \
       fi ; \
     done \
- && if [ "$have_libs" = "1" ] && [ "$arch_ok" = "1" ]; then \
+ && if [ "$have_libs" = "1" ]; then \
       echo "[qemu-provider] using local prebuilt/qemu files" ; \
     elif [ -n "${QEMU_RELEASE_URL}" ]; then \
       echo "[qemu-provider] using QEMU_RELEASE_URL=${QEMU_RELEASE_URL}" ; \
@@ -48,6 +52,10 @@ RUN cd /qemu \
     esac \
  && for base in libqemu-xtensa libqemu-riscv32; do \
       f="${base}.so" ; \
+      arch_file="${base}-${target_arch}.so" ; \
+      if [ -f "$arch_file" ]; then \
+        cp "$arch_file" "$f" ; \
+      fi ; \
       if [ -f "$f" ] && file "$f" | grep -qi "${qemu_arch}"; then \
         echo "Using local $f" ; \
       elif [ -n "${QEMU_RELEASE_URL}" ]; then \

@@ -65,9 +65,6 @@ jobs:
           tags: |
             ${{ env.EDITOR_BACKEND_IMAGE }}:latest
             ${{ env.EDITOR_BACKEND_IMAGE }}:${{ github.sha }}
-          build-args: |
-            VELXIO_LICENSE_KEY=${{ secrets.VELXIO_LICENSE_KEY }}
-            QEMU_RELEASE_URL=${{ vars.QEMU_RELEASE_URL }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

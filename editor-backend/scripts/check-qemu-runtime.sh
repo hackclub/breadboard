@@ -5,8 +5,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 QEMU_DIR="${ROOT}/prebuilt/qemu"
 
 required_files=(
-  libqemu-xtensa.so
-  libqemu-riscv32.so
+  libqemu-xtensa-amd64.so
+  libqemu-riscv32-amd64.so
+  libqemu-xtensa-arm64.so
+  libqemu-riscv32-arm64.so
   esp32-v3-rom.bin
   esp32-v3-rom-app.bin
   esp32c3-rom.bin

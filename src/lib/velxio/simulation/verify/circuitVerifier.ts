@@ -217,6 +217,12 @@ export async function verifyCircuit(
       floatingNets: floating,
     });
     if (diag.state === "ok") continue;
+    // "no-current" means the LED is wired fine but simply isn't lit right
+    // now — commanded off, PWM-dimmed below turn-on, or otherwise under-
+    // driven. That's a normal runtime state, not a wiring fault, so it must
+    // not raise a circuit issue; an intentionally-off LED shouldn't look
+    // broken. Real faults (open leg, reversed, overcurrent) still surface.
+    if (diag.state === "no-current") continue;
     // Over-current can damage the part, so it blocks; the rest are "it just
     // won't light" and pass through as warnings.
     const severity = diag.state === "overcurrent" ? "error" : "warning";

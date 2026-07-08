@@ -57,13 +57,19 @@ import type { I2CDevice } from "@/lib/velxio/simulation/I2CBusManager";
  */
 
 // OCR register addresses → Arduino pin mapping for PWM (ATmega328P / Uno / Nano)
+// tccrAddr + comBit locate the timer channel's COMxx1 output-connect bit
+// (TCCRnA). analogWrite(pin, 0)/255 (and digitalWrite) call turnOffPWM, which
+// clears that bit to hand the pin back to plain port control WITHOUT touching
+// OCR — so polling OCR alone leaves the last duty stale and the pin never turns
+// off. pollPwmRegisters reads this bit to report duty 0 when PWM is
+// disconnected. A-channels connect via bit 7, B-channels via bit 5.
 const PWM_PINS_UNO = [
-  { ocrAddr: 0x47, pin: 6, label: "OCR0A" }, // Timer0A → D6
-  { ocrAddr: 0x48, pin: 5, label: "OCR0B" }, // Timer0B → D5
-  { ocrAddr: 0x88, pin: 9, label: "OCR1AL" }, // Timer1A low byte → D9
-  { ocrAddr: 0x8a, pin: 10, label: "OCR1BL" }, // Timer1B low byte → D10
-  { ocrAddr: 0xb3, pin: 11, label: "OCR2A" }, // Timer2A → D11
-  { ocrAddr: 0xb4, pin: 3, label: "OCR2B" }, // Timer2B → D3
+  { ocrAddr: 0x47, pin: 6, label: "OCR0A", tccrAddr: 0x44, comBit: 7 }, // Timer0A → D6
+  { ocrAddr: 0x48, pin: 5, label: "OCR0B", tccrAddr: 0x44, comBit: 5 }, // Timer0B → D5
+  { ocrAddr: 0x88, pin: 9, label: "OCR1AL", tccrAddr: 0x80, comBit: 7 }, // Timer1A low byte → D9
+  { ocrAddr: 0x8a, pin: 10, label: "OCR1BL", tccrAddr: 0x80, comBit: 5 }, // Timer1B low byte → D10
+  { ocrAddr: 0xb3, pin: 11, label: "OCR2A", tccrAddr: 0xb0, comBit: 7 }, // Timer2A → D11
+  { ocrAddr: 0xb4, pin: 3, label: "OCR2B", tccrAddr: 0xb0, comBit: 5 }, // Timer2B → D3
 ];
 
 // OCR register addresses → Arduino Mega pin mapping for PWM (ATmega2560)
@@ -819,13 +825,53 @@ export class AVRSimulator {
     if (!this.cpu) return;
     const pins = this.pwmPins;
     for (let i = 0; i < pins.length; i++) {
-      const { ocrAddr, pin } = pins[i];
-      const ocrValue = this.cpu.data[ocrAddr];
-      if (ocrValue !== this.lastOcrValues[i]) {
-        this.lastOcrValues[i] = ocrValue;
-        this.pinManager.updatePwm(pin, ocrValue / 255);
+      const { ocrAddr, pin, tccrAddr, comBit } = pins[i] as {
+        ocrAddr: number;
+        pin: number;
+        tccrAddr?: number;
+        comBit?: number;
+      };
+      let duty = this.cpu.data[ocrAddr] / 255;
+      // When the timer output is disconnected from the pin (COMxx1 cleared —
+      // what analogWrite(pin,0)/255 and digitalWrite do via turnOffPWM), the
+      // pin is under plain port control and its effective PWM duty is 0. OCR
+      // is left stale by turnOffPWM, so without this the last non-zero duty
+      // keeps driving the pin and it never turns off. Boards whose PWM table
+      // omits tccrAddr/comBit keep the OCR-only behavior.
+      if (tccrAddr !== undefined && comBit !== undefined) {
+        const connected = (this.cpu.data[tccrAddr] & (1 << comBit)) !== 0;
+        if (!connected) duty = 0;
+      }
+      if (duty !== this.lastOcrValues[i]) {
+        this.lastOcrValues[i] = duty;
+        this.pinManager.updatePwm(pin, duty);
       }
     }
+  }
+
+  /**
+   * Register pins configured as OUTPUT (DDR bit set) with the PinManager so
+   * collectPinStates emits a SPICE source for them. Needed because a pin
+   * driven LOW straight from boot (e.g. digitalWrite(pin, LOW) / analogWrite(
+   * pin, 0) with the LED starting off) never changes the PORT value from its
+   * 0 reset state, so the port listener never fires and the pin looks
+   * undriven — its net reads floating and an attached LED is falsely flagged
+   * "not part of a complete circuit". Reading DDR directly each frame closes
+   * that gap. ATmega328P (Uno/Nano) DDR map only; other variants keep the
+   * prior behavior. Add-only (see PinManager.markOutputPin).
+   */
+  private pollDdrOutputs(): void {
+    if (!this.cpu) return;
+    if (this.boardVariant === "mega" || this.boardVariant === "tiny85") return;
+    const d = this.cpu.data;
+    const scan = (ddr: number, basePin: number, count: number) => {
+      for (let b = 0; b < count; b++) {
+        if (ddr & (1 << b)) this.pinManager.markOutputPin(basePin + b);
+      }
+    };
+    scan(d[0x2a], 0, 8); // DDRD → D0..D7
+    scan(d[0x24], 8, 6); // DDRB → D8..D13
+    scan(d[0x27], 14, 6); // DDRC → A0..A5 (D14..D19)
   }
 
   /**
@@ -885,6 +931,9 @@ export class AVRSimulator {
 
         // Poll PWM registers every frame
         this.pollPwmRegisters();
+        // Register DDR-configured output pins (catches pins driven LOW from
+        // boot, whose PORT value never changes so the listener never fires).
+        this.pollDdrOutputs();
 
         // Try to drain any pending RX byte every frame. The primary
         // drain path is onRxComplete (re-fires after each successful

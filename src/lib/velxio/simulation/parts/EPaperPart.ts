@@ -306,9 +306,18 @@ const epaperSimulation = {
       // CS / DC / RST pin tracking.
       let csLow = false; // start with CS de-asserted (idle)
       let dcHigh = false;
-      const dcPin = getArduinoPinHelper(PIN_DC);
-      const csPin = getArduinoPinHelper(PIN_CS);
-      const rstPin = getArduinoPinHelper(PIN_RST);
+      // A pin wired to GND resolves to -1, not null. Normalize it to null (no
+      // gating GPIO): a CS tied to GND is a permanently-asserted active-low
+      // chip-select — hardware-equivalent to "always selected", i.e. the same
+      // as leaving CS unwired. Without this, `csPin !== null` would register a
+      // dead onPinChange(-1) listener (PinManager skips arduinoPin < 0), csLow
+      // would never update, and the SPI feed guard `csLow || csPin === null`
+      // would drop every byte, leaving the panel blank instead of drawing.
+      const gpioOrNull = (p: number | null) =>
+        p !== null && p >= 0 ? p : null;
+      const dcPin = gpioOrNull(getArduinoPinHelper(PIN_DC));
+      const csPin = gpioOrNull(getArduinoPinHelper(PIN_CS));
+      const rstPin = gpioOrNull(getArduinoPinHelper(PIN_RST));
 
       const pm =
         (simulator as AvrLikeSimulator).pinManager ??

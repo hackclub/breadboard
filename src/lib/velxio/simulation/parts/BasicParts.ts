@@ -6,15 +6,39 @@ import { isCircuitPowered } from "@/lib/velxio/simulation/isCircuitPowered";
 import { emitPropertyChange } from "@/lib/velxio/simulation/parts/partUtils";
 
 /**
+ * Resolve which Arduino input pin a multi-leg input device (pushbutton,
+ * switch) should drive.
+ *
+ * A leg wired to GND resolves to -1, not null — see getArduinoPin in
+ * DynamicComponent. A plain `a ?? b ?? …` chain therefore latches onto the
+ * first GND leg (because -1 is not nullish) and every setPinState targets a
+ * pin that doesn't exist, so the button silently does nothing. This walks
+ * the legs and returns the first one that reaches a real MCU pin (>= 0),
+ * regardless of leg order or which side was wired to GND. Returns null when
+ * no leg reaches the MCU.
+ */
+function resolveInputPin(
+  getArduinoPinHelper: (pinName: string) => number | null,
+  legs: string[],
+): number | null {
+  for (const leg of legs) {
+    const pin = getArduinoPinHelper(leg);
+    if (pin !== null && pin >= 0) return pin;
+  }
+  return null;
+}
+
+/**
  * Basic Pushbutton implementation (full-size)
  */
 PartSimulationRegistry.register("pushbutton", {
   attachEvents: (element, avrSimulator, getArduinoPinHelper, componentId) => {
-    const arduinoPin =
-      getArduinoPinHelper("1.l") ??
-      getArduinoPinHelper("2.l") ??
-      getArduinoPinHelper("1.r") ??
-      getArduinoPinHelper("2.r");
+    const arduinoPin = resolveInputPin(getArduinoPinHelper, [
+      "1.l",
+      "2.l",
+      "1.r",
+      "2.r",
+    ]);
 
     // Seed the input pin HIGH so `digitalRead()` returns HIGH while the
     // button is idle.  avr8js does not auto-simulate INPUT_PULLUP — without
@@ -48,11 +72,12 @@ PartSimulationRegistry.register("pushbutton", {
  */
 PartSimulationRegistry.register("pushbutton-6mm", {
   attachEvents: (element, avrSimulator, getArduinoPinHelper, componentId) => {
-    const arduinoPin =
-      getArduinoPinHelper("1.l") ??
-      getArduinoPinHelper("2.l") ??
-      getArduinoPinHelper("1.r") ??
-      getArduinoPinHelper("2.r");
+    const arduinoPin = resolveInputPin(getArduinoPinHelper, [
+      "1.l",
+      "2.l",
+      "1.r",
+      "2.r",
+    ]);
 
     // Same INPUT_PULLUP seeding as the full-size pushbutton — see comment
     // in `register('pushbutton', ...)` above for why this is required.
@@ -83,8 +108,11 @@ PartSimulationRegistry.register("pushbutton-6mm", {
  */
 PartSimulationRegistry.register("slide-switch", {
   attachEvents: (element, avrSimulator, getArduinoPinHelper, componentId) => {
-    // Slide switch has pins: 1, 2, 3 — middle pin (2) is the common output
-    const arduinoPin = getArduinoPinHelper("2") ?? getArduinoPinHelper("1");
+    // Slide switch has pins: 1, 2, 3 — middle pin (2) is the common output.
+    // Resolve through resolveInputPin so a leg wired to GND (-1) doesn't get
+    // latched by a plain `??` chain (see resolveInputPin) — same bug the
+    // pushbutton had. Common first, then throw "1".
+    const arduinoPin = resolveInputPin(getArduinoPinHelper, ["2", "1"]);
 
     // Read initial value from element (0 or 1)
     const raw = (element as any).value;

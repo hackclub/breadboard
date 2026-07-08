@@ -154,6 +154,20 @@ export class PinManager {
   }
 
   /**
+   * Mark a pin as a configured MCU output (its DDR bit is set), so
+   * collectPinStates emits a SPICE source for it even when the sketch drove
+   * it LOW straight from boot — a plain digitalWrite(LOW) leaves the PORT
+   * value unchanged from its 0 reset state, so the port listener never fires
+   * and the pin would otherwise look undriven (its net reads as floating and
+   * an attached LED is falsely flagged "not part of a complete circuit").
+   * Idempotent and add-only: an OUTPUT pin always drives, so this never
+   * clears a pin (input pins, where sensors live, are simply never marked).
+   */
+  markOutputPin(pin: number): void {
+    this.outputPins.add(pin);
+  }
+
+  /**
    * Drop only the MCU-output classification (SPICE side). Used by
    * paths that need to forget which pins were driven this session
    * without disturbing the cached pin states or notifying listeners.

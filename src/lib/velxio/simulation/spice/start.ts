@@ -108,8 +108,18 @@ function detectLedWiring(snapshot: ElectricalSnapshot): void {
       cathodeNet: cNet,
       floatingNets: floating,
     });
-    // "ok" (lit) and "overcurrent" (its own burnout badge) need no wiring note.
-    if (diag.state === "ok" || diag.state === "overcurrent" || !diag.message) {
+    // "ok" (lit) and "overcurrent" (its own burnout badge) need no wiring
+    // note. "no-current" means the LED is wired fine but simply off or dimmed
+    // below turn-on right now — a normal runtime state, not a wiring fault, so
+    // it must not raise a live circuit issue (an intentionally-off LED
+    // shouldn't look broken). Genuine faults — "open" (a floating leg) and
+    // "reverse" (backwards) — still report.
+    if (
+      diag.state === "ok" ||
+      diag.state === "overcurrent" ||
+      diag.state === "no-current" ||
+      !diag.message
+    ) {
       clearWiringIssue(comp.id);
     } else {
       reportWiringIssue(comp.id, comp.metadataId, [diag.message]);

@@ -19,7 +19,7 @@ export type LedState =
   | "overcurrent" // beyond the absolute-max current
   | "reverse" // reverse-biased (cathode higher than anode)
   | "open" // a leg isn't in a complete circuit
-  | "no-current"; // wired, but no voltage difference to drive it
+  | "no-current"; // wired and not reversed, but under-driven — off or dim
 
 export interface LedDiagnosis {
   state: LedState;
@@ -92,10 +92,16 @@ export function diagnoseLed(e: LedElectrical): LedDiagnosis {
       ).toFixed(2)} V higher than the + leg (anode), so it blocks current. Flip it.`,
     };
   }
+  // Under a milliamp, not reversed: the LED just isn't lit. This is a normal
+  // off/dim state — commanded low, PWM below turn-on, or otherwise under-
+  // driven — not a wiring fault, so the verifier does not raise it as a
+  // circuit issue. The message stays accurate whether the legs differ by a
+  // little (dim) or sit at the same potential (fully off); it never claims a
+  // fault. Report it descriptively for tooltips/tests.
   return {
     state: "no-current",
-    message: `no current flows: both legs sit at nearly the same voltage (${e.vAnode.toFixed(
+    message: `is off: only ${(e.vAnode - e.vCathode).toFixed(2)} V across it (+ leg ${e.vAnode.toFixed(
       2,
-    )} V and ${e.vCathode.toFixed(2)} V). An LED needs a higher voltage on its + leg than its − leg, with a path to ground.`,
+    )} V, − leg ${e.vCathode.toFixed(2)} V), below the voltage it needs to light. That's expected when it's switched off or dimmed low.`,
   };
 }

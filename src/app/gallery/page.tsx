@@ -28,7 +28,7 @@ type GalleryProject = {
   projectId: number;
   title: string;
   description: string;
-  makerName: string;
+  makerSlackId: string | null;
   screenshotUrl: string;
   playableUrl: string;
   codeUrl: string;
@@ -44,7 +44,7 @@ type ProgressProject = {
   projectId: number;
   title: string;
   description: string;
-  makerName: string;
+  makerSlackId: string | null;
   screenshotUrl: string;
   kitType: string;
   status: string;
@@ -104,6 +104,18 @@ const PROGRESS_TIERS: {
 ];
 
 const ALL_TIER_STATUSES = PROGRESS_TIERS.flatMap((tier) => tier.statuses);
+const SLACK_TEAM_BASE_URL = "https://hackclub.enterprise.slack.com/team";
+
+type SlackUserInfoResponse = {
+  ok?: boolean;
+  user?: {
+    name?: string;
+    profile?: {
+      display_name?: string;
+      display_name_normalized?: string;
+    };
+  };
+};
 
 // The editor saves components by metadataId ("led-red", "pushbutton", …);
 // CircuitPreview draws wokwi/velxio element tags. components-metadata.json is
@@ -249,7 +261,7 @@ async function getApprovedProjects(): Promise<GalleryProject[]> {
       projectId: projects.id,
       title: projects.title,
       description: projects.description,
-      makerName: user.name,
+      makerSlackId: user.slackId,
       screenshotUrl: projectSubmissions.screenshotUrl,
       playableUrl: projectSubmissions.playableUrl,
       codeUrl: projectSubmissions.codeUrl,
@@ -301,7 +313,7 @@ async function getProgressProjects(): Promise<ProgressProject[]> {
       projectId: projects.id,
       title: projects.title,
       description: projects.description,
-      makerName: user.name,
+      makerSlackId: user.slackId,
       screenshotUrl: projects.screenshotUrl,
       kitType: projects.kitType,
       status: projects.status,
@@ -387,10 +399,56 @@ async function getMaterialImages(
   return byProject;
 }
 
+function publicSlackDisplayName(userInfo: SlackUserInfoResponse["user"]) {
+  const name =
+    userInfo?.profile?.display_name_normalized ||
+    userInfo?.profile?.display_name ||
+    userInfo?.name ||
+    "";
+  const cleaned = name.trim().replace(/^@+/, "");
+  return cleaned ? `@${cleaned}` : null;
+}
+
+async function getSlackDisplayNames(
+  slackIds: (string | null)[],
+): Promise<Map<string, string>> {
+  const token = process.env.SLACK_BOT_TOKEN;
+  const uniqueIds = [...new Set(slackIds.filter((id): id is string => !!id))];
+  const displayNames = new Map<string, string>();
+  if (!token || uniqueIds.length === 0) return displayNames;
+
+  await Promise.all(
+    uniqueIds.map(async (slackId) => {
+      try {
+        const response = await fetch(
+          `https://slack.com/api/users.info?user=${encodeURIComponent(slackId)}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
+          },
+        );
+        if (!response.ok) return;
+        const payload = (await response.json()) as SlackUserInfoResponse;
+        if (!payload.ok) return;
+        const displayName = publicSlackDisplayName(payload.user);
+        if (displayName) displayNames.set(slackId, displayName);
+      } catch {
+        // Gallery should still render if Slack is briefly unavailable.
+      }
+    }),
+  );
+
+  return displayNames;
+}
+
 export default async function GalleryPage() {
   const [approvedProjects, progressProjects] = await Promise.all([
     getApprovedProjects(),
     getProgressProjects(),
+  ]);
+  const slackDisplayNames = await getSlackDisplayNames([
+    ...approvedProjects.map((project) => project.makerSlackId),
+    ...progressProjects.map((project) => project.makerSlackId),
   ]);
 
   // A project with an approved submission already has a card in the top
@@ -432,7 +490,15 @@ export default async function GalleryPage() {
                 blurb="Finished builds that passed demo review."
               >
                 {approvedProjects.map((project) => (
-                  <GalleryCard key={project.projectId} project={project} />
+                  <GalleryCard
+                    key={project.projectId}
+                    project={project}
+                    makerDisplayName={
+                      project.makerSlackId
+                        ? (slackDisplayNames.get(project.makerSlackId) ?? null)
+                        : null
+                    }
+                  />
                 ))}
               </GallerySection>
             ) : null}
@@ -444,7 +510,16 @@ export default async function GalleryPage() {
                   blurb={tier.blurb}
                 >
                   {tier.projects.map((project) => (
-                    <ProgressCard key={project.projectId} project={project} />
+                    <ProgressCard
+                      key={project.projectId}
+                      project={project}
+                      makerDisplayName={
+                        project.makerSlackId
+                          ? (slackDisplayNames.get(project.makerSlackId) ??
+                            null)
+                          : null
+                      }
+                    />
                   ))}
                 </GallerySection>
               ) : null,
@@ -537,7 +612,40 @@ function CardShareLink({
   );
 }
 
-function GalleryCard({ project }: { project: GalleryProject }) {
+function MakerAttribution({
+  slackId,
+  displayName,
+}: {
+  slackId: string | null;
+  displayName: string | null;
+}) {
+  if (!slackId) {
+    return <p className="mt-1 text-sm font-bold text-[#BD0F32]">by maker</p>;
+  }
+
+  return (
+    <p className="mt-1 text-sm font-bold text-[#BD0F32]">
+      by{" "}
+      <Link
+        href={`${SLACK_TEAM_BASE_URL}/${slackId}`}
+        target="_blank"
+        rel="noreferrer"
+        className="relative z-20 underline decoration-[#BD0F32]/35 underline-offset-2 hover:decoration-[#BD0F32]"
+        aria-label="Open maker Slack profile"
+      >
+        {displayName ?? "maker"}
+      </Link>
+    </p>
+  );
+}
+
+function GalleryCard({
+  project,
+  makerDisplayName,
+}: {
+  project: GalleryProject;
+  makerDisplayName: string | null;
+}) {
   const demo = safeUrl(project.playableUrl);
   const code = safeUrl(project.codeUrl);
 
@@ -558,9 +666,10 @@ function GalleryCard({ project }: { project: GalleryProject }) {
           <h3 className="line-clamp-2 text-2xl font-black leading-tight text-black">
             {project.title || "Untitled project"}
           </h3>
-          <p className="mt-1 text-sm font-bold text-[#BD0F32]">
-            by {project.makerName}
-          </p>
+          <MakerAttribution
+            slackId={project.makerSlackId}
+            displayName={makerDisplayName}
+          />
         </div>
 
         <p className="mt-4 line-clamp-4 text-sm leading-relaxed text-black/60">
@@ -592,7 +701,13 @@ function GalleryCard({ project }: { project: GalleryProject }) {
   );
 }
 
-function ProgressCard({ project }: { project: ProgressProject }) {
+function ProgressCard({
+  project,
+  makerDisplayName,
+}: {
+  project: ProgressProject;
+  makerDisplayName: string | null;
+}) {
   const statusLabel =
     STATUS_LABELS[project.status as ProjectStatus] ?? "In progress";
 
@@ -613,9 +728,10 @@ function ProgressCard({ project }: { project: ProgressProject }) {
           <h3 className="line-clamp-2 text-2xl font-black leading-tight text-black">
             {project.title || "Untitled project"}
           </h3>
-          <p className="mt-1 text-sm font-bold text-[#BD0F32]">
-            by {project.makerName}
-          </p>
+          <MakerAttribution
+            slackId={project.makerSlackId}
+            displayName={makerDisplayName}
+          />
         </div>
 
         <p className="mt-4 line-clamp-3 text-sm leading-relaxed text-black/60">

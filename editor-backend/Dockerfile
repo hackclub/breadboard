@@ -1,7 +1,7 @@
 # ---- Stage 0: ESP32 QEMU runtime provider ----
 FROM ubuntu:22.04 AS qemu-provider
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates file \
     && rm -rf /var/lib/apt/lists/*
 
 ARG TARGETARCH
@@ -13,10 +13,21 @@ RUN mkdir -p /qemu
 COPY prebuilt/qemu/ /qemu/
 
 RUN cd /qemu \
- && have_libs=1 && for base in libqemu-xtensa libqemu-riscv32; do \
-      [ -f "${base}.so" ] || have_libs=0 ; \
+ && target_arch="${TARGETARCH:-$(dpkg --print-architecture)}" \
+ && case "${target_arch}" in \
+      amd64) qemu_arch="x86-64" ;; \
+      arm64) qemu_arch="aarch64" ;; \
+      *) qemu_arch="${target_arch}" ;; \
+    esac \
+ && have_libs=1 && arch_ok=1 && for base in libqemu-xtensa libqemu-riscv32; do \
+      if [ ! -f "${base}.so" ]; then \
+        have_libs=0 ; \
+      elif ! file "${base}.so" | grep -qi "${qemu_arch}"; then \
+        echo "[qemu-provider] local ${base}.so does not match TARGETARCH=${target_arch}: $(file "${base}.so")" ; \
+        arch_ok=0 ; \
+      fi ; \
     done \
- && if [ "$have_libs" = "1" ]; then \
+ && if [ "$have_libs" = "1" ] && [ "$arch_ok" = "1" ]; then \
       echo "[qemu-provider] using local prebuilt/qemu files" ; \
     elif [ -n "${QEMU_RELEASE_URL}" ]; then \
       echo "[qemu-provider] using QEMU_RELEASE_URL=${QEMU_RELEASE_URL}" ; \
@@ -29,14 +40,20 @@ RUN cd /qemu \
     fi
 
 RUN cd /qemu \
+ && target_arch="${TARGETARCH:-$(dpkg --print-architecture)}" \
+ && case "${target_arch}" in \
+      amd64) qemu_arch="x86-64" ;; \
+      arm64) qemu_arch="aarch64" ;; \
+      *) qemu_arch="${target_arch}" ;; \
+    esac \
  && for base in libqemu-xtensa libqemu-riscv32; do \
       f="${base}.so" ; \
-      if [ -f "$f" ]; then \
+      if [ -f "$f" ] && file "$f" | grep -qi "${qemu_arch}"; then \
         echo "Using local $f" ; \
       elif [ -n "${QEMU_RELEASE_URL}" ]; then \
-        curl -fSL -o "$f" "${QEMU_RELEASE_URL}/${base}-${TARGETARCH}.so" ; \
+        curl -fSL -o "$f" "${QEMU_RELEASE_URL}/${base}-${target_arch}.so" ; \
       else \
-        curl -fSL -o "$f" "${VELXIO_BINARY_BASE_URL}/${base}-${TARGETARCH}?key=${VELXIO_LICENSE_KEY}" ; \
+        curl -fSL -o "$f" "${VELXIO_BINARY_BASE_URL}/${base}-${target_arch}?key=${VELXIO_LICENSE_KEY}" ; \
       fi ; \
     done \
  && for f in esp32-v3-rom.bin esp32-v3-rom-app.bin esp32c3-rom.bin; do \

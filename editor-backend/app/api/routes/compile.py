@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import logging
+import os
 import time
 import uuid
 from typing import Any
@@ -8,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from app.core.hooks import get_current_user_id, record_compile
+from app.core.hooks import get_current_user_id, record_compile, register_lifespan_startup
 from app.services.arduino_cli import ArduinoCLIService
 from app.services.espidf_compiler import espidf_compiler
 
@@ -37,6 +38,7 @@ JOB_TTL_S = 1800  # purge results 30 min after completion
 # lock layered on top.
 _COMPILE_SEMAPHORE = asyncio.Semaphore(2)
 _TARGET_LOCKS: dict[str, asyncio.Lock] = {}
+_PREWARM_ESP32_SKETCH = "void setup() {}\nvoid loop() {}\n"
 
 
 def _target_lock(board_fqbn: str) -> asyncio.Lock:
@@ -48,6 +50,10 @@ def _target_lock(board_fqbn: str) -> asyncio.Lock:
         lock = asyncio.Lock()
         _TARGET_LOCKS[board_fqbn] = lock
     return lock
+
+
+def _env_enabled(name: str, default: str = "1") -> bool:
+    return os.environ.get(name, default).strip().lower() not in {"0", "false", "no", "off"}
 
 
 def _job_key(
@@ -270,6 +276,67 @@ async def _record_async_metric(
         extra=extra,
         request=None,
     )
+
+
+async def _prewarm_esp32_build_cache() -> None:
+    """Build a tiny ESP32 sketch after startup so users don't pay the
+    Arduino-as-ESP-IDF cold build on their first compile.
+
+    The named /var/lib/velxio-build volume keeps the CMake/Ninja output across
+    container restarts. We use the same semaphore + per-target lock as normal
+    compiles so prewarm never corrupts a user's persistent build directory.
+    """
+    if not espidf_compiler.available:
+        logger.info("[compile] ESP-IDF unavailable; skipping ESP32 prewarm")
+        return
+
+    raw_targets = os.environ.get("VELXIO_PREWARM_ESP32_TARGETS", "esp32:esp32:esp32")
+    targets = [target.strip() for target in raw_targets.split(",") if target.strip()]
+    if not targets:
+        return
+
+    try:
+        delay_s = float(os.environ.get("VELXIO_PREWARM_ESP32_DELAY_SECONDS", "2"))
+    except ValueError:
+        delay_s = 2.0
+    if delay_s > 0:
+        await asyncio.sleep(delay_s)
+
+    files = [{"name": "sketch.ino", "content": _PREWARM_ESP32_SKETCH}]
+    for board_fqbn in targets:
+        request = CompileRequest(files=[SketchFile(**files[0])], board_fqbn=board_fqbn)
+        started = time.monotonic()
+        try:
+            logger.info("[compile] prewarming ESP32 build cache for %s", board_fqbn)
+            async with _COMPILE_SEMAPHORE:
+                async with _target_lock(board_fqbn):
+                    response = await _run_compile(request, files)
+            duration_s = time.monotonic() - started
+            if response.success:
+                logger.info(
+                    "[compile] ESP32 prewarm complete for %s in %.1fs",
+                    board_fqbn,
+                    duration_s,
+                )
+            else:
+                logger.warning(
+                    "[compile] ESP32 prewarm failed for %s in %.1fs: %s",
+                    board_fqbn,
+                    duration_s,
+                    response.error or response.stderr[-500:],
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("[compile] ESP32 prewarm crashed for %s", board_fqbn)
+
+
+async def _start_esp32_build_cache_prewarm() -> None:
+    if not _env_enabled("VELXIO_PREWARM_ESP32", "1"):
+        logger.info("[compile] ESP32 prewarm disabled")
+        return
+    asyncio.create_task(_prewarm_esp32_build_cache())
+
+
+register_lifespan_startup(_start_esp32_build_cache_prewarm)
 
 
 async def _compile_job(

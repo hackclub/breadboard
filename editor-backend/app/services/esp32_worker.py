@@ -90,6 +90,42 @@ except ImportError:
     _Uc8159cEpaperSlave = _mod.Uc8159cEpaperSlave  # type: ignore[assignment]
     _Uc8179EpaperSlave = _mod.Uc8179EpaperSlave  # type: ignore[assignment]
 
+# ─── panic classification ────────────────────────────────────────────────────
+
+import re as _re
+
+# The crash detector triggers on "Cache disabled but cached memory region
+# accessed", which on ESP32 is almost always a *secondary* fault: some earlier
+# exception drops into the panic/coredump handler, which runs code from flash
+# while the cache is disabled and faults again. The genuinely useful cause is
+# whatever the CPU printed just before. This maps the recent UART0 lines to a
+# short human-readable summary; the raw lines still ride along in `detail`.
+_GURU_RE = _re.compile(r"Guru Meditation Error:.*?\(([^)]+)\)")
+
+
+def _classify_panic(recent_lines: list) -> str:
+    """Best-effort one-line explanation of an ESP32 crash from serial output."""
+    text = '\n'.join(recent_lines)
+    causes = _GURU_RE.findall(text)
+    # Prefer the FIRST guru-meditation cause that isn't the cache fault itself —
+    # that's the real first-fault; the cache line is the downstream symptom.
+    for cause in causes:
+        if 'Cache disabled' not in cause:
+            return f"Guru Meditation fault: {cause}. This is the real cause; the cache error is a knock-on effect."
+    low = text.lower()
+    if 'assert failed' in low:
+        return "An assert() failed in the firmware. See the serial output for the file and condition."
+    if 'abort()' in low or 'abort was called' in low:
+        return "The firmware called abort() (unhandled exception or failed check). See the serial output."
+    if 'stack canary' in low or 'stack smashing' in low:
+        return "Stack overflow or corruption detected. A task ran out of stack. See the serial output."
+    if 'brownout' in low:
+        return "Brownout detected (supply voltage dipped). Check the board's power wiring."
+    if 'rst:0x' in low and 'boot:' in low:
+        return "The chip reset during early boot. The firmware may be incompatible with the emulator, or the flash config is wrong."
+    return "The firmware panicked while the flash cache was disabled. Check the serial monitor for the fault that preceded it."
+
+
 # ─── stdout helpers ──────────────────────────────────────────────────────────
 
 _stdout_lock = threading.Lock()
@@ -416,6 +452,7 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
     _pin_state: dict[int, int] = {}
     _rmt_decoders:  dict[int, _RmtDecoder] = {}
     _uart0_buf      = bytearray()           # accumulate UART0 for crash detection
+    _uart0_recent   = []                    # rolling tail of decoded UART0 lines
     _reboot_count   = [0]
     _crashed        = [False]
     _camera_frame_count = [0]               # ESP32-CAM frame trace counter
@@ -860,13 +897,30 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             if byte_val == ord('\n') or len(_uart0_buf) >= 512:
                 chunk = bytes(_uart0_buf)
                 _uart0_buf.clear()
+                # Keep a rolling window of recent lines so a crash can report
+                # the real fault that preceded the generic "cache disabled"
+                # panic (which is usually a *secondary* fault triggered while
+                # the panic/coredump path runs with the flash cache off).
+                line_txt = chunk.decode('utf-8', errors='replace').rstrip('\r\n')
+                if line_txt:
+                    _uart0_recent.append(line_txt)
+                    if len(_uart0_recent) > 40:
+                        del _uart0_recent[0]
                 if _CRASH_STR in chunk and not _crashed[0]:
                     _crashed[0] = True
                     _emit({'type': 'system', 'event': 'crash',
-                           'reason': 'cache_error', 'reboot': _reboot_count[0]})
+                           'reason': 'cache_error',
+                           'summary': _classify_panic(_uart0_recent),
+                           'detail': '\n'.join(_uart0_recent[-14:]),
+                           'reboot': _reboot_count[0]})
                 if _REBOOT_STR in chunk:
                     _crashed[0] = False
                     _reboot_count[0] += 1
+                    # Drop the previous boot's serial tail so the next crash is
+                    # classified from this boot's output only. Otherwise a
+                    # second crash can inherit the first boot's Guru Meditation
+                    # cause before the new fault line has even printed.
+                    _uart0_recent.clear()
                     _emit({'type': 'system', 'event': 'reboot',
                            'count': _reboot_count[0]})
                 # WiFi progress logging (only in debug — helps diagnose prod issues)

@@ -4,6 +4,23 @@ import type { BoardKind } from "@/lib/velxio/types/board";
 
 export type KitType = "arduino" | "esp32";
 
+// Starter sketch for a brand-new project. Must define setup() and loop() —
+// an empty sketch.ino compiles to a translation unit with neither, and the
+// AVR linker fails with "undefined reference to `setup'/`loop'". Mirrors
+// DEFAULT_INO_CONTENT in useEditorStore (the per-board default) so a fresh
+// project and a freshly-added board start from the same place.
+const STARTER_INO = `// Arduino Blink Example
+void setup() {
+  pinMode(LED_BUILTIN, OUTPUT);
+}
+
+void loop() {
+  digitalWrite(LED_BUILTIN, HIGH);
+  delay(1000);
+  digitalWrite(LED_BUILTIN, LOW);
+  delay(1000);
+}`;
+
 export const KIT_A_COMPONENT_LIMITS: Record<string, number> = {
   "breadboard-full": 1,
   "led-yellow": 5,
@@ -271,7 +288,7 @@ export function createInitialKitPayload(kitType?: string | null) {
       },
     ],
     fileGroups: {
-      [`group-${boardId}`]: [{ name: "sketch.ino", content: "" }],
+      [`group-${boardId}`]: [{ name: "sketch.ino", content: STARTER_INO }],
     },
     components: [],
     wires: [],

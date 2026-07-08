@@ -15,6 +15,7 @@
 import React, { useRef, useEffect, useCallback, useState } from "react";
 import type { ComponentMetadata } from "@/lib/velxio/types/component-metadata";
 import { useSimulatorStore } from "@/services/velxio/store/useSimulatorStore";
+import { useWiringIssuesStore } from "@/services/velxio/store/useWiringIssuesStore";
 import { useElectricalStore } from "@/services/velxio/store/useElectricalStore";
 import { PartSimulationRegistry } from "@/lib/velxio/simulation/parts";
 import {
@@ -245,6 +246,12 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
 }) => {
   const elementRef = useRef<HTMLElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Where to place the burnout badge, as % of the part graphic. Defaults to
+  // centre; refined to the part's body (opposite its pins) once pinInfo loads.
+  const [badgeAnchor, setBadgeAnchor] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
   const mountedRef = useRef(false);
 
   // Tracks hover over the part graphic itself (not the wrapper's padding or
@@ -252,6 +259,8 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
   const [partHovered, setPartHovered] = useState(false);
 
   const handleComponentEvent = useSimulatorStore((s) => s.handleComponentEvent);
+  const damage = useSimulatorStore((s) => s.damagedComponents[id]);
+  const wiringIssue = useWiringIssuesStore((s) => s.issues[id]);
   const running = useSimulatorStore((s) => s.running);
   const simulator = useSimulatorStore((s) => s.simulator);
   // Board-less SPICE circuits (digital / analog gallery) have no MCU to
@@ -448,6 +457,47 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [metadata.tagName, id]); // Only re-create if tagName or id changes
+
+  /**
+   * Place the burnout badge on the part's BODY, not its bounding-box centre.
+   * Through-hole parts (LED, diode) put their leads at one end and the body at
+   * the other, so the box centre lands on the leads. The body sits opposite the
+   * pins, so we reflect the pin centroid across the box centre. `offsetWidth/
+   * Height` are the part's intrinsic size (unaffected by the canvas zoom
+   * transform) and share pinInfo's coordinate space. Falls back to centre when
+   * pinInfo is unavailable or symmetric.
+   */
+  useEffect(() => {
+    if (!damage && !wiringIssue) return;
+    let tries = 0;
+    let timer = 0;
+    const compute = () => {
+      const el = elementRef.current as unknown as {
+        pinInfo?: Array<{ x: number; y: number }>;
+        offsetWidth?: number;
+        offsetHeight?: number;
+      } | null;
+      const pins = el?.pinInfo;
+      const w = el?.offsetWidth ?? 0;
+      const h = el?.offsetHeight ?? 0;
+      if (Array.isArray(pins) && pins.length > 0 && w > 0 && h > 0) {
+        const cx = pins.reduce((s, p) => s + p.x, 0) / pins.length;
+        const cy = pins.reduce((s, p) => s + p.y, 0) / pins.length;
+        // Body = pin centroid reflected across the box centre, in the part's
+        // own pixel space (matches pinInfo units and the element's layout box).
+        setBadgeAnchor({
+          left: Math.min(w, Math.max(0, w - cx)),
+          top: Math.min(h, Math.max(0, h - cy)),
+        });
+        return;
+      }
+      if (tries++ < 15) timer = window.setTimeout(compute, 60);
+    };
+    compute();
+    return () => {
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [damage, wiringIssue]);
 
   /**
    * Attach component-specific DOM events (like button presses)
@@ -665,14 +715,83 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
       data-component-id={id}
       data-component-type={metadata.id}
     >
-      {/* Container for web component */}
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: hover-only visual affordance on a canvas part; keyboard users see the name via the selection action bar. */}
-      <div
-        ref={containerRef}
-        className="web-component-container"
-        onMouseEnter={() => setPartHovered(true)}
-        onMouseLeave={() => setPartHovered(false)}
-      />
+      {/* Container for web component. Wrapped in a relative box so the damage
+          badge can center on the PART GRAPHIC (not the padded wrapper, which
+          also reserves space for the label below) and inherit the wrapper's
+          rotation. */}
+      <div style={{ position: "relative" }}>
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: hover-only visual affordance on a canvas part; keyboard users see the name via the selection action bar. */}
+        <div
+          ref={containerRef}
+          className="web-component-container"
+          onMouseEnter={() => setPartHovered(true)}
+          onMouseLeave={() => setPartHovered(false)}
+        />
+        {!interactionRunning ? null : damage ? (
+          // Burnt-out part — a scorch/smoke puff over the body, à la Tinkercad.
+          <div
+            className="component-damage-badge"
+            title={damage.reason}
+            style={{
+              position: "absolute",
+              top: badgeAnchor ? `${badgeAnchor.top}px` : "50%",
+              left: badgeAnchor ? `${badgeAnchor.left}px` : "50%",
+              transform: "translate(-50%, -50%)",
+              width: 44,
+              height: 44,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: "50%",
+              // charred scorch that fades into a smoky halo
+              background:
+                "radial-gradient(circle, rgba(20,20,20,0.85) 0%, rgba(60,60,60,0.55) 45%, rgba(120,120,120,0.18) 70%, transparent 100%)",
+              pointerEvents: "none",
+              zIndex: 10,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 30,
+                lineHeight: 1,
+                filter: "drop-shadow(0 0 3px rgba(0,0,0,0.95))",
+              }}
+            >
+              💥
+            </span>
+          </div>
+        ) : wiringIssue ? (
+          // Live wiring mistake (e.g. LED backwards) — a warning right on the
+          // part so it's impossible to miss. Details also list in the panel.
+          <div
+            className="component-wiring-badge"
+            title={`${metadata.name}: ${wiringIssue.missing.join(", ")}`}
+            style={{
+              position: "absolute",
+              top: badgeAnchor ? `${badgeAnchor.top}px` : "50%",
+              left: badgeAnchor ? `${badgeAnchor.left}px` : "50%",
+              transform: "translate(-50%, -50%)",
+              width: 22,
+              height: 22,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: "50%",
+              background: "#f59e0b",
+              color: "#1a1300",
+              fontSize: 14,
+              fontWeight: 900,
+              lineHeight: 1,
+              border: "2px solid #fff8e1",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.6)",
+              pointerEvents: "none",
+              zIndex: 10,
+            }}
+          >
+            !
+          </div>
+        ) : null}
+      </div>
 
       {/* Component label — only visible while the cursor is directly over
           the part graphic. visibility (not conditional render) keeps the

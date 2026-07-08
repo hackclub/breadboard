@@ -1,11 +1,14 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
   HiArrowTopRightOnSquare,
+  HiCheck,
   HiCheckCircle,
   HiClock,
+  HiClipboard,
   HiCodeBracket,
   HiExclamationTriangle,
   HiFilm,
@@ -16,6 +19,7 @@ import {
   HiWrenchScrewdriver,
   HiXCircle,
 } from "react-icons/hi2";
+import { FaGithub, FaSlack } from "react-icons/fa6";
 import {
   approveProject,
   rejectProject,
@@ -60,6 +64,7 @@ type ReviewProject = {
   createdAt: Date;
   userName: string;
   userEmail: string;
+  userSlackId: string | null;
   userId: string;
   kitType: string;
   submissionSource: string | null;
@@ -195,6 +200,83 @@ function EvidenceButton({
   );
 }
 
+// Slack encodes mentions differently depending on who sends the message, so we
+// offer both. A bot posting via the API (and a human pasting into the composer)
+// needs the ID token `<@U123>` — Slack resolves it to a mention pill. The ID is
+// used rather than the name because display names can collide or change. The
+// plain `@name` copy is a text fallback for when a literal mention isn't wanted
+// or won't resolve (exports, other tools); it is not a real mention.
+function CopyButton({
+  value,
+  label,
+  title,
+}: {
+  value: string;
+  label: string;
+  title: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          alert("Could not copy to clipboard.");
+        }
+      }}
+      title={title}
+      className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-2 text-xs font-black text-white hover:bg-[#BD0F32]"
+    >
+      {copied ? (
+        <HiCheck className="size-3.5" />
+      ) : (
+        <HiClipboard className="size-3.5" />
+      )}
+      {copied ? "Copied!" : label}
+    </button>
+  );
+}
+
+function CopyPingButtons({
+  slackId,
+  name,
+}: {
+  slackId: string | null;
+  name: string;
+}) {
+  if (!slackId) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 px-3 py-2 text-xs font-black text-zinc-400">
+        <HiClipboard className="size-3.5" />
+        Copy ping
+      </span>
+    );
+  }
+
+  const idMention = `<@${slackId}>`;
+  const plainName = name.trim() ? `@${name.trim()}` : `@${slackId}`;
+
+  return (
+    <>
+      <CopyButton
+        value={idMention}
+        label="Copy ping"
+        title={`Copies ${idMention} — a bot posting via the API renders this as a mention, and pasting it into the Slack composer also converts it to a mention pill.`}
+      />
+      <CopyButton
+        value={plainName}
+        label="Copy @name"
+        title={`Copies ${plainName} — plain text for readable references. Not a real mention; won't auto-resolve when pasted.`}
+      />
+    </>
+  );
+}
+
 export function ReviewWorkspace({
   project: initial,
   journals,
@@ -214,6 +296,9 @@ export function ReviewWorkspace({
   );
   const [userComment, setUserComment] = useState("");
   const [pending, startTransition] = useTransition();
+  const [submitted, setSubmitted] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const router = useRouter();
   const isManual = initial.submissionSource === "manual";
   // Currency follows projectType, not submissionSource: an off-platform
   // *design* (manual source, design type) earns regular bread and ships a
@@ -223,6 +308,9 @@ export function ReviewWorkspace({
   const playable = safeUrl(initial.playableUrl);
   const demoVideo = safeUrl(initial.demoVideoUrl);
   const code = safeUrl(initial.codeUrl);
+  const slackProfile = initial.userSlackId
+    ? `https://hackclub.enterprise.slack.com/team/${initial.userSlackId}`
+    : null;
   const approvedBread =
     Math.max(0, Math.floor(approvedHours || 0)) * breadPerHour;
 
@@ -235,15 +323,27 @@ export function ReviewWorkspace({
           ? "bg-green-100 text-green-900"
           : "bg-zinc-100 text-zinc-700";
 
+  // The decision applies on the first call; a dropped connection or deployment
+  // swap can make the browser replay it. Latch `submitted` so the buttons lock
+  // after the first success, and refresh either way so the workspace reflects
+  // the committed state instead of leaving stale actions clickable. The actions
+  // are idempotent server-side, so a replayed identical decision resolves here
+  // as success, not an error.
   function run(action: () => Promise<void>) {
+    setErrorMsg(null);
     startTransition(async () => {
       try {
         await action();
+        setSubmitted(true);
+        router.refresh();
       } catch (error) {
-        alert(error instanceof Error ? error.message : "Failed");
+        setErrorMsg(error instanceof Error ? error.message : "Failed");
+        router.refresh();
       }
     });
   }
+
+  const locked = submitted || initial.status !== "pending_review";
 
   return (
     <article className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
@@ -281,6 +381,18 @@ export function ReviewWorkspace({
                   Country: {initial.country}
                 </span>
               ) : null}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <EvidenceButton
+                href={slackProfile}
+                label="Slack profile"
+                icon={FaSlack}
+              />
+              <CopyPingButtons
+                slackId={initial.userSlackId}
+                name={initial.userName}
+              />
+              <EvidenceButton href={code} label="GitHub" icon={FaGithub} />
             </div>
             <div className="mt-2.5 flex flex-wrap gap-2">
               <EvidenceButton
@@ -444,7 +556,7 @@ export function ReviewWorkspace({
                 </label>
                 <button
                   type="button"
-                  disabled={pending || initial.status !== "pending_review"}
+                  disabled={pending || locked}
                   onClick={() =>
                     run(() =>
                       approveProject(
@@ -453,6 +565,9 @@ export function ReviewWorkspace({
                         "",
                         userComment,
                         [],
+                        initial.projectStatus === "demo_review"
+                          ? "demo"
+                          : "materials",
                       ),
                     )
                   }
@@ -485,13 +600,17 @@ export function ReviewWorkspace({
                 </label>
                 <button
                   type="button"
-                  disabled={pending}
+                  disabled={pending || locked}
                   onClick={() =>
-                    run(() =>
-                      verdict === "reject"
-                        ? rejectProject(initial.id, userComment, [])
-                        : requestChanges(initial.id, userComment, []),
-                    )
+                    run(() => {
+                      const phase =
+                        initial.projectStatus === "demo_review"
+                          ? "demo"
+                          : "materials";
+                      return verdict === "reject"
+                        ? rejectProject(initial.id, userComment, [], phase)
+                        : requestChanges(initial.id, userComment, [], phase);
+                    })
                   }
                   className="rounded-xl border border-black bg-white py-3.5 text-sm font-black text-black hover:bg-black hover:text-white disabled:opacity-50"
                 >
@@ -501,6 +620,16 @@ export function ReviewWorkspace({
                 </button>
               </div>
             )}
+            {submitted && !errorMsg ? (
+              <p className="mt-3 rounded-xl bg-green-50 px-4 py-3 text-sm font-black text-green-800">
+                Review submitted.
+              </p>
+            ) : null}
+            {errorMsg ? (
+              <p className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm font-black text-red-800">
+                {errorMsg}
+              </p>
+            ) : null}
           </div>
         </div>
       </section>

@@ -20,7 +20,7 @@ import {
   detectSimulatorKind,
 } from "@/lib/velxio/simulation/customChips";
 import { useSimulatorStore } from "@/services/velxio/store/useSimulatorStore";
-import { useElectricalStore } from "@/services/velxio/store/useElectricalStore";
+import { isCircuitPowered } from "@/lib/velxio/simulation/isCircuitPowered";
 import { clearChipDrives } from "@/lib/velxio/simulation/customChips/chipPinDrives";
 import { requestElectricalResolve } from "@/lib/velxio/simulation/spice/electricalResolveHook";
 
@@ -238,11 +238,7 @@ PartSimulationRegistry.register("custom-chip", {
           //     which sets board.running=false. Gating only on board presence
           //     (the old `!boardless`) left the chip ticking forever after Stop.
           const simState = useSimulatorStore.getState();
-          const boardless = simState.boards.length === 0;
-          const runnable = boardless
-            ? !useElectricalStore.getState().paused
-            : simState.boards.some((b) => b.running);
-          if (runnable) {
+          if (isCircuitPowered(simState.boards)) {
             try {
               instance.tickTimers(
                 BigInt(Math.floor(performance.now() * 1_000_000)),

@@ -19,6 +19,7 @@ import { UnionFind } from "@/lib/velxio/simulation/spice/unionFind";
 import { componentToSpice } from "@/lib/velxio/simulation/spice/componentToSpice";
 import type {
   BuildNetlistInput,
+  BoardForSpice,
   WireForSpice,
 } from "@/lib/velxio/simulation/spice/types";
 import { getBreadboardConnectionGroups } from "@/lib/velxio/utils/breadboard";
@@ -50,6 +51,54 @@ export function sanitizeSpiceId(id: string): string {
   return id.replace(/-/g, "_");
 }
 
+/**
+ * Rail net name for a supply voltage. A board is not a single rail: it may
+ * expose 5 V, 3.3 V and VIN pins at once. The board's *nominal* voltage keeps
+ * the legacy name "vcc_rail" (so op-amp default power, generic component VCC
+ * pins and probes are unchanged), and every other supply voltage gets its own
+ * rail net — "vcc_rail_5v0", "vcc_rail_3v3" — driven by its own source. This
+ * is why an Arduino's 3.3 V pin no longer reads 5 V and an ESP32's 5 V / VIN
+ * pin no longer reads 3.3 V.
+ */
+function railNetName(voltage: number, dominantVcc: number): string {
+  if (Math.abs(voltage - dominantVcc) < 1e-6) return "vcc_rail";
+  const tag = voltage.toFixed(1).replace(".", "v"); // 5.0 → "5v0", 3.3 → "3v3"
+  return `vcc_rail_${tag}`;
+}
+
+/**
+ * Human label for a rail net produced by railNetName. Inverse of the "5v0"
+ * encoding above, kept next to it so the two can't drift. "vcc_rail" is the
+ * board's dominant supply (no voltage in the name); "vcc_rail_5v0" → "5.0 V".
+ */
+export function railLabel(net: string): string {
+  if (net === "vcc_rail") return "the power rail";
+  const tag = net.replace(/^vcc_rail_/, "");
+  const volts = tag.replace("v", "."); // "5v0" → "5.0"
+  return `the ${volts} V rail`;
+}
+
+/**
+ * Canonicalize a board's supply pins onto per-voltage rail nets. When
+ * `railVoltages` is supplied, records each non-nominal rail's voltage so
+ * buildNetlist can emit a dedicated source for it.
+ */
+function canonicalizeVccPins(
+  uf: UnionFind,
+  board: BoardForSpice,
+  keyOf: (id: string, pinName: string) => string,
+  dominantVcc: number,
+  railVoltages?: Map<string, number>,
+): void {
+  const voltages = board.vccPinVoltages ?? {};
+  for (const pinName of board.vccPinNames ?? []) {
+    const v = voltages[pinName] ?? dominantVcc;
+    const net = railNetName(v, dominantVcc);
+    uf.setCanonical(keyOf(board.id, pinName), net);
+    if (railVoltages && net !== "vcc_rail") railVoltages.set(net, v);
+  }
+}
+
 export interface BuildNetlistResult {
   netlist: string;
   /** "boardId:pinName" → SPICE net name, from the same UF used to build the netlist. */
@@ -68,6 +117,29 @@ export interface BuildNetlistResult {
    * request branch currents (`i(v_<name>)`).
    */
   voltageSources: string[];
+  /**
+   * Supply rails that the wiring merges straight into ground — a hard
+   * short (e.g. a wire from the 5 V rail to the GND rail). The union-find
+   * resolves the merged net to "0", so the solve itself shows a dead circuit
+   * with no current; this list is the only surviving evidence. Consumers
+   * (verifier, canvas banner) must surface it loudly.
+   */
+  railShorts: string[];
+  /**
+   * Pairs of distinct supply rails wired together (e.g. 5 V tied to 3.3 V).
+   * Unlike a rail-to-ground short the solve still converges (one source wins),
+   * so nothing else flags it — the verifier surfaces it as a supply short.
+   * Each entry is the two rail net names joined by "↔".
+   */
+  railRailShorts: string[];
+  /**
+   * Nets with no DC path to a source or ground (they only got a solve value
+   * from the auto 100 MΩ pull-down). A part with a pin on one of these isn't
+   * in a complete circuit, so no current can flow through it. This is the
+   * general "open circuit" signal, derived from topology rather than
+   * per-part rules.
+   */
+  floatingNets: string[];
 }
 
 export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
@@ -110,13 +182,13 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   }
 
   // ── 2. Canonicalize ground / VCC pins ────────────────────────────────────
+  const dominantVcc = boards[0]?.vcc ?? 5;
+  const railVoltages = new Map<string, number>();
   for (const board of boards) {
     for (const pinName of board.groundPinNames ?? []) {
       uf.setCanonical(pinKey(board.id, pinName), "0");
     }
-    for (const pinName of board.vccPinNames ?? []) {
-      uf.setCanonical(pinKey(board.id, pinName), "vcc_rail");
-    }
+    canonicalizeVccPins(uf, board, pinKey, dominantVcc, railVoltages);
     // Fallback: any board pin a wire references whose name looks like a
     // ground pin (GND, GND.1, GND.9, etc.) is canonicalized to "0" even if
     // it's not in `groundPinNames`. Boards with many GND pins (ESP32-C3
@@ -154,7 +226,6 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
   // ── 4. Emit component cards ───────────────────────────────────────────────
   const cards: string[] = [];
   const modelLines = new Set<string>();
-  const dominantVcc = boards[0]?.vcc ?? 5;
 
   for (const comp of components) {
     const localLookup = (pinName: string) => netLookup(comp.id, pinName);
@@ -178,7 +249,7 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
       if (state.type === "input") continue; // don't drive the pin
       const net = netLookup(board.id, pinName);
       if (!net) continue;
-      if (net === "0" || net === "vcc_rail") continue; // already served
+      if (net === "0" || net.startsWith("vcc_rail")) continue; // already served
       const v = state.type === "digital" ? state.v : state.duty * board.vcc;
       cards.push(
         `V_${sanitizeSpiceId(board.id)}_${sanitizeSpiceId(pinName)} ${net} 0 DC ${v}`,
@@ -186,9 +257,45 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     }
   }
 
-  // ── 6. Vcc rail source (if any pin referenced it) ─────────────────────────
-  if (hasNet(netNames, "vcc_rail")) {
+  // ── 6. Vcc rail source(s) (if any pin referenced them) ────────────────────
+  // A board pin normally self-powers its rail with an ideal source. But when
+  // the user wires an external supply (battery, regulator VOUT, signal gen)
+  // INTO a board power pin, that pin's net is already driven — emitting our
+  // own source too would either pin the node to the board's voltage (ignoring
+  // the external supply) or, against a regulator's behavioural source, form a
+  // voltage-source loop that makes the whole solve fail. So we detect any rail
+  // net that another V / B source already drives and let it win instead.
+  const externallyDrivenRails = new Set<string>();
+  for (const card of cards) {
+    const p = card[0];
+    const tok = card.split(/\s+/);
+    // tok[0] = element name; tok[1] / tok[2] = the two node terminals.
+    if (p === "V") {
+      // Only a NONZERO voltage source is an external supply. A 0 V source is
+      // a current-sense shunt — LEDs and ammeters emit `V_<id>_sense … DC 0`
+      // in series with the part, and its terminal often lands ON a rail (an
+      // LED plugged straight across the 5 V rail). That shunt merely *touches*
+      // the rail, it doesn't drive it, so it must NOT suppress the board's own
+      // rail supply — otherwise the rail floats and the part goes dead.
+      const dcIdx = tok.findIndex((t) => t.toUpperCase() === "DC");
+      const dc = dcIdx >= 0 ? Number.parseFloat(tok[dcIdx + 1]) : Number.NaN;
+      if (!Number.isFinite(dc) || dc === 0) continue;
+    } else if (p !== "B") {
+      continue; // only V (real supply) and B (regulator VOUT) can drive a rail
+    }
+    for (const net of [tok[1], tok[2]]) {
+      if (net?.startsWith("vcc_rail")) externallyDrivenRails.add(net);
+    }
+  }
+  if (hasNet(netNames, "vcc_rail") && !externallyDrivenRails.has("vcc_rail")) {
     cards.unshift(`V_VCC_RAIL vcc_rail 0 DC ${dominantVcc}`);
+  }
+  // Extra per-voltage supply rails — an Arduino's 3.3 V pin, an ESP32's
+  // 5 V / VIN pin, a Pico's VBUS, etc. Each is its own driven node.
+  for (const [railNet, voltage] of railVoltages) {
+    if (!hasNet(netNames, railNet)) continue;
+    if (externallyDrivenRails.has(railNet)) continue;
+    cards.unshift(`V_${sanitizeSpiceId(railNet)} ${railNet} 0 DC ${voltage}`);
   }
 
   // ── 6.5. Wire resistance (Phase 4) ───────────────────────────────────────
@@ -281,6 +388,9 @@ export function buildNetlist(input: BuildNetlistInput): BuildNetlistResult {
     pinNetMap,
     nets,
     voltageSources,
+    railShorts: uf.railShorts(),
+    railRailShorts: uf.railRailShorts(),
+    floatingNets: [...floating],
   };
 }
 
@@ -303,7 +413,7 @@ function assignDeterministicNetNames(uf: UnionFind): Map<string, string> {
   const out = new Map<string, string>();
   let counter = 0;
   for (const rep of reps) {
-    if (rep === "0" || rep === "vcc_rail") {
+    if (rep === "0" || rep.startsWith("vcc_rail")) {
       out.set(rep, rep);
     } else {
       // Strip characters ngspice doesn't like from auto-names
@@ -391,10 +501,14 @@ function detectFloatingNets(
     }
   }
 
-  // BFS from node "0" (and "vcc_rail", which always has V_VCC_RAIL → 0 edge).
+  // BFS from node "0" and every supply rail (each has a V-source → 0 edge).
   const reachable = new Set<string>();
   const queue: string[] = ["0"];
-  if (adj.has("vcc_rail")) queue.push("vcc_rail");
+  for (const net of nets) {
+    if (net !== "0" && net.startsWith("vcc_rail") && adj.has(net)) {
+      queue.push(net);
+    }
+  }
   while (queue.length) {
     const n = queue.shift()!;
     if (reachable.has(n)) continue;
@@ -406,7 +520,7 @@ function detectFloatingNets(
 
   const floating = new Set<string>();
   for (const net of nets) {
-    if (net === "0" || net === "vcc_rail") continue;
+    if (net === "0" || net.startsWith("vcc_rail")) continue;
     if (!reachable.has(net)) floating.add(net);
   }
   return floating;
@@ -431,11 +545,11 @@ export function buildWireNetMap(
     uf.union(a, b);
   }
 
+  const dominantVcc = boards[0]?.vcc ?? 5;
   for (const board of boards) {
     for (const pName of board.groundPinNames ?? [])
       uf.setCanonical(pin(board.id, pName), "0");
-    for (const pName of board.vccPinNames ?? [])
-      uf.setCanonical(pin(board.id, pName), "vcc_rail");
+    canonicalizeVccPins(uf, board, pin, dominantVcc);
   }
   for (const comp of components) {
     if (comp.metadataId.startsWith("instr-")) continue;
@@ -482,17 +596,15 @@ export function buildBoardPinNetMap(
   }
 
   // Canonicalize board ground/vcc pins (from boardPinGroups metadata)
+  const dominantVcc = boards[0]?.vcc ?? 5;
   for (const board of boards) {
     for (const pName of board.groundPinNames ?? []) {
       const k = pin(board.id, pName);
       uf.add(k);
       uf.setCanonical(k, "0");
     }
-    for (const pName of board.vccPinNames ?? []) {
-      const k = pin(board.id, pName);
-      uf.add(k);
-      uf.setCanonical(k, "vcc_rail");
-    }
+    for (const pName of board.vccPinNames ?? []) uf.add(pin(board.id, pName));
+    canonicalizeVccPins(uf, board, pin, dominantVcc);
   }
   // Canonicalize non-board component GND/VCC pins referenced by wires
   for (const comp of components) {

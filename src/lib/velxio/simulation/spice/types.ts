@@ -46,6 +46,9 @@ export interface BoardForSpice {
   groundPinNames?: string[];
   /** Names of pins that should be treated as VCC rail. */
   vccPinNames?: string[];
+  /** Supply pin name → the real voltage it sources (V). Missing entries
+   *  fall back to the board's nominal `vcc`. */
+  vccPinVoltages?: Record<string, number>;
 }
 
 export type PinSourceState =

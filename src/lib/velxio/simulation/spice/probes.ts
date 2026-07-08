@@ -141,7 +141,7 @@ export function buildPinNetLookup(
   const netNames = new Map<string, string>();
   let counter = 0;
   for (const rep of reps) {
-    if (rep === "0" || rep === "vcc_rail") netNames.set(rep, rep);
+    if (rep === "0" || rep.startsWith("vcc_rail")) netNames.set(rep, rep);
     else netNames.set(rep, `n${counter++}`);
   }
   return (componentId, pinName) => {

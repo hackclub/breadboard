@@ -10,6 +10,7 @@ import {
   clearWiringIssue,
   reportWiringIssue,
 } from "@/services/velxio/store/useWiringIssuesStore";
+import { baseSimId } from "@/lib/velxio/simulation/metadataNormalize";
 
 /** Any simulator that components can interact with (AVR, RP2040, or ESP32 bridge shim). */
 export type AnySimulator =
@@ -78,8 +79,12 @@ class PartRegistry {
   }
 
   get(metadataId: string): PartSimulationLogic | undefined {
-    const logic = this.parts.get(metadataId);
-    const power = POWER_PIN_REQUIREMENTS[metadataId];
+    // Resolve catalog variants (led-red, resistor-220, …) to the base id the
+    // handler was registered under — see baseSimId. Without this a kit LED
+    // gets no runtime behaviour and never lights.
+    const baseId = baseSimId(metadataId);
+    const logic = this.parts.get(baseId);
+    const power = POWER_PIN_REQUIREMENTS[baseId];
     if (!logic || !power || !logic.attachEvents) return logic;
 
     // Real-life hookup enforcement: kit modules with power pins only

@@ -68,7 +68,15 @@
 
 .wiring-issues-missing {
   color: #fca5a5;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;
   word-break: break-word;
+}
+
+/* Errors (short circuit, burnt part) read red; warnings stay amber. */
+.wiring-issues-row[data-severity="error"] .wiring-issues-part {
+  color: #fca5a5;
+}
+.wiring-issues-row[data-severity="error"] {
+  border-left: 3px solid #ef4444;
+  padding-left: 9px;
 }

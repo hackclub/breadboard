@@ -230,6 +230,7 @@ export const SimulatorCanvas = ({
 
   // ESP32 crash notification
   const esp32CrashBoardId = useSimulatorStore((s) => s.esp32CrashBoardId);
+  const esp32CrashInfo = useSimulatorStore((s) => s.esp32CrashInfo);
   const dismissEsp32Crash = useSimulatorStore((s) => s.dismissEsp32Crash);
 
   // Component picker modal
@@ -1558,6 +1559,10 @@ export const SimulatorCanvas = ({
         }
       }
       if (e.key === "Delete" || e.key === "Backspace") {
+        // A selected wire is owned by the wire-delete handler (separate
+        // effect). Defer to it, otherwise Delete-on-a-wire would ALSO pop the
+        // "remove board?" prompt because no component is selected.
+        if (selectedWireId) return;
         if (selectedComponentId) {
           // Recorded so the user can Ctrl+Z this back. Cascades wire removal too.
           recordRemoveComponent(selectedComponentId);
@@ -1570,7 +1575,13 @@ export const SimulatorCanvas = ({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [readOnly, selectedComponentId, recordRemoveComponent, activeBoardId]);
+  }, [
+    readOnly,
+    selectedComponentId,
+    selectedWireId,
+    recordRemoveComponent,
+    activeBoardId,
+  ]);
 
   // Handle component selection from modal
   const handleSelectComponent = (metadata: ComponentMetadata) => {
@@ -2209,6 +2220,26 @@ export const SimulatorCanvas = ({
         );
       }
     } else {
+      // A wire routed straight across this hole draws on top of the pin
+      // overlay square, so a click here reads as "select that wire", not
+      // "start a new wire from the hole underneath". Wires that TERMINATE
+      // at this pin don't count — their endpoint square must stay usable
+      // for stacking another connection onto the same hole. Thresholds are
+      // world-space (not zoom-scaled): whether the wire crosses this hole
+      // is a geometric fact, and 5 px stays well under the 9.6 px hole
+      // spacing so adjacent-row wires can't hijack the click.
+      const wireOver = findWireNearPoint(wiresRef.current, x, y, 5);
+      if (
+        wireOver &&
+        ![wireOver.start, wireOver.end].some(
+          (ep) => Math.hypot(ep.x - x, ep.y - y) < 6,
+        )
+      ) {
+        setSelectedWire(
+          selectedWireIdRef.current === wireOver.id ? null : wireOver.id,
+        );
+        return;
+      }
       // Start wire: auto-detect color from pin name
       startWireCreation({ componentId, pinName, x, y }, autoWireColor(pinName));
     }
@@ -2479,6 +2510,7 @@ export const SimulatorCanvas = ({
               rotation={Number(component.properties?.rotation) || 0}
             />
           )}
+
         </div>
       </React.Fragment>
     );
@@ -2497,32 +2529,61 @@ export const SimulatorCanvas = ({
             zIndex: 1000,
             background: "#c0392b",
             color: "#fff",
-            padding: "8px 16px",
+            padding: "10px 14px",
             borderRadius: 6,
             display: "flex",
-            alignItems: "center",
-            gap: 12,
+            flexDirection: "column",
+            gap: 8,
             fontSize: 13,
+            maxWidth: "min(560px, 90%)",
             boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
           }}
         >
-          <span>
-            ESP32 crash detected on board <strong>{esp32CrashBoardId}</strong> —
-            cache error (IDF incompatibility)
-          </span>
-          <button
-            onClick={dismissEsp32Crash}
-            style={{
-              background: "transparent",
-              border: "1px solid rgba(255,255,255,0.6)",
-              color: "#fff",
-              borderRadius: 4,
-              padding: "2px 8px",
-              cursor: "pointer",
-            }}
+          <div
+            style={{ display: "flex", alignItems: "flex-start", gap: 12 }}
           >
-            {t("editor.canvas.dismiss")}
-          </button>
+            <span style={{ flex: 1 }}>
+              ESP32 crash detected on board{" "}
+              <strong>{esp32CrashBoardId}</strong>
+              {esp32CrashInfo && esp32CrashInfo.reboot > 0 && (
+                <> (rebooted {esp32CrashInfo.reboot}×)</>
+              )}
+              . {esp32CrashInfo?.summary}
+            </span>
+            <button
+              onClick={dismissEsp32Crash}
+              style={{
+                background: "transparent",
+                border: "1px solid rgba(255,255,255,0.6)",
+                color: "#fff",
+                borderRadius: 4,
+                padding: "2px 8px",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {t("editor.canvas.dismiss")}
+            </button>
+          </div>
+          {esp32CrashInfo?.detail && (
+            <pre
+              style={{
+                margin: 0,
+                maxHeight: 140,
+                overflow: "auto",
+                background: "rgba(0,0,0,0.25)",
+                borderRadius: 4,
+                padding: "6px 8px",
+                fontSize: 11,
+                lineHeight: 1.4,
+                whiteSpace: "pre",
+                fontFamily:
+                  "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+              }}
+            >
+              {esp32CrashInfo.detail}
+            </pre>
+          )}
         </div>
       )}
 
@@ -2937,10 +2998,7 @@ export const SimulatorCanvas = ({
               segmentDragJustCommittedRef.current = false;
               return;
             }
-            // While the simulation runs the canvas is interact-only: a click on
-            // a button must press it (its own handler), not select the wire
-            // underneath it for editing.
-            if (readOnly || interactionRunning) return;
+            if (readOnly) return;
             // Wire selection via canvas-level hit detection
             const world = toWorld(e.clientX, e.clientY);
             const threshold = 8 / zoomRef.current;
@@ -2950,6 +3008,18 @@ export const SimulatorCanvas = ({
               world.y,
               threshold,
             );
+            // While the simulation runs the canvas is interact-only, with one
+            // exception: clicking directly on a wire still selects it, so the
+            // user can delete a bad connection to fix a live error (short, etc.)
+            // without stopping first. A click that misses every wire is left
+            // for the running interaction (pressing a button, etc.), so it
+            // neither selects nor clears anything.
+            if (interactionRunning) {
+              if (wire) {
+                setSelectedWire(selectedWireId === wire.id ? null : wire.id);
+              }
+              return;
+            }
             if (wire) {
               setSelectedWire(selectedWireId === wire.id ? null : wire.id);
             } else {

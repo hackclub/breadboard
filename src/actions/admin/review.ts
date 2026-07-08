@@ -160,26 +160,75 @@ async function getProjectOrThrow(projectId: number) {
   return project;
 }
 
-async function getPendingSubmissionOrThrow(
+type ReviewPhase = "materials" | "demo";
+
+type ReviewTarget = {
+  submission: typeof projectSubmissions.$inferSelect;
+  phase: ReviewPhase;
+  alreadyDone: boolean;
+};
+
+// Resolves the submission a review decision should act on, tolerant of replays.
+//
+// Review actions get re-fired in practice: a dropped connection or a deployment
+// swap while the review page is open makes the browser retry the server action
+// after the first call already committed. The first call moves the submission
+// out of "pending_review"; a naive retry then finds nothing pending and 500s,
+// even though the review actually went through. So: if a submission is pending,
+// act on it. If nothing is pending and the latest submission already sits in
+// the exact state this decision produces, report an idempotent no-op. Anything
+// else (decided differently, or no submission at all) is a real conflict and
+// surfaces a clear message.
+//
+// `expectedPhase` pins resolution to one submission type (materials vs demo).
+// Each review page acts on exactly one phase, so without this a stale/replayed
+// materials action could land on a demo that became pending in the meantime
+// (paying it out or dragging the project back a phase) and vice versa.
+async function resolveReviewTarget(
   projectId: number,
-  type: "materials" | "demo",
-) {
-  const row = await db
+  intendedStatus: "approved" | "needs_changes" | "rejected",
+  expectedPhase: ReviewPhase,
+): Promise<ReviewTarget> {
+  const pending = await db
     .select()
     .from(projectSubmissions)
     .where(
       and(
         eq(projectSubmissions.projectId, projectId),
-        eq(projectSubmissions.type, type),
+        eq(projectSubmissions.type, expectedPhase),
         eq(projectSubmissions.status, "pending_review"),
       ),
     )
     .orderBy(desc(projectSubmissions.submittedAt))
     .limit(1);
-  const submission = row[0];
-  if (!submission)
-    throw new Error(`This project has no pending ${type} submission`);
-  return submission;
+  if (pending[0]) {
+    return {
+      submission: pending[0],
+      phase: pending[0].type,
+      alreadyDone: false,
+    };
+  }
+
+  const latest = await db
+    .select()
+    .from(projectSubmissions)
+    .where(
+      and(
+        eq(projectSubmissions.projectId, projectId),
+        eq(projectSubmissions.type, expectedPhase),
+      ),
+    )
+    .orderBy(desc(projectSubmissions.submittedAt))
+    .limit(1);
+  const decided = latest[0];
+  if (!decided)
+    throw new Error(`This project has no pending ${expectedPhase} submission.`);
+  if (decided.status === intendedStatus) {
+    return { submission: decided, phase: decided.type, alreadyDone: true };
+  }
+  throw new Error(
+    `This submission was already reviewed as "${decided.status.replace(/_/g, " ")}". Refresh to see the current state.`,
+  );
 }
 
 async function getOrCreateKitProduct(tx: typeof db, kitType: string) {
@@ -226,7 +275,12 @@ export async function markReviewed(
 ) {
   await requireAdminSession();
   const id = requirePositiveProjectId(projectId);
-  const submission = await getPendingSubmissionOrThrow(id, "materials");
+  const target = await resolveReviewTarget(id, "approved", "materials");
+  if (target.alreadyDone) {
+    revalidateReviewViews(id);
+    return;
+  }
+  const submission = target.submission;
   const hours = normalizeHours(overrideHours, submission.hoursSpent);
   const reviewJustification = normalizeReviewText(
     justification,
@@ -278,11 +332,11 @@ export async function approveProject(
   justification: string,
   userComment: string,
   checks?: ReviewCheckInput[],
+  expectedPhase: ReviewPhase = "materials",
 ) {
   const session = await requireAdminSession();
   const id = requirePositiveProjectId(projectId);
   const hours = normalizeHours(approvedHours);
-  const bread = hours * BREAD_PER_HOUR;
   const reviewJustification = normalizeReviewText(
     justification,
     "Justification",
@@ -290,8 +344,15 @@ export async function approveProject(
   const reviewComment = normalizeReviewText(userComment, "User comment");
 
   const project = await getProjectOrThrow(id);
-  if (project.status === "demo_review") {
-    const submission = await getPendingSubmissionOrThrow(id, "demo");
+  const target = await resolveReviewTarget(id, "approved", expectedPhase);
+  if (target.alreadyDone) {
+    revalidateReviewViews(id);
+    return;
+  }
+  const submission = target.submission;
+
+  if (target.phase === "demo") {
+    const bread = hours * BREAD_PER_HOUR;
     const creditedUser = await db.transaction(async (tx) => {
       await createReviewRecord(tx, {
         projectId: id,
@@ -385,7 +446,6 @@ export async function approveProject(
   // it falls through to the normal design flow: a kit ships and it earns
   // regular bread.
   if (isBuildShip(project)) {
-    const submission = await getPendingSubmissionOrThrow(id, "materials");
     const gold = hours * GOLD_BREAD_PER_HOUR;
     const creditedUser = await db.transaction(async (tx) => {
       await createReviewRecord(tx, {
@@ -473,7 +533,6 @@ export async function approveProject(
     return;
   }
 
-  const submission = await getPendingSubmissionOrThrow(id, "materials");
   const creditedUser = await db.transaction(async (tx) => {
     await createReviewRecord(tx, {
       projectId: id,
@@ -673,21 +732,23 @@ export async function requestChanges(
   projectId: number,
   note: string,
   checks?: ReviewCheckInput[],
+  expectedPhase: ReviewPhase = "materials",
 ) {
   const session = await requireAdminSession();
   const id = requirePositiveProjectId(projectId);
-  const project = await getProjectOrThrow(id);
-  const submission = await getPendingSubmissionOrThrow(
-    id,
-    project.status === "demo_review" ? "demo" : "materials",
-  );
+  const target = await resolveReviewTarget(id, "needs_changes", expectedPhase);
+  if (target.alreadyDone) {
+    revalidateReviewViews(id);
+    return;
+  }
+  const submission = target.submission;
   const reviewNote = normalizeReviewText(note, "Note");
   await db.transaction(async (tx) => {
     await createReviewRecord(tx, {
       projectId: id,
       submissionId: submission.id,
       reviewerId: session.user.id,
-      phase: project.status === "demo_review" ? "demo" : "materials",
+      phase: target.phase,
       decision: "needs_changes",
       approvedHours: 0,
       bread: 0,
@@ -721,33 +782,32 @@ export async function requestChanges(
     note: reviewNote,
   });
   revalidateReviewViews(id);
-  await notifyReviewDecision(
-    id,
-    project.status === "demo_review" ? "demo" : "materials",
-    "needs_changes",
-    { note: reviewNote },
-  );
+  await notifyReviewDecision(id, target.phase, "needs_changes", {
+    note: reviewNote,
+  });
 }
 
 export async function rejectProject(
   projectId: number,
   note: string,
   checks?: ReviewCheckInput[],
+  expectedPhase: ReviewPhase = "materials",
 ) {
   const session = await requireAdminSession();
   const id = requirePositiveProjectId(projectId);
-  const project = await getProjectOrThrow(id);
-  const submission = await getPendingSubmissionOrThrow(
-    id,
-    project.status === "demo_review" ? "demo" : "materials",
-  );
+  const target = await resolveReviewTarget(id, "rejected", expectedPhase);
+  if (target.alreadyDone) {
+    revalidateReviewViews(id);
+    return;
+  }
+  const submission = target.submission;
   const reviewNote = normalizeReviewText(note, "Note");
   await db.transaction(async (tx) => {
     await createReviewRecord(tx, {
       projectId: id,
       submissionId: submission.id,
       reviewerId: session.user.id,
-      phase: project.status === "demo_review" ? "demo" : "materials",
+      phase: target.phase,
       decision: "rejected",
       approvedHours: 0,
       bread: 0,
@@ -780,10 +840,7 @@ export async function rejectProject(
     note: reviewNote,
   });
   revalidateReviewViews(id);
-  await notifyReviewDecision(
-    id,
-    project.status === "demo_review" ? "demo" : "materials",
-    "rejected",
-    { note: reviewNote },
-  );
+  await notifyReviewDecision(id, target.phase, "rejected", {
+    note: reviewNote,
+  });
 }

@@ -6,6 +6,7 @@ import { Cyw43Bridge } from "@/lib/velxio/simulation/cyw43";
 import { RiscVSimulator } from "@/lib/velxio/simulation/RiscVSimulator";
 import { Esp32C3Simulator } from "@/lib/velxio/simulation/Esp32C3Simulator";
 import { PinManager } from "@/lib/velxio/simulation/PinManager";
+import { requestElectricalResolve } from "@/lib/velxio/simulation/spice/electricalResolveHook";
 import { SignalRouter } from "@/lib/velxio/simulation/SignalRouter";
 import { ledcSignalForChannel } from "@/lib/velxio/simulation/esp32-signals";
 import {
@@ -920,7 +921,7 @@ interface SimulatorState {
     files: Array<{ name: string; content: string }>,
   ) => Promise<void>;
   setBoardLanguageMode: (boardId: string, mode: LanguageMode) => void;
-  startBoard: (boardId: string) => void;
+  startBoard: (boardId: string, opts?: { powerOnly?: boolean }) => void;
   stopBoard: (boardId: string) => void;
   resetBoard: (boardId: string) => void;
 
@@ -968,7 +969,27 @@ interface SimulatorState {
 
   // ── ESP32 crash notification ─────────────────────────────────────────────
   esp32CrashBoardId: string | null;
+  /** Details of the last ESP32 crash: the parsed panic summary, the raw
+   *  serial lines leading up to it, and how many times it has rebooted.
+   *  Null when there is no active crash. */
+  esp32CrashInfo: {
+    summary: string;
+    detail: string;
+    reboot: number;
+  } | null;
   dismissEsp32Crash: () => void;
+
+  // ── Component damage (over-current burnout, etc.) ─────────────────────────
+  /** Components destroyed during the current run (e.g. an LED driven past its
+   *  absolute-max current with no series resistor). Keyed by component id;
+   *  sticky until the run is stopped/reset. Consumers render a burnt visual
+   *  and force the part inert. */
+  damagedComponents: Record<string, { reason: string; metric?: number }>;
+  markComponentDamaged: (
+    id: string,
+    info: { reason: string; metric?: number },
+  ) => void;
+  clearDamage: () => void;
 
   // ── Canvas viewport (captured for timelapse) ──────────────────────────────
   canvasPan: { x: number; y: number };
@@ -1139,6 +1160,24 @@ const { append: appendSerial } = createSerialBatcher((perBoard) => {
   });
 });
 
+/**
+ * Shape the `crash` system event from the ESP32 worker into the store's
+ * crash-info object. The worker sends a parsed `summary` plus the raw serial
+ * lines (`detail`) that preceded the fault — the real first-fault lives there,
+ * not in the generic "cache disabled" line the crash detector triggers on.
+ */
+function esp32CrashInfoFromData(data?: Record<string, unknown>) {
+  const summary =
+    typeof data?.summary === "string" && data.summary.trim()
+      ? data.summary
+      : "The firmware panicked while the flash cache was disabled. Check the serial monitor for the fault that preceded it.";
+  return {
+    summary,
+    detail: typeof data?.detail === "string" ? data.detail : "",
+    reboot: typeof data?.reboot === "number" ? data.reboot : 0,
+  };
+}
+
 // ── Store ─────────────────────────────────────────────────────────────────
 export const useSimulatorStore = create<SimulatorState>((set, get) => {
   // Initialise runtime objects for the default board
@@ -1234,8 +1273,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         // UART TX bits).  Mirrors what AVR/RP2040 simulators get for free
         // by passing the oscilloscope callback into createSimulator().
         bridge.onPinChangeWithTime = getOscilloscopeCallback(id);
-        bridge.onCrash = () => {
-          set({ esp32CrashBoardId: id });
+        bridge.onCrash = (data) => {
+          set({
+            esp32CrashBoardId: id,
+            esp32CrashInfo: esp32CrashInfoFromData(data),
+          });
         };
         bridge.onDisconnected = () => {
           set((s) => {
@@ -1832,9 +1874,38 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       editorStore.setActiveGroup(board.activeFileGroupId);
     },
 
-    startBoard: (boardId: string) => {
+    startBoard: (boardId: string, opts?: { powerOnly?: boolean }) => {
       const board = get().boards.find((b) => b.id === boardId);
       if (!board) return;
+
+      // Fresh run → fresh parts. Damage (a burnt LED) is per-run: pressing
+      // Run replaces the part, like swapping in a new LED on a real bench.
+      // Must live HERE (not just the legacy startSimulation wrapper) because
+      // the toolbar calls startBoard directly — otherwise a part damaged once
+      // stays damaged for the whole session and masks later wiring feedback.
+      get().clearDamage();
+
+      // Power-only: energize the board's analog rails (3V3/5V/GND come from
+      // the netlist, independent of the MCU) and mark it running so the canvas
+      // engages the electrical view — but DON'T boot the MCU. Used when the
+      // sketch failed to compile: passive / power-driven parts still work like
+      // a real powered board, and QEMU boards (ESP32) don't try to boot
+      // firmware that doesn't exist.
+      if (opts?.powerOnly) {
+        set((s) => {
+          const boards = s.boards.map((b) =>
+            b.id === boardId ? { ...b, running: true } : b,
+          );
+          const isActive = s.activeBoardId === boardId;
+          return { boards, ...(isActive ? { running: true } : {}) };
+        });
+        // Re-solve now that the board is "powered": the solver only reacts to
+        // circuit changes, and run-state isn't one — without this kick the
+        // damage/wiring detectors don't see the new powered state until the
+        // next wire edit.
+        requestElectricalResolve();
+        return;
+      }
 
       if (isPiBoardKind(board.boardKind)) {
         getBoardBridge(boardId)?.connect();
@@ -2077,11 +2148,19 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           ...(isActive ? { running: true, serialMonitorOpen: true } : {}),
         };
       });
+      // See the powerOnly branch above — kick a re-solve so the powered-state
+      // detectors (burnout, wiring hints) run against the new run state.
+      requestElectricalResolve();
     },
 
     stopBoard: (boardId: string) => {
       const board = get().boards.find((b) => b.id === boardId);
       if (!board) return;
+
+      // Stop = power off + bench reset: burnt parts are replaced, same as
+      // startBoard. Direct-call path used by the toolbar, so it must clear
+      // damage itself (see startBoard).
+      get().clearDamage();
 
       if (isPiBoardKind(board.boardKind)) {
         getBoardBridge(boardId)?.disconnect();
@@ -2111,11 +2190,15 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         const isActive = s.activeBoardId === boardId;
         return { boards, ...(isActive ? { running: false } : {}) };
       });
+      requestElectricalResolve();
     },
 
     resetBoard: (boardId: string) => {
       const board = get().boards.find((b) => b.id === boardId);
       if (!board) return;
+
+      // Same bench-reset semantics as Stop (see stopBoard).
+      get().clearDamage();
 
       if (isEsp32Kind(board.boardKind)) {
         // Reset ESP32: disconnect then reconnect the QEMU bridge
@@ -2189,7 +2272,25 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     remoteSocket: null,
 
     esp32CrashBoardId: null,
-    dismissEsp32Crash: () => set({ esp32CrashBoardId: null }),
+    esp32CrashInfo: null,
+    dismissEsp32Crash: () =>
+      set({ esp32CrashBoardId: null, esp32CrashInfo: null }),
+
+    damagedComponents: {},
+    markComponentDamaged: (id, info) =>
+      set((s) =>
+        // Sticky: keep the first damage reason; ignore repeat reports every
+        // solve so the burnt state (and its metric) doesn't churn.
+        s.damagedComponents[id]
+          ? s
+          : { damagedComponents: { ...s.damagedComponents, [id]: info } },
+      ),
+    clearDamage: () =>
+      set((s) =>
+        Object.keys(s.damagedComponents).length === 0
+          ? s
+          : { damagedComponents: {} },
+      ),
 
     canvasPan: { x: 0, y: 0 },
     canvasZoom: 1,
@@ -2221,8 +2322,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           if (boardPm) boardPm.triggerPinChange(gpioPin, state, "mcu");
         };
         bridge.onPinChangeWithTime = getOscilloscopeCallback(boardId);
-        bridge.onCrash = () => {
-          set({ esp32CrashBoardId: boardId });
+        bridge.onCrash = (data) => {
+          set({
+            esp32CrashBoardId: boardId,
+            esp32CrashInfo: esp32CrashInfoFromData(data),
+          });
         };
         bridge.onDisconnected = () => {
           set((s) => {
@@ -2339,8 +2443,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           if (boardPm) boardPm.triggerPinChange(gpioPin, state, "mcu");
         };
         bridge.onPinChangeWithTime = getOscilloscopeCallback(boardId);
-        bridge.onCrash = () => {
-          set({ esp32CrashBoardId: boardId });
+        bridge.onCrash = (data) => {
+          set({
+            esp32CrashBoardId: boardId,
+            esp32CrashInfo: esp32CrashInfoFromData(data),
+          });
         };
         bridge.onDisconnected = () => {
           set((s) => {
@@ -2432,6 +2539,9 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       }
     },
 
+    // These legacy wrappers just delegate to the board methods, which own the
+    // fresh-run damage clear (see startBoard/stopBoard/resetBoard) — no need to
+    // clear here too.
     startSimulation: () => {
       const { activeBoardId } = get();
       const boardId = activeBoardId ?? INITIAL_BOARD_ID;

@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
   HiCheckCircle,
@@ -130,6 +131,9 @@ export function DemoReviewWorkspace({
   );
   const [userComment, setUserComment] = useState("");
   const [pending, startTransition] = useTransition();
+  const [submitted, setSubmitted] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const router = useRouter();
   const [projectNotes, setProjectNotes] = useState(initialProjectNotes);
   const [userNotesState, setUserNotesState] = useState(initialUserNotes);
   const [newProjectNote, setNewProjectNote] = useState("");
@@ -154,15 +158,26 @@ export function DemoReviewWorkspace({
         ? "bg-yellow-100 text-yellow-900"
         : "bg-green-100 text-green-900";
 
+  // Review actions can be replayed by a dropped connection or a deployment
+  // swap after the first call already committed. Latch `submitted` so buttons
+  // lock after the first success, and refresh so the workspace reflects the
+  // committed state. The actions are idempotent server-side, so a replayed
+  // identical decision resolves as success rather than an error.
   function run(action: () => Promise<void>) {
+    setErrorMsg(null);
     startTransition(async () => {
       try {
         await action();
+        setSubmitted(true);
+        router.refresh();
       } catch (error) {
-        alert(error instanceof Error ? error.message : "Failed");
+        setErrorMsg(error instanceof Error ? error.message : "Failed");
+        router.refresh();
       }
     });
   }
+
+  const locked = submitted || initial.status !== "pending_review";
 
   return (
     <article className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
@@ -287,7 +302,7 @@ export function DemoReviewWorkspace({
               </label>
               <button
                 type="button"
-                disabled={pending || initial.status !== "pending_review"}
+                disabled={pending || locked}
                 onClick={() =>
                   run(() =>
                     approveProject(
@@ -295,6 +310,8 @@ export function DemoReviewWorkspace({
                       approvedHours,
                       internalJustification,
                       userComment,
+                      undefined,
+                      "demo",
                     ),
                   )
                 }
@@ -323,12 +340,22 @@ export function DemoReviewWorkspace({
               </label>
               <button
                 type="button"
-                disabled={pending}
+                disabled={pending || locked}
                 onClick={() =>
                   run(() =>
                     verdict === "reject"
-                      ? rejectProject(initial.id, userComment)
-                      : requestChanges(initial.id, userComment),
+                      ? rejectProject(
+                          initial.id,
+                          userComment,
+                          undefined,
+                          "demo",
+                        )
+                      : requestChanges(
+                          initial.id,
+                          userComment,
+                          undefined,
+                          "demo",
+                        ),
                   )
                 }
                 className="rounded-xl border border-black bg-white py-3.5 text-sm font-black text-black hover:bg-black hover:text-white disabled:opacity-50"
@@ -339,6 +366,16 @@ export function DemoReviewWorkspace({
               </button>
             </div>
           )}
+          {submitted && !errorMsg ? (
+            <p className="mt-3 rounded-xl bg-green-50 px-4 py-3 text-sm font-black text-green-800">
+              Review submitted.
+            </p>
+          ) : null}
+          {errorMsg ? (
+            <p className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm font-black text-red-800">
+              {errorMsg}
+            </p>
+          ) : null}
         </div>
       </section>
 

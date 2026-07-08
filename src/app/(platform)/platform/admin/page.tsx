@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import {
   HiArchiveBox,
@@ -12,7 +12,13 @@ import { BreadAmount } from "@/components/shared/bread-amount";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
-import { orders, products, projects, user } from "@/lib/db/schema";
+import {
+  orders,
+  products,
+  projects,
+  projectSubmissions,
+  user,
+} from "@/lib/db/schema";
 
 const adminLinks = [
   {
@@ -82,13 +88,15 @@ export default async function PlatformAdminPage() {
       .select({
         id: projects.id,
         title: projects.title,
-        status: projects.status,
-        hoursSpent: projects.hoursSpent,
+        status: projectSubmissions.status,
+        submissionType: projectSubmissions.type,
+        hoursSpent: projectSubmissions.hoursSpent,
         kitType: projects.kitType,
       })
-      .from(projects)
-      .where(eq(projects.status, "shipped"))
-      .orderBy(desc(projects.updatedAt))
+      .from(projectSubmissions)
+      .innerJoin(projects, eq(projectSubmissions.projectId, projects.id))
+      .where(eq(projectSubmissions.status, "pending_review"))
+      .orderBy(asc(projectSubmissions.submittedAt))
       .limit(5),
     db
       .select({
@@ -175,7 +183,11 @@ export default async function PlatformAdminPage() {
               reviewProjects.map((project) => (
                 <Link
                   key={project.id}
-                  href={`/platform/admin/review/${project.id}`}
+                  href={
+                    project.submissionType === "demo"
+                      ? `/platform/admin/review/demo/${project.id}`
+                      : `/platform/admin/review/${project.id}`
+                  }
                   className="flex items-center justify-between gap-3 rounded-xl px-2 py-3 text-black no-underline hover:bg-zinc-100"
                 >
                   <div className="min-w-0">
@@ -187,8 +199,8 @@ export default async function PlatformAdminPage() {
                     </p>
                   </div>
                   <span className="text-xs font-semibold text-black/45">
-                    {project.kitType === "esp32" ? "ESP32" : "Arduino"} ·
-                    shipped
+                    {project.kitType === "esp32" ? "ESP32" : "Arduino"} ·{" "}
+                    {statusLabel(project.status)}
                   </span>
                 </Link>
               ))

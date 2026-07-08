@@ -4,6 +4,10 @@
  */
 
 import type { CompileResult } from "@/services/velxio/services/compilation";
+import {
+  formatDiagnostic,
+  humanizeCompileErrors,
+} from "@/lib/velxio/utils/humanizeCompileError";
 
 /** Which run target a log line belongs to — lets the console group output by
  *  board / chip, the way multiple Arduinos already stream. Optional: lines with
@@ -17,7 +21,7 @@ export interface CompileTarget {
 
 export interface CompilationLog {
   timestamp: Date;
-  type: "info" | "success" | "error" | "warning" | "core-install";
+  type: "info" | "success" | "error" | "warning" | "core-install" | "hint";
   message: string;
   target?: CompileTarget;
 }
@@ -111,6 +115,15 @@ export function parseCompileResult(
       message: "✓ Compilation successful",
     });
   } else {
+    // Beginner-friendly translation of the raw toolchain output, shown as
+    // prominent "hint" lines just above the terse failure line. The raw
+    // stdout/stderr stays above for anyone who wants the real detail.
+    const combined = [result.error, result.stdout, result.stderr]
+      .filter(Boolean)
+      .join("\n");
+    for (const d of humanizeCompileErrors(combined)) {
+      logs.push({ timestamp: now, type: "hint", message: formatDiagnostic(d) });
+    }
     const errorMsg = result.error || "Compilation failed";
     logs.push({ timestamp: now, type: "error", message: `✕ ${errorMsg}` });
   }

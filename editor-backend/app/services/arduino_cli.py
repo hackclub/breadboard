@@ -738,6 +738,9 @@ class ArduinoCLIService:
                             }
                 else:
                     print("=== Compilation failed ===\n")
+                    # Keep this terse: the frontend humanizer (humanizeCompileError.ts)
+                    # turns the raw stderr/stdout below into beginner-friendly
+                    # guidance, so a second rewrite here would only drift from it.
                     return {
                         "success": False,
                         "error": "Compilation failed",

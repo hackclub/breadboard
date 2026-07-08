@@ -26,6 +26,10 @@ export interface ElectricalSnapshot {
   error: string | null;
   lastSolveMs: number;
   submittedNetlist: string;
+  /** Supply rails hard-shorted to ground by the wiring (e.g. a wire from the
+   *  5 V rail to GND). The solve itself shows a dead 0 V circuit in that case
+   *  — this is what the canvas uses to tell the user WHY. */
+  railShorts: string[];
 }
 
 interface ElectricalState extends ElectricalSnapshot {
@@ -38,6 +42,10 @@ interface ElectricalState extends ElectricalSnapshot {
   setPaused: (paused: boolean) => void;
   /** Atomic publish of a fresh solve snapshot (called by the service). */
   setSolveResult: (snapshot: ElectricalSnapshot) => void;
+  /** Publish JUST the rail-short list, the instant the netlist is built —
+   *  independent of whether the ngspice solve then converges. A hard short is
+   *  a pure topology fact, so its warning must never depend on the solver. */
+  setRailShorts: (rails: string[]) => void;
   /** Wipe everything — used when loading a new project. */
   reset: () => void;
 }
@@ -52,6 +60,7 @@ const EMPTY: ElectricalSnapshot = {
   error: null,
   lastSolveMs: 0,
   submittedNetlist: "",
+  railShorts: [],
 };
 
 export const useElectricalStore = create<ElectricalState>((set) => ({
@@ -62,6 +71,11 @@ export const useElectricalStore = create<ElectricalState>((set) => ({
   },
   setSolveResult(snapshot) {
     set({ ...snapshot });
+  },
+  setRailShorts(rails) {
+    set((s) =>
+      s.railShorts.join() === rails.join() ? s : { railShorts: rails },
+    );
   },
   reset() {
     set({ ...EMPTY });

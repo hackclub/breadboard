@@ -20,8 +20,7 @@ import { BOARD_PIN_GROUPS } from "@/lib/velxio/simulation/spice/boardPinGroups";
  */
 function pinNameToArduinoPin(pinName: string, boardKind: BoardKind): number {
   const group = BOARD_PIN_GROUPS[boardKind] ?? BOARD_PIN_GROUPS.default;
-  if (group.gnd.includes(pinName) || group.vcc_pins.includes(pinName))
-    return -1;
+  if (group.gnd.includes(pinName) || pinName in group.vcc_pins) return -1;
   if (pinName.startsWith("GP")) {
     const n = parseInt(pinName.slice(2), 10);
     return Number.isFinite(n) ? n : -1;

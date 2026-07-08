@@ -14,6 +14,7 @@
  */
 
 import type { ComponentForSpice } from "@/lib/velxio/simulation/spice/types";
+import { baseSimId } from "@/lib/velxio/simulation/metadataNormalize";
 import { parseValueWithUnits } from "@/lib/velxio/simulation/spice/valueParser";
 import { LM358_SUBCKT } from "@/lib/velxio/simulation/spice/models/lm358Subckt";
 import { getChipDrivenPins } from "@/lib/velxio/simulation/customChips/chipPinDrives";
@@ -87,12 +88,21 @@ function emitInductor(
 }
 
 // ── LED colour → Shockley params (tuned so V_f at 10 mA matches datasheet) ──
-const LED_MODELS: Record<string, { name: string; Is: string; n: string }> = {
-  red: { name: "LED_RED", Is: "1e-20", n: "1.7" },
-  green: { name: "LED_GREEN", Is: "1e-22", n: "1.9" },
-  yellow: { name: "LED_YELLOW", Is: "1e-21", n: "1.8" },
-  blue: { name: "LED_BLUE", Is: "1e-28", n: "2.0" },
-  white: { name: "LED_WHITE", Is: "1e-28", n: "2.0" },
+// Rs is the LED's bulk series resistance (~12 Ω for a 5 mm indicator). It's
+// small enough to be negligible next to a real current-limiting resistor
+// (≤6% at 220 Ω) but crucial without one: an ideal GPIO source straight across
+// an ideal diode has NOTHING to limit it and ngspice reports absurd current
+// (1e29 A). With Rs the "missing 220 Ω" short settles at a physical few-hundred
+// mA — a believable value, and the number the burnout detector trips on.
+const LED_MODELS: Record<
+  string,
+  { name: string; Is: string; n: string; rs: string }
+> = {
+  red: { name: "LED_RED", Is: "1e-20", n: "1.7", rs: "12" },
+  green: { name: "LED_GREEN", Is: "1e-22", n: "1.9", rs: "12" },
+  yellow: { name: "LED_YELLOW", Is: "1e-21", n: "1.8", rs: "12" },
+  blue: { name: "LED_BLUE", Is: "1e-28", n: "2.0", rs: "15" },
+  white: { name: "LED_WHITE", Is: "1e-28", n: "2.0", rs: "15" },
 };
 
 // ── NTC β-model ────────────────────────────────────────────────────────────
@@ -122,7 +132,7 @@ const MAPPERS: Record<string, Mapper> = {
     const cards: string[] = [];
     for (const { pin, voltage } of driven) {
       const net = netLookup(pin);
-      if (!net || net === "0" || net === "vcc_rail") continue;
+      if (!net || net === "0" || net.startsWith("vcc_rail")) continue;
       const pid = String(pin).replace(/[^A-Za-z0-9_]/g, "_");
       cards.push(`V_${cid}_${pid} ${net} 0 DC ${voltage}`);
     }
@@ -192,7 +202,13 @@ const MAPPERS: Record<string, Mapper> = {
   led: (comp, netLookup) => {
     const pins = twoPin(comp, netLookup, "A", "C");
     if (!pins) return null;
-    const color = String(comp.properties.color ?? "red").toLowerCase();
+    // Colour comes from the property when set, else from the variant id
+    // (`led-red` → red) so a kit LED with no explicit colour still models
+    // the right forward voltage.
+    const idColor = /^led-([a-z]+)$/.exec(comp.metadataId)?.[1];
+    const color = String(
+      comp.properties.color ?? idColor ?? "red",
+    ).toLowerCase();
     const model = LED_MODELS[color] ?? LED_MODELS.red;
     const midNet = `${comp.id}_sense_mid`;
     return {
@@ -201,7 +217,7 @@ const MAPPERS: Record<string, Mapper> = {
         `D_${comp.id} ${midNet} ${pins[1]} ${model.name}`,
       ],
       modelsUsed: new Set([
-        `.model ${model.name} D(Is=${model.Is} N=${model.n})`,
+        `.model ${model.name} D(Is=${model.Is} N=${model.n} Rs=${model.rs})`,
       ]),
     };
   },
@@ -1310,14 +1326,14 @@ export function componentToSpice(
   netLookup: NetLookup,
   ctx: MapperContext,
 ): SpiceEmission | null {
-  const mapper = MAPPERS[comp.metadataId];
+  const mapper = MAPPERS[baseSimId(comp.metadataId)];
   if (!mapper) return null;
   return mapper(comp, netLookup, ctx);
 }
 
 /** True if we have a mapping for this metadataId. */
 export function isSpiceMapped(metadataId: string): boolean {
-  return metadataId in MAPPERS;
+  return baseSimId(metadataId) in MAPPERS;
 }
 
 /** All metadataIds with a SPICE mapping (for docs / UI hints). */

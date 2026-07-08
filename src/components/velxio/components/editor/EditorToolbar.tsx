@@ -37,6 +37,7 @@ import { useProjectStore } from "@/services/velxio/store/useProjectStore";
 import { LibraryManagerModal } from "@/components/velxio/components/simulator/LibraryManagerModal";
 import { InstallLibrariesModal } from "@/components/velxio/components/simulator/InstallLibrariesModal";
 import { parseCompileResult } from "@/lib/velxio/utils/compilationLogger";
+import { summarizeCompileErrors } from "@/lib/velxio/utils/humanizeCompileError";
 import type {
   CompilationLog,
   CompileTarget,
@@ -176,6 +177,7 @@ export const EditorToolbar = ({
     startBoard,
     stopBoard,
     resetBoard,
+    clearDamage,
     // legacy compat
     startSimulation,
     stopSimulation,
@@ -575,7 +577,13 @@ export const EditorToolbar = ({
         setMissingLibHint(false);
       } else {
         const errText = result.error || result.stderr || "Compile failed";
-        setMessage({ type: "error", text: errText });
+        // Prefer a plain-English one-liner for the toast; fall back to the
+        // raw error. The console shows the full friendly explanation + output.
+        const combined = [result.error, result.stdout, result.stderr]
+          .filter(Boolean)
+          .join("\n");
+        const friendly = summarizeCompileErrors(combined);
+        setMessage({ type: "error", text: friendly ?? errText });
         // Issue #208: drop the previous successful program from this
         // board so a subsequent Run cannot silently execute stale code
         // that doesn't match the editor any more. The Run button gates
@@ -627,6 +635,11 @@ export const EditorToolbar = ({
             id: c.id,
             metadataId: c.metadataId,
             properties: c.properties,
+            // Carry the breadboard plug-in map — without it the verifier's
+            // netlist can't connect parts seated in a breadboard (their wiring
+            // comes from `attachedTo`, not explicit wires), so a breadboard LED
+            // would look floating and no over-current / backwards check fires.
+            attachedTo: c.attachedTo,
           })),
           wires: sim.wires,
           boards: sim.boards.map((b) => {
@@ -655,7 +668,7 @@ export const EditorToolbar = ({
               // Skip GND / power-rail pin names — they belong to the rail
               // groups and don't need to be re-asserted as digital sources.
               if (group.gnd.includes(pinName)) continue;
-              if (group.vcc_pins.includes(pinName)) continue;
+              if (pinName in group.vcc_pins) continue;
               const arduinoPin = Number.parseInt(pinName, 10);
               // Skip pins we can't identify as a digital GPIO (e.g.
               // 'AREF', 'RESET', 'TX', 'RX' on some boards). Those are
@@ -668,7 +681,7 @@ export const EditorToolbar = ({
         };
         const input = buildInputFromStore(snap);
         return await verifyCircuit(input);
-      } catch (_err) {
+      } catch (err) {
         console.warn("[verifyCircuit] failed", err);
         return null;
       }
@@ -726,12 +739,22 @@ export const EditorToolbar = ({
       if (!ok) return;
     }
 
+    // Running always resumes the analog solver. A prior board-less Stop (or
+    // any code path that paused it) must not leave a later Run with frozen
+    // electrical state — LEDs would never light and the live wiring checks
+    // (backwards LED, burnout) would never fire.
+    setElectricalPaused(false);
+
     // Board-less circuits have no MCU to start. If there are custom-chip CPUs
     // on the canvas, compile them (WASM + ROM) and re-attach so they pick up
     // the fresh WASM — Velxio runs custom chips with no Arduino/ESP32 board,
     // as a general-purpose electronics simulator. Then resume the electrical
     // solver (replays any switch toggles captured while paused).
     if (isBoardless) {
+      // Fresh run → fresh parts. Board-less circuits burn parts too (an LED
+      // across a rail with no resistor), and nothing else on this path clears
+      // that sticky damage, so a fixed circuit would stay dead without this.
+      clearDamage();
       const customChips = useSimulatorStore
         .getState()
         .components.filter((c) => c.metadataId === "custom-chip");
@@ -851,10 +874,14 @@ export const EditorToolbar = ({
                 updatedBoard?.languageMode === "micropython";
               const errText = isMicropython
                 ? 'MicroPython firmware did not load. Click "Load MicroPython" to retry, or check the console for the underlying error.'
-                : "Compilation produced no firmware. Check the output console for the underlying error.";
+                : "Code has errors (see the console). Running the circuit anyway, but parts driven by your sketch won't work until you fix it.";
               console.warn(
-                "[handleRun] compile finished but no compiledProgram — not starting",
+                "[handleRun] compile finished but no compiledProgram — powering circuit only",
               );
+              // Run anyway: energize the board's rails so passive / power-
+              // driven parts work, without booting QEMU (there's no firmware).
+              startBoard(activeBoardId, { powerOnly: true });
+              setElectricalPaused(false);
               setMessage({ type: "error", text: errText });
               addLog({
                 timestamp: new Date(),
@@ -892,6 +919,17 @@ export const EditorToolbar = ({
           setMessage(null);
         } else {
           autoRunAfterCompile.current = false;
+          // The sketch didn't compile — but a real breadboard is still
+          // powered. Energize the circuit anyway so passive / power-driven
+          // parts (an LED across a rail, a voltage divider, a switch + LED)
+          // behave like real life. The MCU stays off (no program) until the
+          // code compiles. The console already shows the friendly errors.
+          startBoard(activeBoardId, { powerOnly: true });
+          setElectricalPaused(false);
+          setMessage({
+            type: "error",
+            text: "Code has errors (see the console). Running the circuit anyway, but parts driven by your sketch won't work until you fix it.",
+          });
         }
         return;
       }
@@ -929,9 +967,11 @@ export const EditorToolbar = ({
     trackStopSimulation();
     if (isBoardless) {
       // Freeze the chip tick (the paused flag) AND clear the chip's output
-      // drives so its LEDs go dark on Stop — not frozen at their last frame.
+      // drives so its LEDs go dark on Stop, not frozen at their last frame.
+      // Also drop sticky burnout damage, matching stopBoard on the board path.
       setElectricalPaused(true);
       clearAllChipDrives();
+      clearDamage();
       setMessage(null);
       return;
     }

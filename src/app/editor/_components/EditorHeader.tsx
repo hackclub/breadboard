@@ -344,19 +344,10 @@ export function EditorHeader({
         </span>
       ) : null}
 
-      {/* One tall badge spanning this row AND the toolbar row below it.
-          self-start anchors it to the header's top edge; the z-index keeps
-          it above the toolbar it hangs over (whose right end holds no
-          buttons). ml-auto here plus ml-auto on the button group keeps the
-          group flush right whether or not the badge renders. */}
-      {!readOnly && !trackingBlocked ? (
-        <div className="relative z-[55] ml-auto self-start">
-          <BreadEstimatePill initialTotalSeconds={trackedSeconds ?? 0} />
-        </div>
-      ) : null}
       <div className="ml-auto flex items-center gap-3">
         {!readOnly && !trackingBlocked ? (
           <>
+            <BreadEstimatePill initialTotalSeconds={trackedSeconds ?? 0} />
             <ProjectTimeTotal initialTotalSeconds={trackedSeconds ?? 0} />
             <ScreenShareTracker projectId={projectId} />
             <EditorActivityIndicator projectId={projectId} />

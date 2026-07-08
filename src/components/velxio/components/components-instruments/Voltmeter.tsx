@@ -38,12 +38,12 @@ export function Voltmeter({ id }: VoltmeterProps) {
       ),
     );
     const vccPins = boards.flatMap((b) =>
-      (BOARD_PIN_GROUPS[b.boardKind] ?? BOARD_PIN_GROUPS.default).vcc_pins.map(
-        (pin) => ({
-          componentId: b.id,
-          pinName: pin,
-        }),
-      ),
+      Object.keys(
+        (BOARD_PIN_GROUPS[b.boardKind] ?? BOARD_PIN_GROUPS.default).vcc_pins,
+      ).map((pin) => ({
+        componentId: b.id,
+        pinName: pin,
+      })),
     );
     const netLookup = buildPinNetLookup(wires, groundPins, vccPins);
     return readVoltmeter(

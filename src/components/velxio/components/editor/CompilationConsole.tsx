@@ -91,9 +91,12 @@ export const CompilationConsole: React.FC<CompilationConsoleProps> = ({
   }, [logs]);
 
   const filteredLogs = logs.filter((log) => {
-    if (filter === "errors") return log.type === "error";
+    // "hint" lines are the beginner-friendly explanations that accompany a
+    // failure — always keep them visible in the error/warning views.
+    if (filter === "errors")
+      return log.type === "error" || log.type === "hint";
     if (filter === "warnings")
-      return log.type === "warning" || log.type === "error";
+      return log.type === "warning" || log.type === "error" || log.type === "hint";
     return true;
   });
 
@@ -236,22 +239,35 @@ export const CompilationConsole: React.FC<CompilationConsoleProps> = ({
   );
 };
 
-const LogLine: React.FC<{ log: CompilationLog }> = ({ log }) => (
-  <div style={styles.logLine}>
-    <span style={styles.timestamp}>
-      {log.timestamp.toLocaleTimeString("en-US", {
-        hour12: false,
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      })}
-    </span>
-    <span style={{ ...styles.logMessage, color: logColor(log.type) }}>
-      {log.type === "core-install" && <span style={styles.coreTag}>CORE </span>}
-      {log.message}
-    </span>
-  </div>
-);
+const LogLine: React.FC<{ log: CompilationLog }> = ({ log }) => {
+  // "hint" lines are the beginner-friendly explanations — render them as a
+  // highlighted callout block instead of a plain timestamped line.
+  if (log.type === "hint") {
+    return (
+      <div style={styles.hintBlock}>
+        <span style={styles.hintMessage}>{log.message}</span>
+      </div>
+    );
+  }
+  return (
+    <div style={styles.logLine}>
+      <span style={styles.timestamp}>
+        {log.timestamp.toLocaleTimeString("en-US", {
+          hour12: false,
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        })}
+      </span>
+      <span style={{ ...styles.logMessage, color: logColor(log.type) }}>
+        {log.type === "core-install" && (
+          <span style={styles.coreTag}>CORE </span>
+        )}
+        {log.message}
+      </span>
+    </div>
+  );
+};
 
 function statusColor(status: "error" | "success" | "running"): string {
   return status === "error"
@@ -275,6 +291,8 @@ function logColor(type: CompilationLog["type"]): string {
       return "#66bb6a";
     case "core-install":
       return "#4fc3f7";
+    case "hint":
+      return "#ffd54f";
     default:
       return "#cccccc";
   }
@@ -424,6 +442,21 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8,
     whiteSpace: "pre-wrap" as const,
     wordBreak: "break-all" as const,
+  },
+  hintBlock: {
+    margin: "6px 0",
+    padding: "8px 10px",
+    background: "rgba(255, 213, 79, 0.10)",
+    border: "1px solid rgba(255, 213, 79, 0.35)",
+    borderLeft: "3px solid #ffd54f",
+    borderRadius: 4,
+  },
+  hintMessage: {
+    color: "#f5e6b3",
+    whiteSpace: "pre-wrap" as const,
+    fontFamily: "system-ui, sans-serif",
+    fontSize: 12,
+    lineHeight: 1.5,
   },
   timestamp: {
     color: "#555",

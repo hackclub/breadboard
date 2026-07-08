@@ -49,7 +49,8 @@ export function ElectricalOverlay() {
         id: b.id,
         vcc: pg.vcc,
         groundPinNames: pg.gnd,
-        vccPinNames: pg.vcc_pins,
+        vccPinNames: Object.keys(pg.vcc_pins),
+        vccPinVoltages: pg.vcc_pins,
         pins: {},
       };
     });

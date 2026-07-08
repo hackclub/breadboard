@@ -83,6 +83,7 @@ export default async function AdminReviewProjectPage({
       kitType: projects.kitType,
       userName: user.name,
       userEmail: user.email,
+      userSlackId: user.slackId,
       userId: projects.userId,
     })
     .from(projectSubmissions)

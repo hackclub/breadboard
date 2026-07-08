@@ -201,7 +201,8 @@ export function buildInputFromStore(snap: StoreSnapshot): BuildNetlistInput {
       vcc: group.vcc,
       pins: b.pinStates,
       groundPinNames: group.gnd,
-      vccPinNames: group.vcc_pins,
+      vccPinNames: Object.keys(group.vcc_pins),
+      vccPinVoltages: group.vcc_pins,
     };
   });
 

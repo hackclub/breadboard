@@ -36,11 +36,96 @@ import { connectChipInputsToSolve } from "@/lib/velxio/simulation/spice/connectC
 import { connectMcuEdgesToService } from "@/lib/velxio/simulation/spice/connectMcuEdgesToService";
 import { setElectricalResolveHook } from "@/lib/velxio/simulation/spice/electricalResolveHook";
 import { collectPinStates } from "@/lib/velxio/simulation/spice/collectPinStates";
+import { isLed } from "@/lib/velxio/simulation/metadataNormalize";
+import { isCircuitPowered } from "@/lib/velxio/simulation/isCircuitPowered";
+import { diagnoseLed } from "@/lib/velxio/simulation/verify/ledDiagnosis";
+import {
+  reportWiringIssue,
+  clearWiringIssue,
+} from "@/services/velxio/store/useWiringIssuesStore";
+
+// An LED driven past this settles into permanent damage. A 5 mm indicator's
+// continuous max is ~20 mA; real burnout is well above that, so we use 50 mA
+// to avoid nuisance-burning circuits that merely run a touch bright. The
+// pre-flight verifier already blocks at 20 mA before the run — this is the
+// "you clicked Run Anyway and left the resistor out" backstop.
+const LED_DAMAGE_AMPS = 0.05;
+
+/**
+ * After each solve, look for parts operating past their absolute maximum and
+ * mark them damaged in the simulator store (sticky for the rest of the run).
+ * Runs before the electrical snapshot is published so LED handlers see the
+ * damaged flag on the same frame and render dark immediately.
+ */
+function detectDamage(branchCurrents: Record<string, number>): void {
+  const sim = useSimulatorStore.getState();
+  // Parts only burn while the simulation is actually powered. The analog solver
+  // also runs while EDITING so wire previews stay live — burning parts during
+  // editing would brand an LED before the user even presses Run, and the sticky
+  // damage would then mask the "connected backwards" hint.
+  if (!isCircuitPowered(sim.boards)) return;
+  for (const comp of sim.components) {
+    if (!isLed(comp.metadataId)) continue;
+    if (sim.damagedComponents[comp.id]) continue; // already burnt
+    const i = Math.abs(branchCurrents[`v_${comp.id}_sense`] ?? 0);
+    if (Number.isFinite(i) && i > LED_DAMAGE_AMPS) {
+      sim.markComponentDamaged(comp.id, {
+        reason: `Burned out. ${(i * 1000).toFixed(0)} mA through the LED, about 20 mA max. Add a series resistor.`,
+        metric: i,
+      });
+    }
+  }
+}
+
+/**
+ * After each solve, surface LED wiring mistakes that produce no light so the
+ * user gets a visible reason (in the WiringIssuesPanel) instead of a part that
+ * silently stays dark. Right now: a backwards (reverse-biased) LED — it carries
+ * ~no current but has real voltage across it, cathode higher than anode. The
+ * check reports/clears live as the wiring changes.
+ */
+function detectLedWiring(snapshot: ElectricalSnapshot): void {
+  const sim = useSimulatorStore.getState();
+  // Same powered gate as detectDamage: the solver runs during editing to keep
+  // previews live, but diagnosing wiring then would populate the issues store
+  // (and thrash the badge-anchor effect) for parts the user is still placing.
+  if (!isCircuitPowered(sim.boards)) return;
+  const floating = new Set(snapshot.floatingNets ?? []);
+  for (const comp of sim.components) {
+    if (!isLed(comp.metadataId)) continue;
+    // A burnt-out LED already shows its own badge; don't double-report.
+    if (sim.damagedComponents[comp.id]) {
+      clearWiringIssue(comp.id);
+      continue;
+    }
+    const aNet = snapshot.pinNetMap.get(`${comp.id}:A`);
+    const cNet = snapshot.pinNetMap.get(`${comp.id}:C`);
+    const diag = diagnoseLed({
+      currentA: snapshot.branchCurrents[`v_${comp.id}_sense`] ?? 0,
+      vAnode: aNet ? (snapshot.nodeVoltages[aNet] ?? 0) : 0,
+      vCathode: cNet ? (snapshot.nodeVoltages[cNet] ?? 0) : 0,
+      anodeNet: aNet,
+      cathodeNet: cNet,
+      floatingNets: floating,
+    });
+    // "ok" (lit) and "overcurrent" (its own burnout badge) need no wiring note.
+    if (diag.state === "ok" || diag.state === "overcurrent" || !diag.message) {
+      clearWiringIssue(comp.id);
+    } else {
+      reportWiringIssue(comp.id, comp.metadataId, [diag.message]);
+    }
+  }
+}
 
 /** Adapt useElectricalStore to the ElectricalStorePort. */
 function createElectricalStorePort(): ElectricalStorePort {
   return {
+    reportRailShorts(rails: string[]): void {
+      useElectricalStore.getState().setRailShorts(rails);
+    },
     publish(snapshot: ElectricalSnapshot): void {
+      detectDamage(snapshot.branchCurrents);
+      detectLedWiring(snapshot);
       useElectricalStore.getState().setSolveResult({
         nodeVoltages: snapshot.nodeVoltages,
         branchCurrents: snapshot.branchCurrents,
@@ -51,6 +136,7 @@ function createElectricalStorePort(): ElectricalStorePort {
         error: snapshot.warnings[0] ?? null,
         lastSolveMs: 0,
         submittedNetlist: "",
+        railShorts: snapshot.railShorts ?? [],
       });
     },
   };

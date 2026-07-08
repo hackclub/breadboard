@@ -45,11 +45,59 @@ export function useLiveTrackedSeconds(initialTotalSeconds: number): number {
 // seconds, so we fold in the growth since mount instead of the raw value
 // (which would double-count time already included in the server total).
 //
-// Rendered as one tall badge that starts in the header row and hangs down
-// over the toolbar row beneath it (the toolbar packs its buttons to the
-// left, so its right end is safe to cover). The parent gives it self-start
-// and a z-index so it paints above the toolbar. Hovering it opens a card
-// that walks through the calculation with the user's own numbers.
+// The card that walks through the calculation with the user's own numbers.
+// Shared by both the tall badge and the minimized pill; anchored to the
+// bottom-right of whichever trigger is hovered.
+function BreadEstimateCard({
+  totalSeconds,
+  estimate,
+}: {
+  totalSeconds: number;
+  estimate: number;
+}) {
+  const minutesPerBread = Math.round(SECONDS_PER_BREAD / 60);
+  const secondsToNext =
+    SECONDS_PER_BREAD - (Math.max(0, totalSeconds) % SECONDS_PER_BREAD);
+
+  return (
+    <div className="absolute top-full right-0 z-[70] mt-2 w-[290px] rounded-xl border border-[#333] bg-[#181818] p-4 text-left shadow-lg">
+      <p className="text-xs font-black uppercase tracking-[0.12em] text-[#777]">
+        How this is calculated
+      </p>
+      <div className="mt-2 space-y-1.5 text-xs font-semibold text-[#ccc]">
+        <p className="flex justify-between gap-3">
+          <span className="text-[#888]">Tracked time</span>
+          <span>{fmtDuration(totalSeconds)}</span>
+        </p>
+        <p className="flex justify-between gap-3">
+          <span className="text-[#888]">Rate</span>
+          <span>
+            {BREAD_PER_HOUR} bread / hour (1 per {minutesPerBread}m)
+          </span>
+        </p>
+        <p className="flex justify-between gap-3 border-t border-[#2e2e2e] pt-1.5">
+          <span className="text-[#888]">
+            {fmtDuration(totalSeconds)} ÷ {minutesPerBread}m
+          </span>
+          <span className="font-black text-white">~{estimate} bread</span>
+        </p>
+        <p className="flex justify-between gap-3">
+          <span className="text-[#888]">Next bread in</span>
+          <span>{fmtDuration(secondsToNext)} of tracked time</span>
+        </p>
+      </div>
+      <p className="mt-3 text-[11px] font-medium leading-relaxed text-[#888]">
+        This is an estimate. Real bread is awarded from your approved hours when
+        the project passes review.
+      </p>
+    </div>
+  );
+}
+
+// The bread this project is on track to earn, live. Two shapes:
+//
+// A compact inline pill that sits in the header's top row next to the
+// total-time readout. Opens the calculation card on hover.
 export function BreadEstimatePill({
   initialTotalSeconds,
 }: {
@@ -58,64 +106,26 @@ export function BreadEstimatePill({
   const [hovered, setHovered] = useState(false);
   const totalSeconds = useLiveTrackedSeconds(initialTotalSeconds);
   const estimate = estimateBreadFromSeconds(totalSeconds);
-  const minutesPerBread = Math.round(SECONDS_PER_BREAD / 60);
-  const secondsToNext =
-    SECONDS_PER_BREAD - (Math.max(0, totalSeconds) % SECONDS_PER_BREAD);
 
   return (
     <span
       role="note"
-      className="relative flex h-[70px] cursor-help select-none flex-col items-center justify-center gap-0.5 rounded-b-lg border border-t-0 border-[#3d3d3d] bg-[#2a2a2a] px-4 shadow-[0_3px_10px_rgba(0,0,0,0.4)]"
+      className="relative flex cursor-help items-center gap-1.5 rounded bg-[#2a2a2a] px-2 py-1 text-xs font-black text-white"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      <span className="flex items-center gap-2 text-xl font-black text-white">
-        <Image
-          src="/assets/bred.png"
-          alt=""
-          width={26}
-          height={26}
-          className="inline-block"
-          unoptimized
-        />
-        ~{estimate}
-      </span>
-      <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#999]">
-        bread est.
-      </span>
-
+      <Image
+        src="/assets/bred.png"
+        alt=""
+        width={33}
+        height={33}
+        className="inline-block"
+        unoptimized
+      />
+      ~{estimate}
+      <span className="font-semibold text-[#888]">est.</span>
       {hovered ? (
-        <div className="absolute top-full right-0 z-[70] mt-2 w-[290px] rounded-xl border border-[#333] bg-[#181818] p-4 text-left shadow-lg">
-          <p className="text-xs font-black uppercase tracking-[0.12em] text-[#777]">
-            How this is calculated
-          </p>
-          <div className="mt-2 space-y-1.5 text-xs font-semibold text-[#ccc]">
-            <p className="flex justify-between gap-3">
-              <span className="text-[#888]">Tracked time</span>
-              <span>{fmtDuration(totalSeconds)}</span>
-            </p>
-            <p className="flex justify-between gap-3">
-              <span className="text-[#888]">Rate</span>
-              <span>
-                {BREAD_PER_HOUR} bread / hour (1 per {minutesPerBread}m)
-              </span>
-            </p>
-            <p className="flex justify-between gap-3 border-t border-[#2e2e2e] pt-1.5">
-              <span className="text-[#888]">
-                {fmtDuration(totalSeconds)} ÷ {minutesPerBread}m
-              </span>
-              <span className="font-black text-white">~{estimate} bread</span>
-            </p>
-            <p className="flex justify-between gap-3">
-              <span className="text-[#888]">Next bread in</span>
-              <span>{fmtDuration(secondsToNext)} of tracked time</span>
-            </p>
-          </div>
-          <p className="mt-3 text-[11px] font-medium leading-relaxed text-[#888]">
-            This is an estimate. Real bread is awarded from your approved hours
-            when the project passes review.
-          </p>
-        </div>
+        <BreadEstimateCard totalSeconds={totalSeconds} estimate={estimate} />
       ) : null}
     </span>
   );

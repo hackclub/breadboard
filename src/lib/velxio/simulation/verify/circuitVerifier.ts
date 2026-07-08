@@ -22,7 +22,12 @@
  * The verifier never throws; if ngspice fails to converge it returns a
  * single solver-error warning and the rest of the rules are skipped.
  */
-import { buildNetlist } from "@/lib/velxio/simulation/spice/NetlistBuilder";
+import {
+  buildNetlist,
+  railLabel,
+} from "@/lib/velxio/simulation/spice/NetlistBuilder";
+import { baseSimId } from "@/lib/velxio/simulation/metadataNormalize";
+import { diagnoseLed } from "@/lib/velxio/simulation/verify/ledDiagnosis";
 import { runNetlist as runSpice } from "@/lib/velxio/simulation/spice/runNetlist";
 import type {
   BuildNetlistInput,
@@ -36,7 +41,7 @@ export type WarningCode =
   | "source-overload"
   | "led-overcurrent"
   | "resistor-overpower"
-  | "led-no-current";
+  | "led-dark";
 
 export interface CircuitWarning {
   severity: WarningSeverity;
@@ -91,7 +96,33 @@ export async function verifyCircuit(
 
   // Run a forced .op solve so currents are scalar and deterministic.
   const opInput: BuildNetlistInput = { ...input, analysis: { kind: "op" } };
-  const { netlist } = buildNetlist(opInput);
+  const { netlist, pinNetMap, railShorts, railRailShorts, floatingNets } =
+    buildNetlist(opInput);
+
+  // ── Rule 0: supply rail wired straight to ground ────────────────────────
+  // The union-find merges a shorted rail INTO ground, so the solve sees one
+  // dead net and none of the current-based rules below can fire. This is the
+  // only place the short is still visible — report it before solving.
+  for (const rail of railShorts ?? []) {
+    errors.push({
+      severity: "error",
+      code: "short-circuit",
+      message: `Short circuit: ${railLabel(rail)} is connected directly to GND. Every part on that rail sees 0 V, so nothing will work. Find and remove the wire that connects + to −.`,
+    });
+  }
+
+  // ── Rule 0b: two supply rails wired together ────────────────────────────
+  // e.g. a board's 5 V pin tied to its 3.3 V pin. The union-find fuses them
+  // into one net so the solve still converges (one source wins) and the
+  // current rules stay quiet — this is the only surviving evidence.
+  for (const pair of railRailShorts ?? []) {
+    const [a, b] = pair.split(" ↔ ");
+    errors.push({
+      severity: "error",
+      code: "short-circuit",
+      message: `Short circuit: ${railLabel(a)} is wired directly to ${railLabel(b)}. Two supplies driving one net fight each other. Remove the wire tying them together.`,
+    });
+  }
 
   let solve: ElectricalSolveResult | undefined;
   try {
@@ -161,38 +192,40 @@ export async function verifyCircuit(
         code: isPsu ? "source-overload" : "short-circuit",
         componentId: src.id,
         message: isPsu
-          ? `Power supply ${src.id} is being asked for ${formatAmps(i)} — past its ${formatAmps(threshold)} current limit. A real bench supply would foldback or cut out. Raise the currentLimit or add more series resistance to the load.`
-          : `Possible short circuit — ${src.metadataId} ${src.id} is delivering ${formatAmps(i)} (threshold ${formatAmps(threshold)}). Check for power tied directly to GND.`,
+          ? `Power supply ${src.id} is being asked for ${formatAmps(i)}, past its ${formatAmps(threshold)} current limit. A real bench supply would foldback or cut out. Raise the currentLimit or add more series resistance to the load.`
+          : `Possible short circuit: ${src.metadataId} ${src.id} is delivering ${formatAmps(i)} (threshold ${formatAmps(threshold)}). Check for power tied directly to GND.`,
         metric: i,
       });
     }
   }
 
-  // ── Rule 2: LED forward current above absolute max ─────────────────────
-  // Every LED emits a 0V sense source: `V_<id>_sense`. The branch current of
-  // that source is the LED forward current.
-  const leds = input.components.filter((c) => c.metadataId === "led");
+  // ── Rule 2: LED state, from the solved circuit ─────────────────────────
+  // One physics-based verdict per LED (see diagnoseLed): over-current, open
+  // leg, reverse-biased, or no drive. Every LED emits a 0V sense source
+  // (`V_<id>_sense`) whose branch current is the LED current.
+  const floating = new Set(floatingNets);
+  const leds = input.components.filter((c) => baseSimId(c.metadataId) === "led");
   for (const led of leds) {
-    const i = Math.abs(branchCurrents[`v_${led.id}_sense`] ?? 0);
-    if (i > config.ledMaxAmps) {
-      errors.push({
-        severity: "error",
-        code: "led-overcurrent",
-        componentId: led.id,
-        message: `LED ${led.id} is carrying ${formatAmps(i)} — above the 20 mA absolute maximum. Add or increase the series resistor.`,
-        metric: i,
-      });
-    } else if (i > 0 && i < config.ledMinAmps) {
-      warnings.push({
-        severity: "warning",
-        code: "led-no-current",
-        componentId: led.id,
-        message: `LED ${led.id} appears wired but is carrying almost no current (${formatAmps(
-          i,
-        )}). It will not light visibly.`,
-        metric: i,
-      });
-    }
+    const aNet = pinNetMap.get(`${led.id}:A`);
+    const cNet = pinNetMap.get(`${led.id}:C`);
+    const diag = diagnoseLed({
+      currentA: branchCurrents[`v_${led.id}_sense`] ?? 0,
+      vAnode: aNet ? (solve.nodeVoltages[aNet] ?? 0) : 0,
+      vCathode: cNet ? (solve.nodeVoltages[cNet] ?? 0) : 0,
+      anodeNet: aNet,
+      cathodeNet: cNet,
+      floatingNets: floating,
+    });
+    if (diag.state === "ok") continue;
+    // Over-current can damage the part, so it blocks; the rest are "it just
+    // won't light" and pass through as warnings.
+    const severity = diag.state === "overcurrent" ? "error" : "warning";
+    (severity === "error" ? errors : warnings).push({
+      severity,
+      code: diag.state === "overcurrent" ? "led-overcurrent" : "led-dark",
+      componentId: led.id,
+      message: `LED ${led.id} ${diag.message}`,
+    });
   }
 
   // ── Rule 3: resistor power above its rating ────────────────────────────
@@ -208,7 +241,7 @@ export async function verifyCircuit(
     if (id.endsWith("_sense") || id.endsWith("_load") || id.endsWith("_esr"))
       continue;
     const comp = input.components.find((c) => c.id === id);
-    if (!comp || comp.metadataId !== "resistor") continue;
+    if (!comp || baseSimId(comp.metadataId) !== "resistor") continue;
     const R = parseResistance(valStr);
     if (!Number.isFinite(R) || R <= 0) continue;
     const v1 = solve.nodeVoltages[n1] ?? 0;
@@ -230,7 +263,7 @@ export async function verifyCircuit(
         componentId: id,
         message: `Resistor ${id} (${formatResistance(R)}) is dissipating ${formatPower(
           power,
-        )} — above the ${formatPower(rating)} rating. A real ${formatResistance(R)} resistor at this current would overheat; pick a higher-power part or larger resistance.`,
+        )}, above the ${formatPower(rating)} rating. A real ${formatResistance(R)} resistor at this current would overheat, so pick a higher-power part or a larger resistance.`,
         metric: power,
       });
     }

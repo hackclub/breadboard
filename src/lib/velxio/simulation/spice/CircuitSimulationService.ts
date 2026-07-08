@@ -59,6 +59,9 @@ export interface SimulatorStorePort {
 export interface ElectricalStorePort {
   /** Atomically write a complete solve snapshot. */
   publish(snapshot: ElectricalSnapshot): void;
+  /** Publish the rail-short list immediately (before the WASM solve), so a
+   *  hard short is reported even if the solver later fails to converge. */
+  reportRailShorts?(rails: string[]): void;
 }
 
 /** Domain-level solve result, decoupled from SolverPort details. */
@@ -75,6 +78,10 @@ export interface ElectricalSnapshot {
   timeWaveforms?: TimeWaveforms;
   /** Convergence warnings from the solver. */
   warnings: string[];
+  /** Supply rails hard-shorted to ground by the wiring (see NetlistBuilder). */
+  railShorts: string[];
+  /** Nets with no DC path (open) — the general "not in a loop" signal. */
+  floatingNets: string[];
 }
 
 /** What the service needs from the scheduler. */
@@ -145,6 +152,8 @@ export class CircuitSimulationService {
     nets: string[];
     voltageSources: string[];
     analysisKind: "op" | "tran" | "ac";
+    railShorts: string[];
+    floatingNets: string[];
   } | null = null;
 
   /** Set by `stop()`. Once true, `tick()` and `handleMcuEdge()`
@@ -298,7 +307,12 @@ export class CircuitSimulationService {
     const input = buildInputFromStore(
       snap as Parameters<typeof buildInputFromStore>[0],
     );
-    const { netlist, pinNetMap, nets, voltageSources } = buildNetlist(input);
+    const { netlist, pinNetMap, nets, voltageSources, railShorts, floatingNets } =
+      buildNetlist(input);
+
+    // Surface hard shorts NOW, before the WASM solve, so the warning shows
+    // even if the solver is slow, hangs, or fails on the degenerate circuit.
+    this.electricalStore.reportRailShorts?.(railShorts);
 
     // Tell the scheduler exactly which vectors we want — every net
     // voltage + every branch current.
@@ -326,6 +340,8 @@ export class CircuitSimulationService {
       nets,
       voltageSources,
       analysisKind: input.analysis.kind,
+      railShorts,
+      floatingNets,
     };
     this.publishFromLastResult();
   }
@@ -381,6 +397,8 @@ export class CircuitSimulationService {
       analysisMode: ctx.analysisKind,
       timeWaveforms,
       warnings: result.warnings,
+      railShorts: ctx.railShorts,
+      floatingNets: ctx.floatingNets,
     });
   }
 

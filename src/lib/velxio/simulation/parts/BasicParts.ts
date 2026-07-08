@@ -1,6 +1,8 @@
 // @ts-nocheck
 import { PartSimulationRegistry } from "@/lib/velxio/simulation/parts/PartSimulationRegistry";
 import { useElectricalStore } from "@/services/velxio/store/useElectricalStore";
+import { useSimulatorStore } from "@/services/velxio/store/useSimulatorStore";
+import { isCircuitPowered } from "@/lib/velxio/simulation/isCircuitPowered";
 import { emitPropertyChange } from "@/lib/velxio/simulation/parts/partUtils";
 
 /**
@@ -188,6 +190,22 @@ PartSimulationRegistry.register("led", {
     const HOLD_MS = 500;
 
     const update = () => {
+      const sim = useSimulatorStore.getState();
+      // Only glow while the simulation is actually running. The analog solver
+      // also runs during editing (to keep wire voltages live), but a real LED
+      // is dark until the circuit is powered.
+      if (!isCircuitPowered(sim.boards)) {
+        el.value = false;
+        el.brightness = 0;
+        return;
+      }
+      // Burnt out: an over-current run destroyed this LED. It stays dark for
+      // the rest of the run (the store clears damage on stop/reset).
+      if (sim.damagedComponents[componentId]) {
+        el.value = false;
+        el.brightness = 0;
+        return;
+      }
       // SPICE is always active. Use real branch current for analog
       // brightness (0..1). The SPICE mapper emits a V-sense zero-volt
       // source in series with the diode (`V_<componentId>_sense`) so

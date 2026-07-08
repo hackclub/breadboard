@@ -87,6 +87,78 @@ function emitInductor(
   };
 }
 
+function firstConnectedPin(
+  netLookup: NetLookup,
+  names: readonly string[],
+): string | null {
+  for (const name of names) {
+    const net = netLookup(name);
+    if (net) return net;
+  }
+  return null;
+}
+
+function pinPair(
+  netLookup: NetLookup,
+  aNames: readonly string[],
+  bNames: readonly string[],
+): [string, string] | null {
+  const a = firstConnectedPin(netLookup, aNames);
+  const b = firstConnectedPin(netLookup, bNames);
+  if (!a || !b) return null;
+  return [a, b];
+}
+
+function boolLike(value: unknown): boolean {
+  return value === true || value === 1 || value === "1" || value === "true";
+}
+
+function diodeWithSense(
+  comp: ComponentForSpice,
+  name: string,
+  anode: string,
+  cathode: string,
+  modelName: string,
+  modelLine: string,
+): SpiceEmission {
+  const midNet = `${comp.id}_${name}_sense_mid`;
+  return {
+    cards: [
+      `V_${comp.id}_${name}_sense ${anode} ${midNet} DC 0`,
+      `D_${comp.id}_${name} ${midNet} ${cathode} ${modelName}`,
+    ],
+    modelsUsed: new Set([modelLine]),
+  };
+}
+
+function ledChannelCards(
+  comp: ComponentForSpice,
+  name: string,
+  anode: string,
+  cathode: string,
+  color: keyof typeof LED_MODELS,
+): SpiceEmission {
+  const model = LED_MODELS[color] ?? LED_MODELS.red;
+  return diodeWithSense(
+    comp,
+    name,
+    anode,
+    cathode,
+    model.name,
+    `.model ${model.name} D(Is=${model.Is} N=${model.n} Rs=${model.rs})`,
+  );
+}
+
+function tactileButton(comp: ComponentForSpice, netLookup: NetLookup) {
+  // Wokwi tactile buttons expose four legs. The two "1.*" legs are one
+  // terminal, the two "2.*" legs are the other; pressing bridges terminals.
+  const pins =
+    pinPair(netLookup, ["1.l", "1.r", "1", "A"], ["2.l", "2.r", "2", "B"]) ??
+    twoPin(comp, netLookup, "A", "B");
+  if (!pins) return null;
+  return emitResistor(comp, pins, boolLike(comp.properties.pressed) ? 0.01 : 1e9);
+}
+
 // ── LED colour → Shockley params (tuned so V_f at 10 mA matches datasheet) ──
 // Rs is the LED's bulk series resistance (~12 Ω for a 5 mm indicator). It's
 // small enough to be negligible next to a real current-limiting resistor
@@ -671,27 +743,113 @@ const MAPPERS: Record<string, Mapper> = {
   },
 
   // Switch / pushbutton
-  pushbutton: (comp, netLookup) => {
-    const pins = twoPin(comp, netLookup, "1.l", "2.l");
-    const alt = pins ?? twoPin(comp, netLookup, "A", "B");
-    if (!alt) return null;
-    const pressed = Boolean(comp.properties.pressed);
-    const R = pressed ? 0.01 : 1e9;
-    return emitResistor(comp, alt, R);
-  },
-  "pushbutton-6mm": (comp, netLookup) => {
-    const pins = twoPin(comp, netLookup, "1.l", "2.l");
-    const alt = pins ?? twoPin(comp, netLookup, "A", "B");
-    if (!alt) return null;
-    const pressed = Boolean(comp.properties.pressed);
-    const R = pressed ? 0.01 : 1e9;
-    return emitResistor(comp, alt, R);
-  },
+  pushbutton: tactileButton,
+  "pushbutton-6mm": tactileButton,
   "slide-switch": (comp, netLookup) => {
-    const pins = twoPin(comp, netLookup, "1", "2");
+    const pins =
+      twoPin(comp, netLookup, "1", "2") ??
+      twoPin(comp, netLookup, "1", "3") ??
+      twoPin(comp, netLookup, "A", "B");
     if (!pins) return null;
-    const closed = comp.properties.value === 1 || comp.properties.value === "1";
+    const closed = boolLike(comp.properties.value);
     return emitResistor(comp, pins, closed ? 0.01 : 1e9);
+  },
+  "dip-switch-8": (comp, netLookup) => {
+    const values = Array.isArray(comp.properties.values)
+      ? comp.properties.values
+      : [];
+    const cards: string[] = [];
+    for (let i = 1; i <= 8; i += 1) {
+      const pins =
+        twoPin(comp, netLookup, `${i}A`, `${i}B`) ??
+        twoPin(comp, netLookup, `${i}a`, `${i}b`);
+      if (!pins) continue;
+      const closed = boolLike(values[i - 1] ?? comp.properties[`switch${i}`]);
+      cards.push(`R_${comp.id}_${i} ${pins[0]} ${pins[1]} ${closed ? 0.01 : 1e9}`);
+    }
+    if (cards.length === 0) return null;
+    return { cards, modelsUsed: new Set() };
+  },
+  "tilt-switch": (comp, netLookup) => {
+    const pins =
+      twoPin(comp, netLookup, "1", "2") ??
+      twoPin(comp, netLookup, "A", "B") ??
+      twoPin(comp, netLookup, "OUT", "GND");
+    if (!pins) return null;
+    const tilted = boolLike(comp.properties.tilted ?? comp.properties.active);
+    return emitResistor(comp, pins, tilted ? 0.01 : 1e9);
+  },
+  "vibration-switch": (comp, netLookup, ctx) => {
+    const out = netLookup("OUT") ?? netLookup("SIG") ?? netLookup("DO");
+    const gnd = netLookup("GND") ?? netLookup("-");
+    if (!out || !gnd) return null;
+    const active = boolLike(comp.properties.active);
+    const activeHigh = comp.properties.activeHigh !== false;
+    const volts = active === activeHigh ? ctx.vcc : 0;
+    return {
+      cards: [
+        `V_${comp.id}_out ${out} ${gnd} DC ${volts}`,
+        `R_${comp.id}_load ${out} ${gnd} 1Meg`,
+      ],
+      modelsUsed: new Set(),
+    };
+  },
+
+  "rgb-led": (comp, netLookup) => {
+    const common = netLookup("COM") ?? netLookup("C") ?? netLookup("GND");
+    if (!common) return null;
+    const cards: string[] = [];
+    const modelsUsed = new Set<string>();
+    for (const [pin, color] of [
+      ["R", "red"],
+      ["G", "green"],
+      ["B", "blue"],
+    ] as const) {
+      const channel = netLookup(pin);
+      if (!channel) continue;
+      const emission = ledChannelCards(comp, pin.toLowerCase(), channel, common, color);
+      cards.push(...emission.cards);
+      for (const model of emission.modelsUsed) modelsUsed.add(model);
+    }
+    if (cards.length === 0) return null;
+    return { cards, modelsUsed };
+  },
+  "led-bar-graph": (comp, netLookup) => {
+    const cards: string[] = [];
+    const modelsUsed = new Set<string>();
+    for (let i = 1; i <= 10; i += 1) {
+      const anode = netLookup(`A${i}`);
+      const cathode = netLookup(`C${i}`) ?? netLookup(`K${i}`);
+      if (!anode || !cathode) continue;
+      const emission = ledChannelCards(comp, `bar${i}`, anode, cathode, "red");
+      cards.push(...emission.cards);
+      for (const model of emission.modelsUsed) modelsUsed.add(model);
+    }
+    if (cards.length === 0) return null;
+    return { cards, modelsUsed };
+  },
+  "buzzer-passive": (comp, netLookup) => {
+    const pins =
+      twoPin(comp, netLookup, "+", "-") ??
+      twoPin(comp, netLookup, "VCC", "GND") ??
+      twoPin(comp, netLookup, "1", "2");
+    if (!pins) return null;
+    const mid = `${comp.id}_coilmid`;
+    return {
+      cards: [
+        `R_${comp.id}_coil ${pins[0]} ${mid} 16`,
+        `L_${comp.id}_coil ${mid} ${pins[1]} 1m`,
+      ],
+      modelsUsed: new Set(),
+    };
+  },
+  "buzzer-active": (comp, netLookup) => {
+    const pins =
+      twoPin(comp, netLookup, "+", "-") ??
+      twoPin(comp, netLookup, "VCC", "GND") ??
+      twoPin(comp, netLookup, "1", "2");
+    if (!pins) return null;
+    return emitResistor(comp, pins, 100);
   },
 
   // Rotary potentiometer — 3-terminal divider. `value` lives in [min..max]
@@ -756,7 +914,10 @@ const MAPPERS: Record<string, Mapper> = {
     const Rntc = ntcResistance(Tc, R0, 298.15, beta);
     if (!vcc || !gnd || !out) {
       // Fallback for legacy 2-pin wiring ('1' / '2'): emit bare thermistor.
-      const pins = twoPin(comp, netLookup, "1", "2");
+      const pins =
+        twoPin(comp, netLookup, "1", "2") ??
+        twoPin(comp, netLookup, "+", "-") ??
+        twoPin(comp, netLookup, "A", "B");
       if (!pins) return null;
       return emitResistor(comp, pins, Rntc);
     }
@@ -1323,6 +1484,7 @@ for (const [presetId, baseId] of Object.entries(PASSIVE_PRESETS)) {
 // canvas gets a null mapping → no R_ldr / R_pull emitted → A0 net
 // floats → analogRead returns 0 even though the divider should solve.
 MAPPERS["photoresistor-sensor"] = MAPPERS["photoresistor"];
+MAPPERS["thermistor"] = MAPPERS["ntc-temperature-sensor"];
 
 /**
  * Public entry: map one Velxio component to SPICE cards.

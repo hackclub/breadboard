@@ -44,6 +44,7 @@ PartSimulationRegistry.register("tilt-switch", {
     const triggerToggle = () => {
       tilted = !tilted;
       simulator.setPinState(pin, tilted);
+      emitPropertyChange(componentId, "tilted", tilted);
       console.log(
         `[TiltSwitch] pin ${pin} → ${tilted ? "HIGH (tilted)" : "LOW (upright)"}`,
       );
@@ -78,6 +79,7 @@ PartSimulationRegistry.register("vibration-switch", {
     const setActive = (value: boolean) => {
       active = value;
       (element as any).active = active;
+      emitPropertyChange(componentId, "active", active);
       const activeHigh = (element as any).activeHigh ?? true;
       simulator.setPinState(pin, activeHigh ? active : !active);
     };

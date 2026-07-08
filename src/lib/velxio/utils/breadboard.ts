@@ -153,6 +153,13 @@ export function getBreadboardConnectedPins(
 }
 
 export function getBreadboardConnectionGroups(metadataId: string): string[][] {
+  if (metadataId === "pushbutton" || metadataId === "pushbutton-6mm") {
+    return [
+      ["1.l", "1.r", "1", "A"],
+      ["2.l", "2.r", "2", "B"],
+    ];
+  }
+
   const size = getBreadboardSize(metadataId);
   if (!size) return [];
   const columns = BREADBOARD_COLUMNS[size];

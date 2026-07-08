@@ -2,6 +2,8 @@ import subprocess
 import tempfile
 import asyncio
 import base64
+import gzip
+import json
 import os
 import re
 import time
@@ -234,6 +236,7 @@ class ArduinoCLIService:
         self.cli_path = cli_path
         self._library_search_cache: dict[str, tuple[float, dict]] = {}
         self._library_list_cache: tuple[float, dict] | None = None
+        self._library_index_cache: tuple[float, list[dict]] | None = None
         self._library_index_checked = False
         self._ensure_board_urls()
         self._ensure_core_installed()
@@ -242,6 +245,133 @@ class ArduinoCLIService:
     def _clear_library_caches(self):
         self._library_search_cache.clear()
         self._library_list_cache = None
+
+    def _arduino_config(self) -> dict:
+        try:
+            result = subprocess.run(
+                [self.cli_path, "config", "dump", "--format", "json"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return json.loads(result.stdout)
+        except Exception:
+            pass
+        return {}
+
+    def _library_index_paths(self) -> list[Path]:
+        cfg = self._arduino_config()
+        dirs = cfg.get("directories", {}) if isinstance(cfg, dict) else {}
+        bases = [
+            dirs.get("data"),
+            Path.home() / ".arduino15",
+            Path("/root/.arduino15"),
+            Path("/home/user/.arduino15"),
+        ]
+        paths: list[Path] = []
+        for base in bases:
+            if not base:
+                continue
+            p = Path(base)
+            paths.extend([p / "library_index.json", p / "library_index.json.gz"])
+        return paths
+
+    def _read_library_index_file(self, path: Path) -> list[dict] | None:
+        try:
+            if path.suffix == ".gz":
+                with gzip.open(path, "rt", encoding="utf-8", errors="replace") as fh:
+                    data = json.load(fh)
+            else:
+                data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        except Exception:
+            return None
+        libraries = data.get("libraries") if isinstance(data, dict) else None
+        return libraries if isinstance(libraries, list) else None
+
+    def _load_library_index(self) -> list[dict]:
+        paths = [p for p in self._library_index_paths() if p.exists()]
+        newest_mtime = max((p.stat().st_mtime for p in paths), default=0)
+        cached = self._library_index_cache
+        if cached and cached[0] >= newest_mtime:
+            return cached[1]
+
+        for path in paths:
+            libraries = self._read_library_index_file(path)
+            if libraries is not None:
+                self._library_index_cache = (newest_mtime, libraries)
+                return libraries
+
+        return []
+
+    @staticmethod
+    def _version_key(version: str) -> tuple[int, ...]:
+        parts = str(version).split(".")
+        if any(not part.isdigit() for part in parts):
+            return (0,)
+        return tuple(int(part) for part in parts)
+
+    def _search_library_index(self, query: str) -> list[dict]:
+        needle = query.casefold()
+        grouped: dict[str, dict] = {}
+        for entry in self._load_library_index():
+            if not isinstance(entry, dict):
+                continue
+            haystack = " ".join(
+                str(entry.get(key, ""))
+                for key in ("name", "author", "sentence", "paragraph", "category")
+            ).casefold()
+            if needle not in haystack:
+                continue
+
+            name = str(entry.get("name", "")).strip()
+            version = str(entry.get("version", "")).strip()
+            if not name:
+                continue
+
+            lib = grouped.setdefault(
+                name,
+                {
+                    "name": name,
+                    "author": entry.get("author"),
+                    "sentence": entry.get("sentence"),
+                    "paragraph": entry.get("paragraph"),
+                    "website": entry.get("website"),
+                    "category": entry.get("category"),
+                    "types": entry.get("types"),
+                    "releases": {},
+                },
+            )
+            if version:
+                lib["releases"][version] = {
+                    "version": version,
+                    "author": entry.get("author"),
+                    "sentence": entry.get("sentence"),
+                    "paragraph": entry.get("paragraph"),
+                    "website": entry.get("website"),
+                }
+
+        def score(lib: dict) -> tuple[int, str]:
+            name = str(lib.get("name", "")).casefold()
+            if name == needle:
+                rank = 0
+            elif name.startswith(needle):
+                rank = 1
+            elif needle in name:
+                rank = 2
+            else:
+                rank = 3
+            return (rank, name)
+
+        results = sorted(grouped.values(), key=score)[:80]
+        for lib in results:
+            releases = lib.get("releases") or {}
+            if releases:
+                latest_key = max(releases.keys(), key=self._version_key)
+                lib["latest"] = {**releases[latest_key], "version": latest_key}
+        return results
 
     def _ensure_library_index(self):
         if self._library_index_checked:
@@ -257,6 +387,7 @@ class ArduinoCLIService:
         if result.returncode != 0:
             message = (result.stderr or result.stdout).strip()
             print(f"[arduino-cli] Warning: Could not update library index: {message}")
+        self._library_index_cache = None
 
     def _ensure_board_urls(self):
         """Register additional board-manager URLs in arduino-cli config."""
@@ -971,6 +1102,16 @@ class ArduinoCLIService:
         cached = self._library_search_cache.get(cache_key)
         if cached and time.monotonic() - cached[0] < self.LIB_SEARCH_CACHE_SECONDS:
             return cached[1]
+
+        index = self._load_library_index()
+        if not index:
+            self._ensure_library_index()
+            index = self._load_library_index()
+        if index:
+            libraries = self._search_library_index(query)
+            response = {"success": True, "libraries": libraries}
+            self._library_search_cache[cache_key] = (time.monotonic(), response)
+            return response
 
         try:
             def _run():

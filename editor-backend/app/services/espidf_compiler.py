@@ -260,10 +260,86 @@ _QEMU_WIFI_CHANNEL = 5
 class ESPIDFCompiler:
     """Compile Arduino sketches using ESP-IDF for QEMU-compatible output."""
 
+    HEADER_LIBRARY_HINTS: dict[str, str] = {
+        "LiquidCrystal_I2C.h": "LiquidCrystal I2C",
+        "LiquidCrystal_PCF8574.h": "LiquidCrystal_PCF8574",
+        "DIYables_LCD_I2C.h": "DIYables LCD I2C",
+        "DHT.h": "DHT sensor library",
+        "OneWire.h": "OneWire",
+        "DallasTemperature.h": "DallasTemperature",
+        "NewPing.h": "NewPing",
+        "Keypad.h": "Keypad",
+        "IRremote.h": "IRremote",
+        "MFRC522.h": "MFRC522",
+        "RTClib.h": "RTClib",
+        "HX711.h": "HX711",
+        "Encoder.h": "Encoder",
+        "AccelStepper.h": "AccelStepper",
+        "ezButton.h": "ezButton",
+        "Adafruit_NeoPixel.h": "Adafruit NeoPixel",
+        "FastLED.h": "FastLED",
+        "Adafruit_GFX.h": "Adafruit GFX Library",
+        "Adafruit_SSD1306.h": "Adafruit SSD1306",
+        "Adafruit_SH110X.h": "Adafruit SH110X",
+        "Adafruit_ILI9341.h": "Adafruit ILI9341",
+        "Adafruit_ST7735.h": "Adafruit ST7735 and ST7789 Library",
+        "Adafruit_EPD.h": "Adafruit EPD",
+        "Adafruit_LEDBackpack.h": "Adafruit LED Backpack Library",
+        "Adafruit_NeoMatrix.h": "Adafruit NeoMatrix",
+        "TFT_eSPI.h": "TFT_eSPI",
+        "U8g2lib.h": "U8g2",
+        "LedControl.h": "LedControl",
+        "MD_MAX72xx.h": "MD_MAX72XX",
+        "MD_Parola.h": "MD_Parola",
+        "TM1637Display.h": "TM1637Display",
+        "Adafruit_BusIO_Register.h": "Adafruit BusIO",
+        "Adafruit_Sensor.h": "Adafruit Unified Sensor",
+        "Adafruit_BMP280.h": "Adafruit BMP280 Library",
+        "Adafruit_BME280.h": "Adafruit BME280 Library",
+        "Adafruit_BME680.h": "Adafruit BME680 Library",
+        "Adafruit_AHTX0.h": "Adafruit AHTX0",
+        "Adafruit_SHT31.h": "Adafruit SHT31 Library",
+        "Adafruit_TCS34725.h": "Adafruit TCS34725",
+        "Adafruit_TSL2591.h": "Adafruit TSL2591 Library",
+        "Adafruit_INA219.h": "Adafruit INA219",
+        "Adafruit_ADS1X15.h": "Adafruit ADS1X15",
+        "Adafruit_MPU6050.h": "Adafruit MPU6050",
+        "Adafruit_BNO055.h": "Adafruit BNO055",
+        "Adafruit_LIS3DH.h": "Adafruit LIS3DH",
+        "Adafruit_LSM6DS.h": "Adafruit LSM6DS",
+        "Adafruit_VL53L0X.h": "Adafruit VL53L0X",
+        "Adafruit_VCNL4040.h": "Adafruit VCNL4040",
+        "Adafruit_SGP30.h": "Adafruit SGP30",
+        "Adafruit_CCS811.h": "Adafruit CCS811 Library",
+        "Adafruit_MAX31855.h": "Adafruit MAX31855 library",
+        "Adafruit_MAX31865.h": "Adafruit MAX31865 library",
+        "Adafruit_MotorShield.h": "Adafruit Motor Shield V2 Library",
+        "Adafruit_PWMServoDriver.h": "Adafruit PWM Servo Driver Library",
+        "Adafruit_MCP23X17.h": "Adafruit MCP23017 Arduino Library",
+        "Adafruit_seesaw.h": "Adafruit seesaw Library",
+        "ESP32Servo.h": "ESP32Servo",
+        "ArduinoJson.h": "ArduinoJson",
+        "PubSubClient.h": "PubSubClient",
+        "ArduinoHttpClient.h": "ArduinoHttpClient",
+        "WebSocketsClient.h": "WebSockets",
+        "NTPClient.h": "NTPClient",
+        "WiFiManager.h": "WiFiManager",
+        "ESPAsyncWebServer.h": "ESPAsyncWebServer",
+        "AsyncTCP.h": "AsyncTCP",
+        "ESPAsyncTCP.h": "ESPAsyncTCP",
+        "Ethernet.h": "Ethernet",
+        "LoRa.h": "LoRa",
+        "RH_RF95.h": "RadioHead",
+        "RF24.h": "RF24",
+        "TinyGPSPlus.h": "TinyGPSPlus",
+        "TinyGsmClient.h": "TinyGSM",
+    }
+
     def __init__(self):
         self.idf_path = os.environ.get('IDF_PATH', '')
         self.arduino_path = os.environ.get('ARDUINO_ESP32_PATH', '')
         self.has_arduino = bool(self.arduino_path) and os.path.isdir(self.arduino_path)
+        self._library_index_checked = False
 
         # Try common locations on Windows dev machines
         if not self.idf_path:
@@ -560,6 +636,26 @@ class ESPIDFCompiler:
             Path('/home/user/Arduino/libraries'),
             Path('/Arduino/libraries'),
         ]
+
+        cli = shutil.which('arduino-cli')
+        if cli:
+            try:
+                result = subprocess.run(
+                    [cli, 'config', 'dump', '--format', 'json'],
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    timeout=5,
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    cfg = json.loads(result.stdout)
+                    user_dir = cfg.get('directories', {}).get('user')
+                    if user_dir:
+                        candidates.insert(0, Path(user_dir) / 'libraries')
+            except Exception as e:
+                logger.warning(f'[espidf] Could not read arduino-cli user dir: {e}')
+
         # Also check arduino-cli's data directory
         for base in [
             Path.home() / '.arduino15',
@@ -772,6 +868,13 @@ class ESPIDFCompiler:
                 if arduino_libs and arduino_libs.is_dir()
                 else None
             )
+            if src_root is None and self._install_library_for_header(header):
+                arduino_libs = self._find_arduino_libraries_dir()
+                src_root = (
+                    self._find_library_for_header(header, arduino_libs)
+                    if arduino_libs and arduino_libs.is_dir()
+                    else None
+                )
 
             # Architecture guard. A user lib that resolves the header but
             # whose library.properties declares architectures= without
@@ -937,6 +1040,51 @@ class ESPIDFCompiler:
                 if (src_root / header).exists():
                     return src_root
         return None
+
+    def _ensure_library_index(self, cli: str) -> None:
+        if self._library_index_checked:
+            return
+        self._library_index_checked = True
+        result = subprocess.run(
+            [cli, 'lib', 'update-index'],
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            timeout=60,
+        )
+        if result.returncode != 0:
+            message = (result.stderr or result.stdout).strip()
+            logger.warning(f'[espidf] Could not update Arduino library index: {message}')
+
+    def _install_library_for_header(self, header: str) -> bool:
+        """Install the known Arduino library for a missing header, if mapped."""
+        library_name = self.HEADER_LIBRARY_HINTS.get(header)
+        if not library_name:
+            return False
+        cli = shutil.which('arduino-cli')
+        if not cli:
+            logger.warning(f'[espidf] arduino-cli not found; cannot install {library_name}')
+            return False
+        logger.info(f'[espidf] Installing library for <{header}>: {library_name}')
+        try:
+            self._ensure_library_index(cli)
+            result = subprocess.run(
+                [cli, 'lib', 'install', library_name],
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                timeout=120,
+            )
+        except Exception as e:
+            logger.warning(f'[espidf] Could not install {library_name}: {e}')
+            return False
+        if result.returncode != 0:
+            message = (result.stderr or result.stdout).strip()
+            logger.warning(f'[espidf] Could not install {library_name}: {message}')
+            return False
+        return True
 
     def _create_idf_component(
         self,

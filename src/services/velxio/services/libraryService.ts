@@ -1,6 +1,11 @@
 // @ts-nocheck
 import { getApiBase } from "@/lib/velxio/lib/apiBase";
 const apiBase = () => `${getApiBase()}/libraries`;
+const searchCache = new Map<string, ArduinoLibrary[]>();
+let installedCache:
+  | { at: number; libraries: InstalledLibrary[] }
+  | null = null;
+const INSTALLED_CACHE_MS = 30_000;
 
 export interface ArduinoLibrary {
   name: string;
@@ -38,13 +43,21 @@ export interface InstalledLibrary {
 export async function searchLibraries(
   query: string,
 ): Promise<ArduinoLibrary[]> {
-  const res = await fetch(`${apiBase()}/search?q=${encodeURIComponent(query)}`);
+  const normalized = query.trim();
+  if (normalized.length < 2) return [];
+  const key = normalized.toLowerCase();
+  const cached = searchCache.get(key);
+  if (cached) return cached;
+
+  const res = await fetch(`${apiBase()}/search?q=${encodeURIComponent(normalized)}`);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Unknown error" }));
     throw new Error(err.detail || "Failed to search libraries");
   }
   const data = await res.json();
-  return data.libraries || [];
+  const libraries = data.libraries || [];
+  searchCache.set(key, libraries);
+  return libraries;
 }
 
 export async function installLibrary(
@@ -62,6 +75,7 @@ export async function installLibrary(
     body: JSON.stringify({ name, version: version ?? null }),
   });
   const data = await res.json();
+  if (data.success) installedCache = null;
   return data;
 }
 
@@ -74,17 +88,27 @@ export async function uninstallLibrary(
     body: JSON.stringify({ name }),
   });
   const data = await res.json();
+  if (data.success) installedCache = null;
   return data;
 }
 
 export async function getInstalledLibraries(): Promise<InstalledLibrary[]> {
+  if (
+    installedCache &&
+    Date.now() - installedCache.at < INSTALLED_CACHE_MS
+  ) {
+    return installedCache.libraries;
+  }
+
   const res = await fetch(`${apiBase()}/list`);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Unknown error" }));
     throw new Error(err.detail || "Failed to fetch installed libraries");
   }
   const data = await res.json();
-  return data.libraries || [];
+  const libraries = data.libraries || [];
+  installedCache = { at: Date.now(), libraries };
+  return libraries;
 }
 
 /**

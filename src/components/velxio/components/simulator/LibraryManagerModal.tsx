@@ -80,16 +80,23 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({
     if (isOpen) fetchInstalled();
   }, [isOpen, fetchInstalled]);
 
-  // Search: immediate on open (empty query), debounced when typing
+  // Search only after the user types. Empty queries make arduino-cli scan the
+  // entire library index, which is slow and not useful in this modal.
   useEffect(() => {
     if (!isOpen) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    const delay = searchQuery ? 400 : 0;
+    const query = searchQuery.trim();
+    if (query.length < 2) {
+      setLoadingSearch(false);
+      setSearchResults([]);
+      return;
+    }
+
     debounceRef.current = setTimeout(async () => {
       setLoadingSearch(true);
       setStatusMsg(null);
       try {
-        const results = await searchLibraries(searchQuery);
+        const results = await searchLibraries(query);
         setSearchResults(results);
       } catch (e: unknown) {
         setStatusMsg({
@@ -100,7 +107,7 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({
       } finally {
         setLoadingSearch(false);
       }
-    }, delay);
+    }, 250);
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);

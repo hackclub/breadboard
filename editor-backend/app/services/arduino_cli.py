@@ -3,6 +3,8 @@ import tempfile
 import asyncio
 import base64
 import os
+import re
+import time
 from pathlib import Path
 
 from app.services.safe_paths import UnsafePathError, safe_join
@@ -30,6 +32,83 @@ class ArduinoCLIService:
     # Hard ceiling on a single arduino-cli compile. Overridable via env for
     # slower self-hosted toolchains. Mirrors the ESP-IDF path's own timeouts.
     COMPILE_TIMEOUT_SECONDS = int(os.environ.get("COMPILE_TIMEOUT_SECONDS", "180"))
+    LIB_SEARCH_CACHE_SECONDS = int(os.environ.get("LIB_SEARCH_CACHE_SECONDS", "900"))
+    LIB_LIST_CACHE_SECONDS = int(os.environ.get("LIB_LIST_CACHE_SECONDS", "30"))
+
+    HEADER_LIBRARY_HINTS: dict[str, str] = {
+        "LiquidCrystal_I2C.h": "LiquidCrystal I2C",
+        "LiquidCrystal_PCF8574.h": "LiquidCrystal_PCF8574",
+        "DIYables_LCD_I2C.h": "DIYables LCD I2C",
+        "DHT.h": "DHT sensor library",
+        "OneWire.h": "OneWire",
+        "DallasTemperature.h": "DallasTemperature",
+        "NewPing.h": "NewPing",
+        "Keypad.h": "Keypad",
+        "IRremote.h": "IRremote",
+        "MFRC522.h": "MFRC522",
+        "RTClib.h": "RTClib",
+        "HX711.h": "HX711",
+        "Encoder.h": "Encoder",
+        "AccelStepper.h": "AccelStepper",
+        "ezButton.h": "ezButton",
+        "Adafruit_NeoPixel.h": "Adafruit NeoPixel",
+        "FastLED.h": "FastLED",
+        "Adafruit_GFX.h": "Adafruit GFX Library",
+        "Adafruit_SSD1306.h": "Adafruit SSD1306",
+        "Adafruit_SH110X.h": "Adafruit SH110X",
+        "Adafruit_ILI9341.h": "Adafruit ILI9341",
+        "Adafruit_ST7735.h": "Adafruit ST7735 and ST7789 Library",
+        "Adafruit_EPD.h": "Adafruit EPD",
+        "Adafruit_LEDBackpack.h": "Adafruit LED Backpack Library",
+        "Adafruit_NeoMatrix.h": "Adafruit NeoMatrix",
+        "TFT_eSPI.h": "TFT_eSPI",
+        "U8g2lib.h": "U8g2",
+        "LedControl.h": "LedControl",
+        "MD_MAX72xx.h": "MD_MAX72XX",
+        "MD_Parola.h": "MD_Parola",
+        "TM1637Display.h": "TM1637Display",
+        "Adafruit_BusIO_Register.h": "Adafruit BusIO",
+        "Adafruit_Sensor.h": "Adafruit Unified Sensor",
+        "Adafruit_BMP280.h": "Adafruit BMP280 Library",
+        "Adafruit_BME280.h": "Adafruit BME280 Library",
+        "Adafruit_BME680.h": "Adafruit BME680 Library",
+        "Adafruit_AHTX0.h": "Adafruit AHTX0",
+        "Adafruit_SHT31.h": "Adafruit SHT31 Library",
+        "Adafruit_TCS34725.h": "Adafruit TCS34725",
+        "Adafruit_TSL2591.h": "Adafruit TSL2591 Library",
+        "Adafruit_INA219.h": "Adafruit INA219",
+        "Adafruit_ADS1X15.h": "Adafruit ADS1X15",
+        "Adafruit_MPU6050.h": "Adafruit MPU6050",
+        "Adafruit_BNO055.h": "Adafruit BNO055",
+        "Adafruit_LIS3DH.h": "Adafruit LIS3DH",
+        "Adafruit_LSM6DS.h": "Adafruit LSM6DS",
+        "Adafruit_VL53L0X.h": "Adafruit VL53L0X",
+        "Adafruit_VCNL4040.h": "Adafruit VCNL4040",
+        "Adafruit_SGP30.h": "Adafruit SGP30",
+        "Adafruit_CCS811.h": "Adafruit CCS811 Library",
+        "Adafruit_MAX31855.h": "Adafruit MAX31855 library",
+        "Adafruit_MAX31865.h": "Adafruit MAX31865 library",
+        "Adafruit_MotorShield.h": "Adafruit Motor Shield V2 Library",
+        "Adafruit_PWMServoDriver.h": "Adafruit PWM Servo Driver Library",
+        "Adafruit_MCP23X17.h": "Adafruit MCP23017 Arduino Library",
+        "Adafruit_seesaw.h": "Adafruit seesaw Library",
+        "ESP32Servo.h": "ESP32Servo",
+        "ArduinoJson.h": "ArduinoJson",
+        "PubSubClient.h": "PubSubClient",
+        "ArduinoHttpClient.h": "ArduinoHttpClient",
+        "WebSocketsClient.h": "WebSockets",
+        "NTPClient.h": "NTPClient",
+        "WiFiManager.h": "WiFiManager",
+        "ESPAsyncWebServer.h": "ESPAsyncWebServer",
+        "AsyncTCP.h": "AsyncTCP",
+        "ESPAsyncTCP.h": "ESPAsyncTCP",
+        "Ethernet.h": "Ethernet",
+        "LoRa.h": "LoRa",
+        "RH_RF95.h": "RadioHead",
+        "RF24.h": "RF24",
+        "TinyGPSPlus.h": "TinyGPSPlus",
+        "TinyGsmClient.h": "TinyGSM",
+    }
 
     # Libraries that should be available in the editor without users opening
     # the library manager first. Keep names matching Arduino Library Manager.
@@ -153,9 +232,31 @@ class ArduinoCLIService:
 
     def __init__(self, cli_path: str = "arduino-cli"):
         self.cli_path = cli_path
+        self._library_search_cache: dict[str, tuple[float, dict]] = {}
+        self._library_list_cache: tuple[float, dict] | None = None
+        self._library_index_checked = False
         self._ensure_board_urls()
         self._ensure_core_installed()
         self._ensure_preinstalled_libraries()
+
+    def _clear_library_caches(self):
+        self._library_search_cache.clear()
+        self._library_list_cache = None
+
+    def _ensure_library_index(self):
+        if self._library_index_checked:
+            return
+        self._library_index_checked = True
+        result = subprocess.run(
+            [self.cli_path, "lib", "update-index"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if result.returncode != 0:
+            message = (result.stderr or result.stdout).strip()
+            print(f"[arduino-cli] Warning: Could not update library index: {message}")
 
     def _ensure_board_urls(self):
         """Register additional board-manager URLs in arduino-cli config."""
@@ -297,6 +398,12 @@ class ArduinoCLIService:
 
     def _ensure_preinstalled_libraries(self):
         """Install common Arduino libraries so editor compiles work out of the box."""
+        if os.environ.get("VELXIO_PREINSTALL_COMMON_LIBRARIES", "0") in (
+            "0", "false", "False", "",
+        ):
+            print("[arduino-cli] Skipping bulk library preinstall; libraries install on demand.")
+            return
+
         try:
             index_result = subprocess.run(
                 [self.cli_path, "lib", "update-index"],
@@ -343,6 +450,59 @@ class ArduinoCLIService:
                     )
         except Exception as e:
             print(f"[arduino-cli] Warning: Skipping preinstalled libraries: {e}")
+
+    def _detect_external_includes(self, code: str) -> set[str]:
+        headers: set[str] = set()
+        for match in re.finditer(r'#\s*include\s*<([^>]+)>', code):
+            header = match.group(1).strip()
+            if header and "/" not in header:
+                headers.add(header)
+        return headers
+
+    def _arduino_user_libraries_dir(self) -> Path | None:
+        try:
+            result = subprocess.run(
+                [self.cli_path, "config", "dump", "--format", "json"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                import json
+
+                cfg = json.loads(result.stdout)
+                user_dir = cfg.get("directories", {}).get("user")
+                if user_dir:
+                    return Path(user_dir) / "libraries"
+        except Exception:
+            pass
+        return Path.home() / "Arduino" / "libraries"
+
+    def _header_installed(self, header: str) -> bool:
+        libs_dir = self._arduino_user_libraries_dir()
+        if not libs_dir or not libs_dir.is_dir():
+            return False
+        for lib_dir in libs_dir.iterdir():
+            if not lib_dir.is_dir():
+                continue
+            if (lib_dir / header).exists() or (lib_dir / "src" / header).exists():
+                return True
+        return False
+
+    async def _ensure_libraries_for_headers(self, headers: set[str]) -> None:
+        for header in sorted(headers):
+            library_name = self.HEADER_LIBRARY_HINTS.get(header)
+            if not library_name or self._header_installed(header):
+                continue
+            print(f"[arduino-cli] Installing library for <{header}>: {library_name}")
+            result = await self.install_library(library_name)
+            if not result.get("success"):
+                print(
+                    f"[arduino-cli] Warning: could not install {library_name} "
+                    f"for <{header}>: {result.get('error')}"
+                )
 
     def _core_id_for_fqbn(self, fqbn: str) -> str | None:
         """Extract the core ID needed for a given FQBN."""
@@ -485,6 +645,15 @@ class ArduinoCLIService:
         print(f"\n=== Starting compilation ===")
         print(f"Board: {board_fqbn}")
         print(f"Files: {[f['name'] for f in files]}")
+
+        needed_headers: set[str] = set()
+        for file_entry in files:
+            if file_entry.get("name", "").endswith((".ino", ".h", ".hpp", ".c", ".cpp")):
+                needed_headers.update(
+                    self._detect_external_includes(file_entry.get("content", ""))
+                )
+        if needed_headers:
+            await self._ensure_libraries_for_headers(needed_headers)
 
         # Create temporary directory for sketch
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -794,6 +963,15 @@ class ArduinoCLIService:
         """
         Search for Arduino libraries
         """
+        query = (query or "").strip()
+        if len(query) < 2:
+            return {"success": True, "libraries": []}
+
+        cache_key = query.casefold()
+        cached = self._library_search_cache.get(cache_key)
+        if cached and time.monotonic() - cached[0] < self.LIB_SEARCH_CACHE_SECONDS:
+            return cached[1]
+
         try:
             def _run():
                 return subprocess.run(
@@ -832,7 +1010,9 @@ class ArduinoCLIService:
                         latest_key = max(releases.keys(), key=_parse_version)
                         lib["latest"] = {**releases[latest_key], "version": latest_key}
 
-                return {"success": True, "libraries": libraries}
+                response = {"success": True, "libraries": libraries}
+                self._library_search_cache[cache_key] = (time.monotonic(), response)
+                return response
             except json.JSONDecodeError:
                 return {"success": False, "error": "Invalid output format from arduino-cli"}
 
@@ -860,6 +1040,7 @@ class ArduinoCLIService:
 
         try:
             print(f"Installing library: {library_name}")
+            self._ensure_library_index()
 
             # Handle "Name@version" syntax for versioned installs
             # Only quote if the version part is valid semver (major.minor.patch)
@@ -887,6 +1068,7 @@ class ArduinoCLIService:
 
             if result.returncode == 0:
                 print(f"Successfully installed {library_name}")
+                self._clear_library_caches()
                 return {"success": True, "stdout": result.stdout}
             else:
                 # If a specific version failed, retry with plain name (latest) in case
@@ -904,6 +1086,7 @@ class ArduinoCLIService:
                     result = await asyncio.to_thread(_run_plain)
                     if result.returncode == 0:
                         print(f"Successfully installed {plain_name} (fallback to latest)")
+                        self._clear_library_caches()
                         return {
                             "success": True,
                             "stdout": result.stdout,
@@ -1040,6 +1223,10 @@ class ArduinoCLIService:
         """
         List all installed Arduino libraries
         """
+        cached = self._library_list_cache
+        if cached and time.monotonic() - cached[0] < self.LIB_LIST_CACHE_SECONDS:
+            return cached[1]
+
         try:
             def _run():
                 return subprocess.run(
@@ -1073,7 +1260,9 @@ class ArduinoCLIService:
                 else:
                     libraries = []
 
-                return {"success": True, "libraries": libraries}
+                response = {"success": True, "libraries": libraries}
+                self._library_list_cache = (time.monotonic(), response)
+                return response
 
             except json.JSONDecodeError:
                 return {"success": False, "error": "Invalid output format from arduino-cli"}
@@ -1099,6 +1288,7 @@ class ArduinoCLIService:
 
             if result.returncode == 0:
                 print(f"Successfully uninstalled {library_name}")
+                self._clear_library_caches()
                 return {"success": True, "stdout": result.stdout}
             else:
                 print(f"Failed to uninstall {library_name}: {result.stderr}")

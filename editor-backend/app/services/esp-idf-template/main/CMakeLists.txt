@@ -64,28 +64,6 @@ if(DEFINED ENV{ARDUINO_ESP32_PATH})
         target_link_libraries(${COMPONENT_LIB} PUBLIC esp32_camera_prebuilt)
     endif()
 
-    # arduino-esp32 v2.x's generic `esp32` variant pins_arduino.h does NOT
-    # define LED_BUILTIN, so the default Arduino Blink sketch (which Velxio
-    # ships in every new project) fails to compile with
-    #   error: 'LED_BUILTIN' was not declared in this scope
-    # Provide a fallback so sketches "just compile". GPIO 2 is the
-    # convention on most ESP32 dev boards (DOIT, NodeMCU, Wemos D1 R32);
-    # for ESP32-CAM where GPIO 2 isn't broken out, the user should use an
-    # explicit pin number — but this default keeps the new-project flow
-    # smooth.
-    #
-    # SKIP on ESP32-C3 and S3 variants: their pins_arduino.h DOES define
-    # LED_BUILTIN already (as `static const uint8_t LED_BUILTIN = ...;`
-    # plus `#define LED_BUILTIN LED_BUILTIN`). Pre-defining it from the
-    # command line clashes with the self-define: the preprocessor expands
-    # `static const uint8_t LED_BUILTIN = ...` to `static const uint8_t 2 = ...`
-    # which is a syntax error. Only set the fallback for the generic ESP32
-    # Xtensa variant that genuinely lacks the symbol.
-    if(NOT IDF_TARGET STREQUAL "esp32c3" AND NOT IDF_TARGET STREQUAL "esp32s3")
-        target_compile_definitions(${COMPONENT_LIB} PRIVATE
-            "LED_BUILTIN=2")
-    endif()
-
     # Relax `-Werror=` for user sketches. ESP-IDF defaults treat several
     # warning categories as errors (-Werror=comment, -Werror=missing-field-
     # initializers, etc.) which is great for IDF itself but ruthless for

@@ -393,6 +393,29 @@ class ESPIDFCompiler:
         """Check if sketch uses WiFi."""
         return bool(re.search(r'#include\s*[<"]WiFi\.h[">]|WiFi\.begin\(', code))
 
+    def _detect_bluetooth_usage(self, code: str) -> bool:
+        """Check if sketch uses ESP32 Bluetooth/BLE APIs."""
+        return bool(re.search(
+            r'#include\s*[<"](BluetoothSerial|BLEDevice|NimBLEDevice)\.h[">]|'
+            r'\b(BluetoothSerial|BLEDevice|NimBLEDevice)\b',
+            code,
+        ))
+
+    def _detect_camera_usage(self, code: str) -> bool:
+        return bool(re.search(r'#include\s*[<"]esp_camera\.h[">]|\besp_camera_init\s*\(', code))
+
+    def _detect_feature_flags(self, files: list[dict]) -> dict[str, bool]:
+        code = '\n'.join(
+            f.get('content', '')
+            for f in files
+            if f.get('name', '').endswith(('.ino', '.h', '.hpp', '.c', '.cpp'))
+        )
+        return {
+            'wifi': self._detect_wifi_usage(code) or self._detect_webserver_usage(code),
+            'bluetooth': self._detect_bluetooth_usage(code),
+            'camera': self._detect_camera_usage(code),
+        }
+
     def _detect_webserver_usage(self, code: str) -> bool:
         """Check if sketch uses WebServer."""
         return bool(re.search(
@@ -1429,10 +1452,16 @@ class ESPIDFCompiler:
 
         return normalized
 
-    def _render_sdkconfig(self, normalized: dict, template_dir: Path) -> str:
+    def _render_sdkconfig(
+        self,
+        normalized: dict,
+        template_dir: Path,
+        feature_flags: dict[str, bool] | None = None,
+    ) -> str:
         """Render sdkconfig.defaults from the .in template + normalised opts."""
         template_path = template_dir / 'sdkconfig.defaults.in'
         template_text = template_path.read_text(encoding='utf-8')
+        feature_flags = feature_flags or {}
 
         # ── Flash mode (exactly one of QIO/DIO/QOUT/DOUT) ─────────────
         flash_mode = normalized['flashMode']
@@ -1482,12 +1511,34 @@ class ESPIDFCompiler:
                 psram_chunks.append('CONFIG_SPIRAM_MODE_QUAD=y')
         psram_lines = '\n'.join(psram_chunks)
 
+        wifi_enabled = bool(feature_flags.get('wifi'))
+        wifi_lines = 'CONFIG_ESP_WIFI_ENABLED=y' if wifi_enabled else 'CONFIG_ESP_WIFI_ENABLED=n'
+        lwip_lines = (
+            'CONFIG_LWIP_IP4_REASSEMBLY=y\nCONFIG_LWIP_IP6_REASSEMBLY=y'
+            if wifi_enabled
+            else 'CONFIG_LWIP_IP4_REASSEMBLY=n\nCONFIG_LWIP_IP6_REASSEMBLY=n'
+        )
+
+        bluetooth_enabled = bool(feature_flags.get('bluetooth'))
+        bluetooth_lines = (
+            '# Bluedroid stack — the default arduino-esp32 BLEDevice.h library targets Bluedroid.\n'
+            'CONFIG_BT_ENABLED=y\n'
+            'CONFIG_BT_BLUEDROID_ENABLED=y\n'
+            'CONFIG_BTDM_CTRL_MODE_BR_EDR_BLE=y\n'
+            'CONFIG_BT_BLE_ENABLED=y'
+            if bluetooth_enabled
+            else 'CONFIG_BT_ENABLED=n\nCONFIG_BT_BLUEDROID_ENABLED=n\nCONFIG_BT_BLE_ENABLED=n'
+        )
+
         substitutions = {
             'FLASH_MODE_LINES': flash_mode_lines,
             'FLASH_FREQ_LINES': flash_freq_lines,
             'FLASH_SIZE_LINES': flash_size_lines,
             'CPU_FREQ_LINES': cpu_freq_lines,
             'PSRAM_LINES': psram_lines,
+            'WIFI_LINES': wifi_lines,
+            'LWIP_LINES': lwip_lines,
+            'BLUETOOTH_LINES': bluetooth_lines,
             'ARDUHAL_LOG_LEVEL': str(
                 self._DEBUG_LEVEL_NUMBER[normalized['coreDebugLevel']]
             ),
@@ -1789,15 +1840,22 @@ class ESPIDFCompiler:
             }
 
         options_hash = hashlib.sha256(
-            json.dumps(normalized_opts, sort_keys=True).encode()
+            json.dumps(
+                {
+                    'board_options': normalized_opts,
+                    'features': self._detect_feature_flags(files),
+                },
+                sort_keys=True,
+            ).encode()
         ).hexdigest()[:12]
+        feature_flags = self._detect_feature_flags(files)
 
         if _USE_PERSISTENT_DIR:
             project_dir = _prepare_persistent_project_dir(idf_target, options_hash)
             logger.info(f'[espidf] Using persistent build dir: {project_dir}')
             return await self._compile_in_dir(
                 project_dir, files, idf_target, is_c3,
-                progress_callback, normalized_opts, spiffs_files,
+                progress_callback, normalized_opts, spiffs_files, feature_flags,
             )
 
         with tempfile.TemporaryDirectory(prefix='espidf_') as temp_dir:
@@ -1806,7 +1864,7 @@ class ESPIDFCompiler:
             logger.info(f'[espidf] Using ephemeral build dir: {project_dir}')
             return await self._compile_in_dir(
                 project_dir, files, idf_target, is_c3,
-                progress_callback, normalized_opts, spiffs_files,
+                progress_callback, normalized_opts, spiffs_files, feature_flags,
             )
 
     async def _compile_in_dir(
@@ -1818,6 +1876,7 @@ class ESPIDFCompiler:
         progress_callback: Optional[ProgressCallback] = None,
         board_options: dict | None = None,
         spiffs_files: list[dict] | None = None,
+        feature_flags: dict[str, bool] | None = None,
     ) -> dict:
         """Inner compile body: writes sketch + libs into `project_dir`,
         runs cmake + ninja, merges binaries. Caller is responsible for
@@ -1833,7 +1892,11 @@ class ESPIDFCompiler:
         # user's options. Overwrites the static file copied from the
         # template tree. Doing this BEFORE cmake configure means the new
         # CONFIG_* lines reach kconfig on its first read.
-        rendered_sdkconfig = self._render_sdkconfig(board_options, _TEMPLATE_DIR)
+        rendered_sdkconfig = self._render_sdkconfig(
+            board_options,
+            _TEMPLATE_DIR,
+            feature_flags,
+        )
         (project_dir / 'sdkconfig.defaults').write_text(
             rendered_sdkconfig, encoding='utf-8',
         )
@@ -1995,6 +2058,7 @@ class ESPIDFCompiler:
             f'-DIDF_TARGET={idf_target}',
             '-DCMAKE_BUILD_TYPE=Release',
             f'-DSDKCONFIG_DEFAULTS={project_dir / "sdkconfig.defaults"}',
+            f'-DVELXIO_ENABLE_CAMERA={1 if feature_flags and feature_flags.get("camera") else 0}',
             str(project_dir),
         ]
 

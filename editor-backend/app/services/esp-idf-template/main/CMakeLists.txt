@@ -13,13 +13,15 @@ if(DEFINED ENV{ARDUINO_ESP32_PATH})
     # Normalize Windows backslashes → forward slashes; otherwise CMake
     # parses the resulting paths as escape sequences (\E, \U etc).
     file(TO_CMAKE_PATH "$ENV{ARDUINO_ESP32_PATH}" _arduino_path_norm)
-    set(_cam_root "${_arduino_path_norm}/tools/sdk/${IDF_TARGET}/include/esp32-camera")
     set(_cam_includes "")
-    if(EXISTS "${_cam_root}/driver/include")
-        list(APPEND _cam_includes "${_cam_root}/driver/include")
-    endif()
-    if(EXISTS "${_cam_root}/conversions/include")
-        list(APPEND _cam_includes "${_cam_root}/conversions/include")
+    if(VELXIO_ENABLE_CAMERA)
+        set(_cam_root "${_arduino_path_norm}/tools/sdk/${IDF_TARGET}/include/esp32-camera")
+        if(EXISTS "${_cam_root}/driver/include")
+            list(APPEND _cam_includes "${_cam_root}/driver/include")
+        endif()
+        if(EXISTS "${_cam_root}/conversions/include")
+            list(APPEND _cam_includes "${_cam_root}/conversions/include")
+        endif()
     endif()
 
     # Glob every .cpp / .c that the espidf_compiler dropped into main/
@@ -58,7 +60,7 @@ if(DEFINED ENV{ARDUINO_ESP32_PATH})
     # target_link_libraries with INTERFACE doesn't propagate REQUIRES, which
     # is why a bare .a link fails with "undefined reference to i2c_master_…".
     set(_cam_lib "${_arduino_path_norm}/tools/sdk/${IDF_TARGET}/lib/libesp32-camera.a")
-    if(EXISTS "${_cam_lib}")
+    if(VELXIO_ENABLE_CAMERA AND EXISTS "${_cam_lib}")
         add_prebuilt_library(esp32_camera_prebuilt "${_cam_lib}"
             REQUIRES driver ${_arduino_comp_name})
         target_link_libraries(${COMPONENT_LIB} PUBLIC esp32_camera_prebuilt)

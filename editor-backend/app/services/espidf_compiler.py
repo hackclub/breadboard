@@ -757,6 +757,17 @@ class ESPIDFCompiler:
     # built for another platform and must not be pulled into an ESP32 build.
     _ESP32_LIB_ARCH = 'esp32'
 
+    # Some Arduino Library Manager entries have stale/narrow
+    # `architectures=` metadata even though the code is plain Arduino C++ and
+    # compiles on ESP32. The Frank de Brabander LiquidCrystal_I2C package is
+    # one of these in the wild; rejecting it here makes the header disappear
+    # after the Library Manager says it is installed.
+    _ESP32_ARCH_METADATA_OVERRIDE_HEADERS: frozenset[str] = frozenset({
+        'LiquidCrystal_I2C.h',
+        'LiquidCrystal_PCF8574.h',
+        'DIYables_LCD_I2C.h',
+    })
+
     def _core_provided_headers(self) -> frozenset[str]:
         """Header filenames provided by the arduino-esp32 core itself
         (its `cores/` tree plus every bundled library under `libraries/`).
@@ -905,12 +916,20 @@ class ESPIDFCompiler:
             # shims, etc.) and would not compile against ESP-IDF. Drop it.
             if src_root is not None:
                 _lib_root = src_root.parent if src_root.name == 'src' else src_root
-                if not self._library_supports_esp32(_lib_root):
+                if (
+                    not self._library_supports_esp32(_lib_root)
+                    and header not in self._ESP32_ARCH_METADATA_OVERRIDE_HEADERS
+                ):
                     logger.warning(
                         f'[espidf] <{header}> resolved to "{_lib_root.name}" but its '
                         f'library.properties architectures exclude esp32 — skipping'
                     )
                     src_root = None
+                elif not self._library_supports_esp32(_lib_root):
+                    logger.info(
+                        f'[espidf] <{header}> resolved to "{_lib_root.name}" with '
+                        'narrow architectures metadata; allowing known-compatible library'
+                    )
 
             # Tracks the "resolved to a core lib that's already compiled into
             # the arduino-esp32 component" case, so we don't fall through to

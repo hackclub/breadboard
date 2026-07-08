@@ -701,7 +701,10 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
         borderRadius: "4px",
         padding: "4px",
         userSelect: "none",
-        zIndex: isSelected ? 5 : 1,
+        // Breadboards are a backing surface: they must never paint over the
+        // parts plugged into them, even while selected. Pin them to a base
+        // layer below every other part (which sit at 1, or 5 when selected).
+        zIndex: isBreadboard(metadata.id) ? 0 : isSelected ? 5 : 1,
         pointerEvents: "auto",
         transform: properties.rotation
           ? `rotate(${properties.rotation}deg)`

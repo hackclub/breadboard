@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db/db";
 import { editorActivitySessions, projectJournals } from "@/lib/db/schema";
 
@@ -10,29 +10,38 @@ import { editorActivitySessions, projectJournals } from "@/lib/db/schema";
 export const JOURNAL_MIN_SECONDS = 10 * 60;
 
 export async function getUnjournaledSeconds(projectId: number, userId: string) {
-  const latestJournal = await db
-    .select({ createdAt: projectJournals.createdAt })
-    .from(projectJournals)
-    .where(
-      and(
-        eq(projectJournals.projectId, projectId),
-        eq(projectJournals.userId, userId),
+  const [activityRows, journalRows] = await Promise.all([
+    db
+      .select({
+        total: sql<number>`coalesce(sum(${editorActivitySessions.activeSeconds}), 0)::int`,
+      })
+      .from(editorActivitySessions)
+      .where(
+        and(
+          eq(editorActivitySessions.projectId, projectId),
+          eq(editorActivitySessions.userId, userId),
+        ),
       ),
-    )
-    .orderBy(desc(projectJournals.createdAt))
-    .limit(1);
-  const since = latestJournal[0]?.createdAt ?? new Date(0);
-  const rows = await db
-    .select({
-      total: sql<number>`coalesce(sum(${editorActivitySessions.activeSeconds}), 0)::int`,
-    })
-    .from(editorActivitySessions)
-    .where(
-      and(
-        eq(editorActivitySessions.projectId, projectId),
-        eq(editorActivitySessions.userId, userId),
-        sql`${editorActivitySessions.startedAt} > ${since}`,
+    db
+      .select({
+        covered: sql<number>`coalesce(sum(${projectJournals.activeSecondsCovered}), 0)::int`,
+      })
+      .from(projectJournals)
+      .where(
+        and(
+          eq(projectJournals.projectId, projectId),
+          eq(projectJournals.userId, userId),
+        ),
       ),
-    );
-  return rows[0]?.total ?? 0;
+  ]);
+
+  // Sessions can remain open while a journal is submitted. Comparing a
+  // session's start time with the latest journal would then hide all later
+  // activity in that same session. Each journal records the time it covers,
+  // so the reliable current remainder is total tracked time minus time already
+  // covered by earlier entries.
+  return Math.max(
+    0,
+    (activityRows[0]?.total ?? 0) - (journalRows[0]?.covered ?? 0),
+  );
 }

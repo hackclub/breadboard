@@ -186,21 +186,24 @@ export async function addProjectJournal(projectId: number, content: string) {
 export async function listProjectJournals(projectId: number) {
   const { session, project } = await getEditorProject(projectId);
   if (!project || !session || project.userId !== session.user.id) return null;
-  const entries = await db
-    .select({
-      id: projectJournals.id,
-      content: projectJournals.content,
-      createdAt: projectJournals.createdAt,
-      updatedAt: projectJournals.updatedAt,
-    })
-    .from(projectJournals)
-    .where(
-      and(
-        eq(projectJournals.projectId, projectId),
-        eq(projectJournals.userId, session.user.id),
-      ),
-    )
-    .orderBy(desc(projectJournals.createdAt));
+  const [entries, unjournaledSeconds] = await Promise.all([
+    db
+      .select({
+        id: projectJournals.id,
+        content: projectJournals.content,
+        createdAt: projectJournals.createdAt,
+        updatedAt: projectJournals.updatedAt,
+      })
+      .from(projectJournals)
+      .where(
+        and(
+          eq(projectJournals.projectId, projectId),
+          eq(projectJournals.userId, session.user.id),
+        ),
+      )
+      .orderBy(desc(projectJournals.createdAt)),
+    getUnjournaledSeconds(projectId, session.user.id),
+  ]);
   return {
     entries: entries.map((entry) => ({
       id: entry.id,
@@ -208,6 +211,7 @@ export async function listProjectJournals(projectId: number) {
       createdAt: entry.createdAt.toISOString(),
       updatedAt: entry.updatedAt ? entry.updatedAt.toISOString() : null,
     })),
+    unjournaledSeconds,
     // Mirrors the off-platform draft-only rule: once the project is submitted
     // a reviewer may be reading these entries, so they freeze.
     editable: project.status === "draft",

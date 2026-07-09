@@ -32,6 +32,12 @@ export function setActivityStatusListener(
   fn: (s: ActivityStatus) => void,
 ) {
   statusListeners.add(fn);
+  fn({
+    status: active ? "active" : "idle",
+    activeSeconds,
+    unjournaledSeconds,
+    validatedAt: lastValidatedAt || undefined,
+  });
   return () => {
     statusListeners.delete(fn);
   };

@@ -66,9 +66,16 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
       const data = (await response.json()) as {
         entries: JournalEntry[];
         editable: boolean;
+        unjournaledSeconds?: number;
       };
       setEntries(data.entries ?? []);
       setEntriesEditable(Boolean(data.editable));
+      if (typeof data.unjournaledSeconds === "number") {
+        setLiveUnjournaledSeconds(data.unjournaledSeconds);
+        setValidatedAt(Date.now());
+        setNow(Date.now());
+        setNeedsJournal(data.unjournaledSeconds >= JOURNAL_REMINDER_SECONDS);
+      }
     } finally {
       setEntriesLoaded(true);
     }
@@ -98,7 +105,7 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
     needsJournal || displayUnjournaledSeconds >= JOURNAL_REMINDER_SECONDS;
 
   useEffect(() => {
-    setActivityStatusListener((s) => {
+    return setActivityStatusListener((s) => {
       setStatus(s.status);
       setTrackedSeconds(s.activeSeconds);
       setLiveUnjournaledSeconds(s.unjournaledSeconds ?? s.activeSeconds);

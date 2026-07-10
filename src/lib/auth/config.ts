@@ -6,6 +6,7 @@ import { genericOAuth } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/db";
 import { user } from "@/lib/db/schema";
+import { syncUserToLoops } from "@/lib/loops/sync";
 
 const hackClubClientId = process.env.HACKCLUB_CLIENT_ID?.trim() ?? "";
 const hackClubClientSecret = process.env.HACKCLUB_CLIENT_SECRET?.trim() ?? "";
@@ -19,6 +20,17 @@ export const auth = betterAuth({
     accountLinking: {
       enabled: true,
       trustedProviders: ["hackclub"],
+    },
+  },
+  databaseHooks: {
+    user: {
+      create: {
+        // A fresh account starts in the "signed up, not started" stage. This
+        // never throws, so it can't block signup.
+        after: async (createdUser) => {
+          await syncUserToLoops(createdUser.id);
+        },
+      },
     },
   },
   plugins: [

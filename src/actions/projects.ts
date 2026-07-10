@@ -39,6 +39,7 @@ import {
   youtubeWatchUrl,
 } from "@/lib/youtube";
 import { offPlatformBuilds } from "@/flags";
+import { syncUserToLoops } from "@/lib/loops/sync";
 import { notifyReviewSubmitted } from "@/lib/slack/tookle";
 import type {
   CustomShipInput,
@@ -256,6 +257,7 @@ export async function createProjectFromForm(
       { userId: session.user.id, email: session.user.email },
       { title, description, kitType },
     );
+    await syncUserToLoops(session.user.id);
     revalidatePath("/platform/projects");
 
     return {
@@ -433,6 +435,7 @@ export async function shipProjectFromForm(
       data,
     );
     await notifyReviewSubmitted(projectId, "materials");
+    await syncUserToLoops(session.user.id);
     revalidatePath("/platform/projects");
     revalidatePath("/platform/admin/review");
 
@@ -557,6 +560,7 @@ export async function submitCustomProjectFromForm(
       data,
     );
     await notifyReviewSubmitted(projectId, "materials");
+    await syncUserToLoops(session.user.id);
     revalidatePath("/platform/projects");
     revalidatePath("/platform/admin/review");
 
@@ -619,6 +623,7 @@ export async function createExternalDraftFromForm(
       .where(
         and(eq(projects.id, projectId), eq(projects.userId, session.user.id)),
       );
+    await syncUserToLoops(session.user.id);
     revalidatePath("/platform/projects");
     return { success: true, project: { id: projectId } };
   } catch (error) {
@@ -1164,6 +1169,7 @@ export async function submitExternalProjectFromForm(
     };
     await shipCustomProjectForUser(owner, parsed.projectId, data);
     await notifyReviewSubmitted(parsed.projectId, "materials");
+    await syncUserToLoops(session.user.id);
     revalidatePath("/platform/projects");
     revalidatePath("/platform/admin/review");
 
@@ -1211,6 +1217,7 @@ export async function submitDemoFromForm(
       data,
     );
     await notifyReviewSubmitted(projectId, "demo");
+    await syncUserToLoops(session.user.id);
     revalidatePath("/platform/projects");
     revalidatePath("/platform/admin/review");
     return {

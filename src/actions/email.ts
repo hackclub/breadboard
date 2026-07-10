@@ -2,6 +2,7 @@
 
 import { db } from "@/lib/db/db";
 import { emailSignups, user } from "@/lib/db/schema";
+import { syncWaitlistEmailToLoops } from "@/lib/loops/sync";
 import { isValidEmail } from "@/lib/utils";
 import type { SignupState } from "@/types";
 import { eq } from "drizzle-orm";
@@ -38,6 +39,7 @@ export async function subscribe(
     }
 
     await db.insert(emailSignups).values({ email }).onConflictDoNothing();
+    await syncWaitlistEmailToLoops(email);
     return {
       success: true,
       message: "Thanks! We'll email you with more details soon.",

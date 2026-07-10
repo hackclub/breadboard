@@ -147,12 +147,14 @@ async function assertMaterialsRepoReady(codeUrl: string) {
     ["what it does", "README needs a 'What It Does' section."],
     ["how it works", "README needs a 'How It Works' section."],
     ["how to use", "README needs a 'How To Use It' section."],
-    ["wiring", "README needs a wiring/schematic section."],
     ["bill of materials", "README needs a Bill of Materials section."],
     ["firmware", "README needs a Firmware section."],
   ] as const;
   for (const [needle, message] of required) {
     if (!lower.includes(needle)) throw new Error(message);
+  }
+  if (!lower.includes("wiring") && !lower.includes("schematic")) {
+    throw new Error("README needs a wiring/schematic section.");
   }
   const snapshot = await fetchGitHubText(
     owner,

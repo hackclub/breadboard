@@ -12,7 +12,7 @@
  */
 
 import {
-  getBreadboardConnectedPins,
+  findUnsafeAttachmentShorts,
   isBreadboard,
 } from "@/lib/velxio/utils/breadboard";
 
@@ -77,7 +77,7 @@ export function getComponentPinsWorld(component: {
   const originY = component.y + offset;
 
   const rotation =
-    ((Number(component.properties?.rotation) || 0) % 360 + 360) % 360;
+    (((Number(component.properties?.rotation) || 0) % 360) + 360) % 360;
   if (rotation === 0 || !wrapper) {
     return pinInfo.map((pin: any) => ({
       name: pin.name,
@@ -206,6 +206,19 @@ export function computeBreadboardSnap(
       const connected = holesOut.length;
       if (connected === 0) continue;
 
+      // A tactile switch has duplicate legs for each terminal, but its two
+      // terminals must never land on one breadboard strip. Reject that snap
+      // candidate rather than saving a placement that immediately looks like
+      // a circuit fault.
+      if (
+        (component.metadataId === "pushbutton" ||
+          component.metadataId === "pushbutton-6mm") &&
+        findUnsafeAttachmentShorts(bb.metadataId, component.metadataId, pinMap)
+          .length > 0
+      ) {
+        continue;
+      }
+
       const score = connected * 100 - residual;
       if (score > bestScore) {
         bestScore = score;
@@ -227,31 +240,23 @@ export function computeBreadboardSnap(
 
 /**
  * Human-readable problems with a just-made attachment, for the wiring
- * issues panel: pins that missed the grid, and part pins shorted together
- * by landing on the same internal strip (both allowed, both flagged).
+ * issues panel: pins that missed the grid, and pins that are accidentally
+ * shorted by landing on the same internal strip.
  */
 export function describeAttachmentIssues(
   breadboardMetadataId: string,
+  componentMetadataId: string,
   attachment: BreadboardAttachment,
   unmappedPins: string[],
 ): string[] {
   const issues = unmappedPins.map((pin) => `${pin} not in a hole`);
 
-  // Group plugged pins by internal strip. Two pins of the same part on
-  // one strip are electrically shorted — legal, but worth a warning.
-  const stripOf = (hole: string) => {
-    const strip = [hole, ...getBreadboardConnectedPins(breadboardMetadataId, hole)];
-    return strip.sort().join(",");
-  };
-  const byStrip = new Map<string, string[]>();
-  for (const [pin, hole] of Object.entries(attachment.pinMap)) {
-    const key = stripOf(hole);
-    byStrip.set(key, [...(byStrip.get(key) ?? []), pin]);
-  }
-  for (const pinsOnStrip of byStrip.values()) {
-    if (pinsOnStrip.length > 1) {
-      issues.push(`${pinsOnStrip.join(" and ")} shorted (same strip)`);
-    }
+  for (const pinsOnStrip of findUnsafeAttachmentShorts(
+    breadboardMetadataId,
+    componentMetadataId,
+    attachment.pinMap,
+  )) {
+    issues.push(`${pinsOnStrip.join(" and ")} shorted (same strip)`);
   }
   return issues;
 }

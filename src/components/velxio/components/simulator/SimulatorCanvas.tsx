@@ -586,7 +586,12 @@ export const SimulatorCanvas = ({
     if (next && snap) {
       const bb = state.components.find((c) => c.id === next.breadboardId);
       const issues = bb
-        ? describeAttachmentIssues(bb.metadataId, next, snap.unmappedPins)
+        ? describeAttachmentIssues(
+            bb.metadataId,
+            component.metadataId,
+            next,
+            snap.unmappedPins,
+          )
         : [];
       if (issues.length > 0) {
         reportWiringIssue(componentId, component.metadataId, issues);

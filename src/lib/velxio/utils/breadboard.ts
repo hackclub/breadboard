@@ -21,6 +21,11 @@ const TOP_ROWS = ["A", "B", "C", "D", "E"] as const;
 const BOTTOM_ROWS = ["F", "G", "H", "I", "J"] as const;
 const RAILS = ["TP", "TN", "BP", "BN"] as const;
 
+const PUSHBUTTON_TERMINAL_GROUPS = [
+  ["1.l", "1.r", "1", "A"],
+  ["2.l", "2.r", "2", "B"],
+] as const;
+
 export type BreadboardPinInfo = {
   name: string;
   x: number;
@@ -153,12 +158,8 @@ export function getBreadboardConnectedPins(
 }
 
 export function getBreadboardConnectionGroups(metadataId: string): string[][] {
-  if (metadataId === "pushbutton" || metadataId === "pushbutton-6mm") {
-    return [
-      ["1.l", "1.r", "1", "A"],
-      ["2.l", "2.r", "2", "B"],
-    ];
-  }
+  const internalGroups = getInternallyConnectedPinGroups(metadataId);
+  if (internalGroups.length > 0) return internalGroups;
 
   const size = getBreadboardSize(metadataId);
   if (!size) return [];
@@ -174,4 +175,50 @@ export function getBreadboardConnectionGroups(metadataId: string): string[][] {
     groups.push(BOTTOM_ROWS.map((row) => `${row}${column}`));
   }
   return groups;
+}
+
+/**
+ * Pins that are already joined inside a component. A tactile pushbutton has
+ * two legs for each terminal, so seating both legs in one breadboard strip is
+ * expected. The switch only joins its two terminals while pressed.
+ */
+export function getInternallyConnectedPinGroups(
+  metadataId: string,
+): string[][] {
+  if (metadataId === "pushbutton" || metadataId === "pushbutton-6mm") {
+    return PUSHBUTTON_TERMINAL_GROUPS.map((group) => [...group]);
+  }
+  return [];
+}
+
+/**
+ * Returns pin sets that a breadboard attachment electrically shorts together
+ * even though the component does not join them internally. Used both while
+ * snapping a part and when explaining an already-saved attachment.
+ */
+export function findUnsafeAttachmentShorts(
+  breadboardMetadataId: string,
+  componentMetadataId: string,
+  pinMap: Record<string, string>,
+): string[][] {
+  const stripOf = (hole: string) => {
+    const strip = [
+      hole,
+      ...getBreadboardConnectedPins(breadboardMetadataId, hole),
+    ];
+    return strip.sort().join(",");
+  };
+  const pinsByStrip = new Map<string, string[]>();
+  for (const [pin, hole] of Object.entries(pinMap)) {
+    const strip = stripOf(hole);
+    pinsByStrip.set(strip, [...(pinsByStrip.get(strip) ?? []), pin]);
+  }
+
+  const internalGroups = getInternallyConnectedPinGroups(componentMetadataId);
+  return [...pinsByStrip.values()].filter((pins) => {
+    if (pins.length < 2) return false;
+    return !internalGroups.some((group) =>
+      pins.every((pin) => group.includes(pin)),
+    );
+  });
 }

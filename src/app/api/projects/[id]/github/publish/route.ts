@@ -333,9 +333,13 @@ function buildReadme({
     `# ${title}`,
     "",
     screenshotUrl ? `![${title}](${screenshotUrl})` : "",
-    desc,
     `\n> Built in [Breadboard](https://breadboard.hackclub.com), a Hack Club program. This project took ~${hours} hours of work.`,
     "",
+    section("What It Does", desc),
+    section(
+      "How It Works",
+      "The circuit is captured in `breadboard-project.json`, and the firmware that runs it is in the `firmware/` folder.",
+    ),
     section("How To Use It", howToUse),
     section(
       "Demo",

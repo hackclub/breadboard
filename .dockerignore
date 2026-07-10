@@ -12,6 +12,8 @@ editor-backend
 oldvelxio
 *.md
 !AGENTS.md
+# /workshop renders this at build time (see src/app/(marketing)/workshop/page.tsx)
+!docs/tutorial.md
 .env
 .env.*
 !.env.example

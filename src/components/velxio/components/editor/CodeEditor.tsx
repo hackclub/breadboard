@@ -40,6 +40,8 @@ export const CodeEditor = ({ readOnly = false }: { readOnly?: boolean }) => {
         }}
         onMount={(editor) => {
           if (readOnly) return;
+          const secretMarker =
+            /\s*(?:\/\*\s*breadboard-secret\s*\*\/|#\s*breadboard-secret\b)/i;
           editor.addAction({
             id: "breadboard.mark-selected-string-secret",
             label: "Mark selected string as secret",
@@ -68,6 +70,47 @@ export const CodeEditor = ({ readOnly = false }: { readOnly?: boolean }) => {
                   range: selection,
                   text: `${selected}${marker}`,
                 },
+              ]);
+            },
+          });
+          editor.addAction({
+            id: "breadboard.unmark-selected-secret",
+            label: "Unmark selected secret",
+            contextMenuGroupId: "9_cutcopypaste",
+            contextMenuOrder: 3,
+            precondition: "editorHasSelection",
+            run: (instance) => {
+              const selection = instance.getSelection();
+              const model = instance.getModel();
+              if (!selection || !model || selection.isEmpty()) return;
+
+              let range = selection;
+              let marked = model.getValueInRange(range);
+              if (!secretMarker.test(marked)) {
+                // Selecting just the quoted string is the natural workflow.
+                // Include a marker immediately after it on the same line.
+                const lineTail = model
+                  .getLineContent(selection.endLineNumber)
+                  .slice(selection.endColumn - 1);
+                const markerAfterSelection = lineTail.match(secretMarker);
+                if (
+                  selection.startLineNumber === selection.endLineNumber &&
+                  markerAfterSelection?.index === 0
+                ) {
+                  range = {
+                    ...selection,
+                    endColumn:
+                      selection.endColumn + markerAfterSelection[0].length,
+                  };
+                  marked = model.getValueInRange(range);
+                }
+              }
+              if (!secretMarker.test(marked)) {
+                window.alert("Select a marked secret value first.");
+                return;
+              }
+              instance.executeEdits("breadboard.unmark-secret", [
+                { range, text: marked.replace(secretMarker, "") },
               ]);
             },
           });

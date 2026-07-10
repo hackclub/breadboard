@@ -356,7 +356,11 @@ function attachSSD1306(
       console.info(
         `[ssd1306-i2c] not on the bus — check wiring: ${hookup.missing.join(", ")}`,
       );
-      reportWiringIssue(enforceHookupComponentId, "ssd1306-i2c", hookup.missing);
+      reportWiringIssue(
+        enforceHookupComponentId,
+        "ssd1306-i2c",
+        hookup.missing,
+      );
       return () => clearWiringIssue(enforceHookupComponentId);
     }
     clearWiringIssue(enforceHookupComponentId);
@@ -632,8 +636,17 @@ function buildDHTPayload(
   if (sensorType === "dht11") {
     // DHT11 uses whole values: [humidity, 0, temperature, 0, checksum].
     const humidity = Math.max(0, Math.min(100, Math.round(el.humidity ?? 50)));
-    const temperature = Math.max(0, Math.min(50, Math.round(el.temperature ?? 25)));
-    return new Uint8Array([humidity, 0, temperature, 0, (humidity + temperature) & 0xff]);
+    const temperature = Math.max(
+      0,
+      Math.min(50, Math.round(el.temperature ?? 25)),
+    );
+    return new Uint8Array([
+      humidity,
+      0,
+      temperature,
+      0,
+      (humidity + temperature) & 0xff,
+    ]);
   }
 
   const humidity = Math.round((el.humidity ?? 50.0) * 10); // tenths of %
@@ -693,7 +706,11 @@ function scheduleDHT22Response(
   const us = (microseconds: number) =>
     Math.round((microseconds * clockHz) / 1_000_000);
 
-  const RESPONSE_START = us(20); // DHT22 response start (~20 µs after MCU releases)
+  // The Adafruit library writes DATA HIGH, waits 40 µs, then changes the pin
+  // to INPUT_PULLUP before it starts measuring. Starting the response from
+  // that write (as we used to) consumed most of the first LOW pulse while the
+  // MCU still drove the line. Begin after the handoff, like real hardware.
+  const RESPONSE_START = us(70);
   const LOW80 = us(80); // 80 µs LOW preamble
   const HIGH80 = us(80); // 80 µs HIGH preamble
   const LOW50 = us(50); // 50 µs LOW marker before each bit
@@ -733,101 +750,100 @@ function attachDHTEvents(
   getPin: any,
   componentId: string,
 ) {
-    // wokwi-dht22 element uses 'SDA' as the data pin name (not 'DATA')
-    const pin = getPin("SDA") ?? getPin("DATA");
-    if (pin === null) return () => {};
+  // wokwi-dht22 element uses 'SDA' as the data pin name (not 'DATA')
+  const pin = getPin("SDA") ?? getPin("DATA");
+  if (pin === null) return () => {};
 
-    // Ask the simulator if it handles sensor protocols natively (e.g. ESP32
-    // delegates to backend QEMU).  If so, we only forward property updates.
-    const el = element as any;
-    const temperature = el.temperature ?? 25.0;
-    const humidity = el.humidity ?? 50.0;
+  // Ask the simulator if it handles sensor protocols natively (e.g. ESP32
+  // delegates to backend QEMU).  If so, we only forward property updates.
+  const el = element as any;
+  const temperature = el.temperature ?? 25.0;
+  const humidity = el.humidity ?? 50.0;
 
-    const handledNatively =
-      typeof (simulator as any).registerSensor === "function" &&
-      (simulator as any).registerSensor(sensorType, pin, {
-        temperature,
-        humidity,
-      });
+  const handledNatively =
+    typeof (simulator as any).registerSensor === "function" &&
+    (simulator as any).registerSensor(sensorType, pin, {
+      temperature,
+      humidity,
+    });
 
-    if (handledNatively) {
-      registerSensorUpdate(componentId, (values) => {
-        if ("temperature" in values)
-          el.temperature = values.temperature as number;
-        if ("humidity" in values) el.humidity = values.humidity as number;
-        (simulator as any).updateSensor(pin, {
-          temperature: el.temperature ?? 25.0,
-          humidity: el.humidity ?? 50.0,
-        });
-      });
-
-      return () => {
-        (simulator as any).unregisterSensor(pin);
-        unregisterSensorUpdate(componentId);
-      };
-    }
-
-    let wasLow = false;
-    // Prevent DHT22's own scheduled pin changes from re-triggering the response.
-    // After the MCU releases DATA HIGH and we begin responding, we ignore all
-    // pin-change callbacks until the full waveform has been emitted.
-    // DHT22 response is ~5 ms; gate for ~12.5 ms scaled to the CPU clock.
-
-    const clockHz: number =
-      typeof (simulator as any).getClockHz === "function"
-        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (simulator as any).getClockHz()
-        : 16_000_000;
-    const RESPONSE_GATE_CYCLES = Math.round((12_500 * clockHz) / 1_000_000);
-    let responseEndCycle = 0;
-    let responseEndTimeMs = 0; // time-based fallback for ESP32 (no cycle counter)
-
-    const getCycles = (): number =>
-      typeof (simulator as any).getCurrentCycles === "function"
-        ? ((simulator as any).getCurrentCycles() as number)
-        : -1;
-
-    const unsub = (simulator as any).pinManager.onPinChange(
-      pin,
-      (_: number, state: boolean) => {
-        // While DHT22 is driving the line, ignore our own scheduled changes.
-        const now = getCycles();
-        if (now >= 0 && now < responseEndCycle) return;
-        // Time-based fallback for ESP32 (no cycle counter available)
-        if (now < 0 && Date.now() < responseEndTimeMs) return;
-
-        if (!state) {
-          // MCU drove DATA LOW — start signal detected
-          wasLow = true;
-          return;
-        }
-        if (wasLow) {
-          // MCU released DATA HIGH — begin DHT22 response
-          wasLow = false;
-          const cur = getCycles();
-          responseEndCycle = cur >= 0 ? cur + RESPONSE_GATE_CYCLES : 0;
-          responseEndTimeMs = Date.now() + 20; // 20ms gate for non-cycle simulators
-          scheduleDHT22Response(simulator, pin, element, sensorType);
-        }
-      },
-    );
-
-    // Idle state: DATA HIGH (pulled up)
-    simulator.setPinState(pin, true);
-
-    // SensorControlPanel: update temperature / humidity on the element
+  if (handledNatively) {
     registerSensorUpdate(componentId, (values) => {
-      const el = element as any;
       if ("temperature" in values)
         el.temperature = values.temperature as number;
       if ("humidity" in values) el.humidity = values.humidity as number;
+      (simulator as any).updateSensor(pin, {
+        temperature: el.temperature ?? 25.0,
+        humidity: el.humidity ?? 50.0,
+      });
     });
 
     return () => {
-      unsub();
-      simulator.setPinState(pin, true);
+      (simulator as any).unregisterSensor(pin);
       unregisterSensorUpdate(componentId);
     };
+  }
+
+  let wasLow = false;
+  // Prevent DHT22's own scheduled pin changes from re-triggering the response.
+  // After the MCU releases DATA HIGH and we begin responding, we ignore all
+  // pin-change callbacks until the full waveform has been emitted.
+  // DHT22 response is ~5 ms; gate for ~12.5 ms scaled to the CPU clock.
+
+  const clockHz: number =
+    typeof (simulator as any).getClockHz === "function"
+      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (simulator as any).getClockHz()
+      : 16_000_000;
+  const RESPONSE_GATE_CYCLES = Math.round((12_500 * clockHz) / 1_000_000);
+  let responseEndCycle = 0;
+  let responseEndTimeMs = 0; // time-based fallback for ESP32 (no cycle counter)
+
+  const getCycles = (): number =>
+    typeof (simulator as any).getCurrentCycles === "function"
+      ? ((simulator as any).getCurrentCycles() as number)
+      : -1;
+
+  const unsub = (simulator as any).pinManager.onPinChange(
+    pin,
+    (_: number, state: boolean) => {
+      // While DHT22 is driving the line, ignore our own scheduled changes.
+      const now = getCycles();
+      if (now >= 0 && now < responseEndCycle) return;
+      // Time-based fallback for ESP32 (no cycle counter available)
+      if (now < 0 && Date.now() < responseEndTimeMs) return;
+
+      if (!state) {
+        // MCU drove DATA LOW — start signal detected
+        wasLow = true;
+        return;
+      }
+      if (wasLow) {
+        // MCU released DATA HIGH — begin DHT22 response
+        wasLow = false;
+        const cur = getCycles();
+        responseEndCycle = cur >= 0 ? cur + RESPONSE_GATE_CYCLES : 0;
+        responseEndTimeMs = Date.now() + 20; // 20ms gate for non-cycle simulators
+        scheduleDHT22Response(simulator, pin, element, sensorType);
+      }
+    },
+  );
+
+  // Idle state: DATA HIGH (pulled up)
+  simulator.setPinState(pin, true);
+
+  // SensorControlPanel: update temperature / humidity on the element
+  registerSensorUpdate(componentId, (values) => {
+    const el = element as any;
+    if ("temperature" in values) el.temperature = values.temperature as number;
+    if ("humidity" in values) el.humidity = values.humidity as number;
+  });
+
+  return () => {
+    unsub();
+    simulator.setPinState(pin, true);
+    unregisterSensorUpdate(componentId);
+  };
 }
 
 PartSimulationRegistry.register("dht22", {
@@ -1843,8 +1859,22 @@ function makeI2cLcdAttach(cols: number, rows: number) {
  * (velxio-lcd1602-i2c-adapter) — mirror the wokwi-lcd1602 parallel header.
  */
 const LCD_ADAPTER_LCD_PINS = new Set([
-  "VSS", "VDD", "V0", "RS", "RW", "E", "D0", "D1",
-  "D2", "D3", "D4", "D5", "D6", "D7", "A", "K",
+  "VSS",
+  "VDD",
+  "V0",
+  "RS",
+  "RW",
+  "E",
+  "D0",
+  "D1",
+  "D2",
+  "D3",
+  "D4",
+  "D5",
+  "D6",
+  "D7",
+  "A",
+  "K",
 ]);
 
 /**

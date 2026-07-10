@@ -28,6 +28,8 @@ interface WireRendererProps {
   previewWaypoints?: { x: number; y: number }[];
   /** Override the full SVG path string (used during segment drag preview) */
   overridePath?: string;
+  /** Fade this wire while another connection is spotlighted. */
+  isDimmed?: boolean;
 }
 
 export const WireRenderer: React.FC<WireRendererProps> = ({
@@ -36,6 +38,7 @@ export const WireRenderer: React.FC<WireRendererProps> = ({
   isHovered,
   previewWaypoints,
   overridePath,
+  isDimmed = false,
 }) => {
   const waypoints = previewWaypoints ?? wire.waypoints;
   const path =
@@ -54,7 +57,13 @@ export const WireRenderer: React.FC<WireRendererProps> = ({
   const isBlackWire = isDarkColor(color);
 
   return (
-    <g style={{ pointerEvents: "none" }}>
+    <g
+      style={{
+        pointerEvents: "none",
+        opacity: isDimmed ? 0.08 : 1,
+        transition: "opacity 140ms ease",
+      }}
+    >
       {/* Outline for wire crossing effect */}
       {isBlackWire ? (
         <path

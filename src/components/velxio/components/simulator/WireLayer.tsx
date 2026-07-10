@@ -27,6 +27,8 @@ export interface AlignmentGuide {
 
 interface WireLayerProps {
   hoveredWireId: string | null;
+  /** When set, every other wire is faded to untangle dense circuits. */
+  isolatedWireId?: string | null;
   /** Segment drag preview: overrides the path of a specific wire */
   segmentDragPreview: { wireId: string; overridePath: string } | null;
   /** Handles to render for the selected wire */
@@ -47,6 +49,7 @@ interface WireLayerProps {
 
 export const WireLayer: React.FC<WireLayerProps> = ({
   hoveredWireId,
+  isolatedWireId = null,
   segmentDragPreview,
   segmentHandles,
   waypointHandles,
@@ -81,6 +84,7 @@ export const WireLayer: React.FC<WireLayerProps> = ({
           wire={wire}
           isSelected={wire.id === selectedWireId}
           isHovered={wire.id === hoveredWireId}
+          isDimmed={Boolean(isolatedWireId && wire.id !== isolatedWireId)}
           overridePath={
             segmentDragPreview?.wireId === wire.id
               ? segmentDragPreview.overridePath

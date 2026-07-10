@@ -6,7 +6,7 @@ import {
 import { useElectricalStore } from "@/services/velxio/store/useElectricalStore";
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { Undo2, Redo2 } from "lucide-react";
+import { Cable, Undo2, Redo2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { ESP32_ADC_PIN_MAP } from "@/components/velxio/components/velxio-components/Esp32Element";
 import { ComponentPickerModal } from "@/components/velxio/components/ComponentPickerModal";
@@ -14,6 +14,7 @@ import { ComponentPropertyDialog } from "@/components/velxio/components/simulato
 import { CustomChipDialog } from "@/components/velxio/components/customChips/CustomChipDialog";
 import { SensorControlPanel } from "@/components/velxio/components/simulator/SensorControlPanel";
 import { WiringIssuesPanel } from "@/components/velxio/components/simulator/WiringIssuesPanel";
+import { ConnectionInspector } from "@/components/velxio/components/simulator/ConnectionInspector";
 import { SENSOR_CONTROLS } from "@/lib/velxio/simulation/sensorControlConfig";
 import {
   DynamicComponent,
@@ -203,6 +204,8 @@ export const SimulatorCanvas = ({
   const setSelectedWire = useSimulatorStore((s) => s.setSelectedWire);
   const updateWire = useSimulatorStore((s) => s.updateWire);
   const wires = useSimulatorStore((s) => s.wires);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [isolatedWireId, setIsolatedWireId] = useState<string | null>(null);
 
   // Recorded canvas actions — these wrap the raw mutators above with an
   // undoable CanvasCommand. Use these at the *commit* point of a user
@@ -325,7 +328,10 @@ export const SimulatorCanvas = ({
   const canvasRef = useRef<HTMLDivElement>(null);
 
   // Pan & zoom state (initialized from store for timelapse replay)
-  const [pan, setPan] = useState({ x: initialCanvasPan?.x ?? 0, y: initialCanvasPan?.y ?? 0 });
+  const [pan, setPan] = useState({
+    x: initialCanvasPan?.x ?? 0,
+    y: initialCanvasPan?.y ?? 0,
+  });
   const [zoom, setZoom] = useState(initialCanvasZoom ?? 1);
   // Use refs during active pan to avoid setState lag
   const isPanningRef = useRef(false);
@@ -515,7 +521,11 @@ export const SimulatorCanvas = ({
       if (!component) return;
 
       let snap: SnapResult | null = null;
-      if (!bypass && state.autoPlugEnabled && !isBreadboard(component.metadataId)) {
+      if (
+        !bypass &&
+        state.autoPlugEnabled &&
+        !isBreadboard(component.metadataId)
+      ) {
         const breadboards = state.components.filter((c) =>
           isBreadboard(c.metadataId),
         );
@@ -1144,7 +1154,9 @@ export const SimulatorCanvas = ({
             const curr = selectedWireIdRef.current;
             useSimulatorStore
               .getState()
-              .setSelectedWire(curr === wireUnderTap.id ? null : wireUnderTap.id);
+              .setSelectedWire(
+                curr === wireUnderTap.id ? null : wireUnderTap.id,
+              );
           } else if (touchId.startsWith("__board__:")) {
             // Short tap on board: first tap → make it active (so pins show);
             // tap again on the same board → open the touch-friendly pin
@@ -1187,10 +1199,7 @@ export const SimulatorCanvas = ({
         // Real drag (not a tap) on a part: seat/unseat it on the
         // breadboard. Touch drags don't push Move history entries, so the
         // attachment change isn't recorded either — consistent behavior.
-        if (
-          !isShortTap &&
-          !touchId.startsWith("__board__")
-        ) {
+        if (!isShortTap && !touchId.startsWith("__board__")) {
           commitPlugOnDragEndRef.current(touchId);
         } else {
           plugSnapRef.current = null;
@@ -1586,9 +1595,18 @@ export const SimulatorCanvas = ({
   // Handle component selection from modal
   const handleSelectComponent = (metadata: ComponentMetadata) => {
     if (readOnly) return;
-    if (ignoreStock ? !isAnyKitComponent(metadata.id) : !isKitComponent(metadata.id, kitType)) return;
+    if (
+      ignoreStock
+        ? !isAnyKitComponent(metadata.id)
+        : !isKitComponent(metadata.id, kitType)
+    )
+      return;
     const counts = countKitComponents(components);
-    if (!ignoreStock && (counts[metadata.id] ?? 0) >= kitComponentLimit(metadata.id, kitType)) return;
+    if (
+      !ignoreStock &&
+      (counts[metadata.id] ?? 0) >= kitComponentLimit(metadata.id, kitType)
+    )
+      return;
     // Anchor new components to the visible top-left of the canvas, so they
     // appear in the user's current viewport regardless of pan/zoom (instead
     // of growing off-screen at fixed world coords like (400, 100 + row*250)).
@@ -2185,6 +2203,81 @@ export const SimulatorCanvas = ({
     setPan({ x: 0, y: 0 });
   };
 
+  const focusWorldPoints = useCallback(
+    (points: Array<{ x: number; y: number }>) => {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect || points.length === 0) return;
+
+      let minX = points[0].x;
+      let maxX = points[0].x;
+      let minY = points[0].y;
+      let maxY = points[0].y;
+      for (const point of points.slice(1)) {
+        minX = Math.min(minX, point.x);
+        maxX = Math.max(maxX, point.x);
+        minY = Math.min(minY, point.y);
+        maxY = Math.max(maxY, point.y);
+      }
+
+      const inspectorWidth = connectionsOpen
+        ? Math.min(372, Math.max(0, rect.width - 24))
+        : 0;
+      const availableWidth = Math.max(160, rect.width - inspectorWidth);
+      const availableHeight = Math.max(160, rect.height);
+      const contentWidth = Math.max(120, maxX - minX);
+      const contentHeight = Math.max(90, maxY - minY);
+      const nextZoom = Math.min(
+        2,
+        Math.max(
+          0.25,
+          Math.min(
+            (availableWidth - 72) / contentWidth,
+            (availableHeight - 72) / contentHeight,
+          ),
+        ),
+      );
+      const centerX = (minX + maxX) / 2;
+      const centerY = (minY + maxY) / 2;
+      const nextPan = {
+        x: availableWidth / 2 - centerX * nextZoom,
+        y: availableHeight / 2 - centerY * nextZoom,
+      };
+
+      zoomRef.current = nextZoom;
+      panRef.current = nextPan;
+      setZoom(nextZoom);
+      setPan(nextPan);
+    },
+    [connectionsOpen],
+  );
+
+  const focusWireFromInspector = useCallback(
+    (wireId: string) => {
+      const wire = wiresRef.current.find((entry) => entry.id === wireId);
+      if (!wire) return;
+      setSelectedComponentId(null);
+      setSelectedWire(wireId);
+      focusWorldPoints([wire.start, ...(wire.waypoints ?? []), wire.end]);
+    },
+    [focusWorldPoints, setSelectedWire],
+  );
+
+  const focusComponentFromInspector = useCallback(
+    (componentId: string) => {
+      const component = componentsRef.current.find(
+        (entry) => entry.id === componentId,
+      );
+      if (!component) return;
+      setSelectedWire(null);
+      setSelectedComponentId(componentId);
+      focusWorldPoints([
+        { x: component.x - 70, y: component.y - 55 },
+        { x: component.x + 70, y: component.y + 55 },
+      ]);
+    },
+    [focusWorldPoints, setSelectedWire],
+  );
+
   // Wire creation via pin clicks
   const handlePinClick = (
     componentId: string,
@@ -2248,7 +2341,18 @@ export const SimulatorCanvas = ({
   // Keyboard handlers for wires
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (readOnly) return;
+      const target = e.target as HTMLElement | null;
+      const isTyping =
+        target?.isContentEditable ||
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT";
+      if (e.key === "Escape" && connectionsOpen) {
+        setConnectionsOpen(false);
+        setIsolatedWireId(null);
+        return;
+      }
+      if (readOnly || isTyping) return;
       // Escape → cancel in-progress wire
       if (e.key === "Escape" && wireInProgress) {
         cancelWireCreation();
@@ -2275,12 +2379,19 @@ export const SimulatorCanvas = ({
   }, [
     wireInProgress,
     readOnly,
+    connectionsOpen,
     cancelWireCreation,
     selectedWireId,
     recordRemoveWire,
     setWireInProgressColor,
     updateWire,
   ]);
+
+  useEffect(() => {
+    if (isolatedWireId && !wires.some((wire) => wire.id === isolatedWireId)) {
+      setIsolatedWireId(null);
+    }
+  }, [isolatedWireId, wires]);
 
   // Recalculate wire positions when components change (e.g., when loading an example)
   useEffect(() => {
@@ -2510,7 +2621,6 @@ export const SimulatorCanvas = ({
               rotation={Number(component.properties?.rotation) || 0}
             />
           )}
-
         </div>
       </React.Fragment>
     );
@@ -2539,12 +2649,9 @@ export const SimulatorCanvas = ({
             boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
           }}
         >
-          <div
-            style={{ display: "flex", alignItems: "flex-start", gap: 12 }}
-          >
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
             <span style={{ flex: 1 }}>
-              ESP32 crash detected on board{" "}
-              <strong>{esp32CrashBoardId}</strong>
+              ESP32 crash detected on board <strong>{esp32CrashBoardId}</strong>
               {esp32CrashInfo && esp32CrashInfo.reboot > 0 && (
                 <> (rebooted {esp32CrashInfo.reboot}×)</>
               )}
@@ -2666,7 +2773,8 @@ export const SimulatorCanvas = ({
                       title={
                         historyIndex < history.length - 1
                           ? t("editor.canvas.redo.title", {
-                              description: history[historyIndex + 1].description,
+                              description:
+                                history[historyIndex + 1].description,
                             })
                           : t("editor.canvas.redo.empty")
                       }
@@ -2856,6 +2964,26 @@ export const SimulatorCanvas = ({
                     </svg>
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  className={`connections-toggle${connectionsOpen ? " active" : ""}`}
+                  onClick={() => {
+                    setConnectionsOpen((open) => {
+                      if (open) setIsolatedWireId(null);
+                      return !open;
+                    });
+                  }}
+                  title="View circuit connections as text"
+                  aria-label="View circuit connections as text"
+                  aria-expanded={connectionsOpen}
+                >
+                  <Cable size={15} aria-hidden="true" />
+                  <span className="connections-toggle-label">Connections</span>
+                  <span className="connections-toggle-count">
+                    {wires.length}
+                  </span>
+                </button>
 
                 {/* Zoom controls */}
                 <div className="zoom-controls">
@@ -3089,6 +3217,34 @@ export const SimulatorCanvas = ({
               aren't nagged about wiring mid-edit. */}
           {interactionRunning && <WiringIssuesPanel />}
 
+          {connectionsOpen ? (
+            <ConnectionInspector
+              wires={wires}
+              boards={boards}
+              components={components}
+              selectedWireId={selectedWireId}
+              isolatedWireId={isolatedWireId}
+              canEdit={!readOnly && !interactionRunning}
+              onClose={() => {
+                setConnectionsOpen(false);
+                setIsolatedWireId(null);
+                setHoveredWireId(null);
+              }}
+              onFocusWire={focusWireFromInspector}
+              onFocusComponent={focusComponentFromInspector}
+              onHoverWire={setHoveredWireId}
+              onIsolateWire={(wireId) => {
+                setIsolatedWireId(wireId);
+                if (wireId) focusWireFromInspector(wireId);
+              }}
+              onDeleteWire={(wireId) => {
+                recordRemoveWire(wireId);
+                if (selectedWireId === wireId) setSelectedWire(null);
+                if (isolatedWireId === wireId) setIsolatedWireId(null);
+              }}
+            />
+          ) : null}
+
           {/* Infinite world — pan+zoom applied here */}
           <div
             className="canvas-world"
@@ -3099,6 +3255,7 @@ export const SimulatorCanvas = ({
             {/* Wire Layer - Renders below all components */}
             <WireLayer
               hoveredWireId={hoveredWireId}
+              isolatedWireId={isolatedWireId}
               segmentDragPreview={segmentDragPreview}
               segmentHandles={segmentHandles}
               waypointHandles={waypointHandles}
@@ -3491,9 +3648,14 @@ export const SimulatorCanvas = ({
         onIgnoreStockChange={setIgnoreStock}
         onSelectBoard={(kind: BoardKind) => {
           if (readOnly) return;
-          if (ignoreStock ? !isAnyKitBoard(kind) : !isKitBoard(kind, kitType)) return;
+          if (ignoreStock ? !isAnyKitBoard(kind) : !isKitBoard(kind, kitType))
+            return;
           const boardCounts = countKitBoards(boards);
-          if (!ignoreStock && (boardCounts[kind] ?? 0) >= kitBoardLimit(kind, kitType)) return;
+          if (
+            !ignoreStock &&
+            (boardCounts[kind] ?? 0) >= kitBoardLimit(kind, kitType)
+          )
+            return;
           trackSelectBoard(kind);
           const sameKind = boards.filter((b) => b.boardKind === kind);
           const newBoardId =

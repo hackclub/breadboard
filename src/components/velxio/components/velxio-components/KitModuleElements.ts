@@ -118,19 +118,31 @@ class Lm35Element extends SvgPartElement {
 }
 
 class Rc522Element extends SvgPartElement {
-  private _cardPresent = true;
-  uid = "DE AD BE EF";
+  private _cardPresent = false;
+  private _uid = "DE AD BE EF";
 
   set cardPresent(value: boolean) {
     this._cardPresent = Boolean(value);
     const card = this.shadowRoot?.getElementById("rfid-card");
     const led = this.shadowRoot?.getElementById("rfid-led");
+    const wave = this.shadowRoot?.getElementById("rfid-wave");
     card?.setAttribute("opacity", this._cardPresent ? "1" : "0.16");
     led?.setAttribute("class", this._cardPresent ? "led-on" : "led-off");
+    wave?.setAttribute("opacity", this._cardPresent ? "0.9" : "0");
   }
 
   get cardPresent() {
     return this._cardPresent;
+  }
+
+  set uid(value: string) {
+    this._uid = String(value ?? "");
+    const label = this.shadowRoot?.getElementById("rfid-uid");
+    if (label) label.textContent = this._uid.replace(/\s+/g, " ").trim();
+  }
+
+  get uid() {
+    return this._uid;
   }
 
   constructor() {
@@ -147,10 +159,16 @@ class Rc522Element extends SvgPartElement {
     super(
       pins,
       `<svg width="74.333" height="111.6" viewBox="0 0 74.333 111.6">
+        <style>
+          @keyframes rfid-ping { 0% { transform: scale(.6); opacity:.9 } 100% { transform: scale(1.25); opacity:0 } }
+          #rfid-wave { transform-box: fill-box; transform-origin: center; animation: rfid-ping 1.4s ease-out infinite; }
+        </style>
         <image href="/component-svgs/rc522-rfid.svg" x="0" y="0" width="74.333" height="111.6"/>
-        <rect id="rfid-card" x="14" y="30" width="26" height="18" rx="2" fill="#f8fafc" opacity="1" filter="drop-shadow(0 1px 2px rgba(0,0,0,.35))"/>
+        <circle id="rfid-wave" cx="27" cy="39" r="20" fill="none" stroke="#38bdf8" stroke-width="1.6" opacity="0"/>
+        <rect id="rfid-card" x="14" y="30" width="26" height="18" rx="2" fill="#f8fafc" opacity="0.16" filter="drop-shadow(0 1px 2px rgba(0,0,0,.35))"/>
         <path d="M18 36h17M18 41h12" stroke="#f59e0b" stroke-width="1.2"/>
-        <circle id="rfid-led" class="led-on" cx="63" cy="22" r="2.8"/>
+        <text id="rfid-uid" class="readout" x="37" y="60" fill="#38bdf8">DE AD BE EF</text>
+        <circle id="rfid-led" class="led-off" cx="63" cy="22" r="2.8"/>
       </svg>`,
     );
   }

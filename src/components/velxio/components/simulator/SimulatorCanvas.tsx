@@ -660,6 +660,17 @@ export const SimulatorCanvas = ({
     const el = canvasRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
+      // Let panels layered above the canvas (e.g. the connections inspector)
+      // scroll on their own instead of hijacking the wheel for zoom.
+      const targetEl =
+        e.target instanceof Element
+          ? e.target
+          : e.target instanceof Node
+            ? e.target.parentElement
+            : null;
+      if (targetEl?.closest(".connection-inspector")) {
+        return;
+      }
       e.preventDefault();
       const rect = el.getBoundingClientRect();
       const factor = e.deltaY < 0 ? 1.1 : 0.9;

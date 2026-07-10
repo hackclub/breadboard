@@ -181,3 +181,126 @@
   background-color: #007acc;
   border-color: #007acc;
 }
+
+/* ── Toggle switch ───────────────────────────────────────────────────────── */
+
+.sensor-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.sensor-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.sensor-toggle-track {
+  position: relative;
+  width: 38px;
+  height: 20px;
+  border-radius: 10px;
+  background: #555;
+  transition: background 0.18s ease;
+  flex-shrink: 0;
+}
+
+.sensor-toggle.on .sensor-toggle-track {
+  background: #22c55e;
+}
+
+.sensor-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.18s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.sensor-toggle.on .sensor-toggle-thumb {
+  transform: translateX(18px);
+}
+
+.sensor-toggle-state {
+  font-size: 12px;
+  font-weight: 600;
+  color: #ccc;
+  min-width: 58px;
+  text-align: right;
+}
+
+.sensor-toggle.on .sensor-toggle-state {
+  color: #22c55e;
+}
+
+/* ── Option cards (UID presets etc.) ─────────────────────────────────────── */
+
+.sensor-options-block {
+  margin-top: 10px;
+}
+
+.sensor-options-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.sensor-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  background-color: #3a3a3a;
+  border: 1px solid #555;
+  border-radius: 6px;
+  color: #eee;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    transform 0.05s;
+}
+
+.sensor-option:hover {
+  background-color: #474747;
+  border-color: #777;
+}
+
+.sensor-option:active {
+  transform: scale(0.98);
+}
+
+.sensor-option.selected {
+  background-color: #0b3a5c;
+  border-color: #0095e8;
+}
+
+.sensor-option-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sensor-option-hint {
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #9aa;
+  letter-spacing: 0.04em;
+}
+
+.sensor-option.selected .sensor-option-hint {
+  color: #7fd0ff;
+}

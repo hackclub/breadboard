@@ -67,7 +67,9 @@ export const SensorControlPanel: React.FC<SensorControlPanelProps> = ({
   // two sensors of the same type shows each one's current state, not the
   // previous panel's). Falls back to config defaults the first time a
   // sensor is opened.
-  const [values, setValues] = useState<Record<string, number | boolean>>(() => {
+  const [values, setValues] = useState<
+    Record<string, number | boolean | string>
+  >(() => {
     const cached = getLastSensorValues(componentId);
     if (cached) return { ...(def?.defaultValues ?? {}), ...cached };
     return def ? { ...def.defaultValues } : {};
@@ -110,6 +112,16 @@ export const SensorControlPanel: React.FC<SensorControlPanelProps> = ({
     dispatchSensorUpdate(componentId, { [key]: true });
   };
 
+  const handleToggle = (key: string, next: boolean) => {
+    setValues((prev) => ({ ...prev, [key]: next }));
+    dispatchSensorUpdate(componentId, { [key]: next });
+  };
+
+  const handleOption = (key: string, value: number | string) => {
+    setValues((prev) => ({ ...prev, [key]: value }));
+    dispatchSensorUpdate(componentId, { [key]: value });
+  };
+
   // ── Render helpers ────────────────────────────────────────────────────────
 
   const renderControl = (ctrl: SensorControl) => {
@@ -117,11 +129,60 @@ export const SensorControlPanel: React.FC<SensorControlPanelProps> = ({
       return (
         <button
           key={ctrl.key}
+          type="button"
           className="sensor-trigger-button"
           onClick={() => handleButton(ctrl.key)}
         >
           {ctrl.label}
         </button>
+      );
+    }
+
+    if (ctrl.type === "toggle") {
+      const on = Boolean(values[ctrl.key] ?? ctrl.defaultValue);
+      return (
+        <div key={ctrl.key} className="sensor-toggle-row">
+          <span className="sensor-control-label-wide">{ctrl.label}</span>
+          <button
+            type="button"
+            className={`sensor-toggle${on ? " on" : ""}`}
+            role="switch"
+            aria-checked={on}
+            onClick={() => handleToggle(ctrl.key, !on)}
+          >
+            <span className="sensor-toggle-track">
+              <span className="sensor-toggle-thumb" />
+            </span>
+            <span className="sensor-toggle-state">
+              {on ? (ctrl.onLabel ?? "On") : (ctrl.offLabel ?? "Off")}
+            </span>
+          </button>
+        </div>
+      );
+    }
+
+    if (ctrl.type === "options") {
+      const current = values[ctrl.key] ?? ctrl.defaultValue;
+      return (
+        <div key={ctrl.key} className="sensor-options-block">
+          <span className="sensor-control-label-wide">{ctrl.label}</span>
+          <div className="sensor-options-grid">
+            {ctrl.options.map((opt) => (
+              <button
+                type="button"
+                key={String(opt.value)}
+                className={`sensor-option${current === opt.value ? " selected" : ""}`}
+                onClick={() => handleOption(ctrl.key, opt.value)}
+                title={opt.hint}
+              >
+                <span className="sensor-option-label">{opt.label}</span>
+                {opt.hint ? (
+                  <span className="sensor-option-hint">{opt.hint}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        </div>
       );
     }
 
@@ -191,6 +252,7 @@ export const SensorControlPanel: React.FC<SensorControlPanelProps> = ({
       <div className="sensor-panel-header">
         <span className="sensor-panel-title">{sensorName || def.title}</span>
         <button
+          type="button"
           className="sensor-panel-close"
           onClick={onClose}
           title={t("editor.sensorPanel.close")}

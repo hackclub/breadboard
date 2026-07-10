@@ -822,8 +822,69 @@ if (dhtLogic) {
 
 // ─── RC522 RFID Module ───────────────────────────────────────────────────────
 
+// MFRC522 register addresses (subset the miguelbalboa/rfid library touches).
+const RC522 = {
+  CommandReg: 0x01,
+  ComIrqReg: 0x04,
+  DivIrqReg: 0x05,
+  ErrorReg: 0x06,
+  FIFODataReg: 0x09,
+  FIFOLevelReg: 0x0a,
+  ControlReg: 0x0c,
+  BitFramingReg: 0x0d,
+  CRCResultRegH: 0x21,
+  CRCResultRegL: 0x22,
+  VersionReg: 0x37,
+} as const;
+
+// MFRC522 CommandReg opcodes.
+const RC522_CMD = {
+  Idle: 0x00,
+  CalcCRC: 0x03,
+  Transceive: 0x0c,
+  SoftReset: 0x0f,
+} as const;
+
+// ISO/IEC 14443-A CRC_A (poly 0x8408, seed 0x6363) — the same value the
+// MFRC522's on-chip CalcCRC unit produces, so the library's read-back
+// verification of SAK matches our synthesized SELECT response.
+function crc14443a(bytes: number[]): [number, number] {
+  let crc = 0x6363;
+  for (const byte of bytes) {
+    let b = (byte ^ (crc & 0xff)) & 0xff;
+    b = (b ^ (b << 4)) & 0xff;
+    crc = ((crc >> 8) ^ (b << 8) ^ (b << 3) ^ (b >> 4)) & 0xffff;
+  }
+  return [crc & 0xff, (crc >> 8) & 0xff];
+}
+
+// Turn "DE AD BE EF" / "deadbeef" into 4 UID bytes + BCC (checksum).
+function parseUid(raw: unknown): { bytes: number[]; bcc: number } {
+  const hex = String(raw ?? "DE AD BE EF").replace(/[^0-9a-fA-F]/g, "");
+  const bytes: number[] = [];
+  for (let i = 0; i + 1 < hex.length && bytes.length < 4; i += 2) {
+    bytes.push(Number.parseInt(hex.slice(i, i + 2), 16));
+  }
+  while (bytes.length < 4) bytes.push(0x00);
+  const bcc = bytes[0] ^ bytes[1] ^ bytes[2] ^ bytes[3];
+  return { bytes, bcc };
+}
+
+/**
+ * RC522 RFID reader — emulates enough of the MFRC522 SPI register interface
+ * for the standard Arduino MFRC522 library (miguelbalboa/rfid) to detect a
+ * MIFARE Classic 1K card and read its 4-byte UID.
+ *
+ * The reader is a slave on the shared SPI bus. Each transaction is framed by
+ * the SDA (chip-select) line: CS LOW starts a transaction whose first byte is
+ * the register address (bit7 = read, bits6..1 = register), and every byte
+ * after it reads or writes that register. We drive a small state machine so
+ * `PICC_RequestA` (REQA/WUPA → ATQA), the anticollision loop (→ UID+BCC) and
+ * `PICC_Select` (→ SAK+CRC) all complete, which is exactly what
+ * `PICC_IsNewCardPresent()` + `PICC_ReadCardSerial()` walk through.
+ */
 PartSimulationRegistry.register("rc522-rfid", {
-  attachEvents: (element, simulator, _getPin, componentId) => {
+  attachEvents: (element, simulator, getPin, componentId) => {
     // Real-life hookup enforcement: the reader only answers on the SPI bus
     // when SCK/MOSI/MISO trace to the board's hardware SPI pins and its
     // SDA (chip select) + RST reach some board pin. Power (3V3/GND) is
@@ -846,43 +907,160 @@ PartSimulationRegistry.register("rc522-rfid", {
     }
 
     const el = element as any;
-    el.cardPresent = el.cardPresent ?? true;
+    el.cardPresent = el.cardPresent ?? false;
     el.uid = el.uid ?? "DE AD BE EF";
 
     const spi = (simulator as any).spi;
+    if (!spi) {
+      registerSensorUpdate(componentId, () => {});
+      return () => unregisterSensorUpdate(componentId);
+    }
+
     const registers = new Uint8Array(64);
     const version = Number.parseInt(String(el.version ?? "0x92"), 16);
-    registers[0x37] = Number.isFinite(version) ? version : 0x92; // VersionReg: MFRC522 v2.0.
-    registers[0x04] = 0x20; // ComIrqReg: idle/complete.
-    registers[0x06] = 0x00; // ErrorReg: no error.
-    registers[0x0a] = 0x00; // FIFOLevelReg.
+    registers[RC522.VersionReg] = Number.isFinite(version) ? version : 0x92;
 
-    const prevOnTransmit = spi?.onTransmit as
-      | ((b: number) => void)
-      | null
-      | undefined;
-    let pendingRead: number | null = null;
+    let command = RC522_CMD.Idle;
+    let txBuffer: number[] = []; // bytes the MCU has written into the FIFO
+    let rxBuffer: number[] = []; // bytes we hand back through the FIFO
+    let comIrq = 0x00; // ComIrqReg: RxIRq(0x20)/IdleIRq(0x10)/TimerIRq(0x01)
+    let divIrq = 0x00; // DivIrqReg: CRCIRq(0x04)
+    let crcResult: [number, number] = [0, 0];
 
-    if (spi) {
-      spi.onTransmit = (byte: number) => {
-        if (pendingRead !== null) {
-          const reply = registers[pendingRead] ?? 0x00;
-          pendingRead = null;
-          spi.completeTransmit(reply);
-          return;
+    // Per-transaction cursor. `reg === -1` means "next byte is the address".
+    let reg = -1;
+    let isRead = false;
+
+    // ComIrqReg waitIRq the library polls for: RxIRq | IdleIRq.
+    const runTransceive = () => {
+      const picc = txBuffer[0] ?? 0;
+      if (!el.cardPresent) {
+        // No tag in the field → let the poll loop time out (TimerIRq) so
+        // PICC_IsNewCardPresent() cleanly reports "no card".
+        rxBuffer = [];
+        comIrq = 0x01;
+        txBuffer = [];
+        return;
+      }
+      const { bytes, bcc } = parseUid(el.uid);
+      if (picc === 0x26 || picc === 0x52) {
+        // REQA / WUPA → ATQA for a 4-byte-UID MIFARE Classic.
+        rxBuffer = [0x04, 0x00];
+        comIrq = 0x30;
+      } else if (picc === 0x93 && txBuffer[1] === 0x20) {
+        // Anticollision, cascade level 1 → UID CL1 + BCC.
+        rxBuffer = [...bytes, bcc];
+        comIrq = 0x30;
+      } else if (picc === 0x93 && txBuffer[1] === 0x70) {
+        // SELECT, cascade level 1 → SAK (0x08 = MIFARE 1K, UID complete) + CRC.
+        rxBuffer = [0x08, ...crc14443a([0x08])];
+        comIrq = 0x30;
+      } else if (picc === 0x50) {
+        // HLTA (halt) — acknowledged silently.
+        rxBuffer = [];
+        comIrq = 0x30;
+      } else {
+        rxBuffer = [];
+        comIrq = 0x01;
+      }
+      txBuffer = [];
+    };
+
+    const readRegister = (r: number): number => {
+      switch (r) {
+        case RC522.FIFODataReg:
+          return rxBuffer.length ? (rxBuffer.shift() as number) : 0x00;
+        case RC522.FIFOLevelReg:
+          return rxBuffer.length & 0x7f;
+        case RC522.ComIrqReg:
+          return comIrq;
+        case RC522.DivIrqReg:
+          return divIrq;
+        case RC522.ErrorReg:
+          return 0x00;
+        case RC522.ControlReg:
+          return 0x00; // all received bits are whole bytes (RxLastBits = 0)
+        case RC522.CRCResultRegH:
+          return crcResult[1];
+        case RC522.CRCResultRegL:
+          return crcResult[0];
+        default:
+          return registers[r] ?? 0x00;
+      }
+    };
+
+    const writeRegister = (r: number, value: number): void => {
+      switch (r) {
+        case RC522.CommandReg: {
+          command = value & 0x0f;
+          registers[r] = value;
+          if (command === RC522_CMD.SoftReset) {
+            txBuffer = [];
+            rxBuffer = [];
+            comIrq = 0x00;
+            divIrq = 0x00;
+          } else if (command === RC522_CMD.CalcCRC) {
+            crcResult = crc14443a(txBuffer);
+            divIrq |= 0x04; // CRCIRq
+          }
+          break;
         }
+        case RC522.FIFODataReg:
+          txBuffer.push(value & 0xff);
+          break;
+        case RC522.FIFOLevelReg:
+          if (value & 0x80) txBuffer = []; // FlushBuffer
+          break;
+        case RC522.BitFramingReg:
+          registers[r] = value;
+          // StartSend (bit7) fires the queued Transceive command.
+          if (value & 0x80 && command === RC522_CMD.Transceive) runTransceive();
+          break;
+        case RC522.ComIrqReg:
+          // bit7 clear = clear the set bits named in the low 7 bits.
+          if (!(value & 0x80)) comIrq &= ~(value & 0x7f);
+          break;
+        case RC522.DivIrqReg:
+          if (!(value & 0x80)) divIrq &= ~(value & 0x7f);
+          break;
+        default:
+          registers[r] = value;
+      }
+    };
 
-        const reg = (byte >> 1) & 0x3f;
-        const isRead = (byte & 0x80) !== 0;
-        if (isRead) {
-          pendingRead = reg;
-          spi.completeTransmit(0x00);
-          return;
-        }
-
-        spi.completeTransmit(0x00);
-      };
+    // Chip-select framing (active LOW). Resets the address cursor so the next
+    // byte after each CS assertion is decoded as a register address.
+    const pinManager = (simulator as any).pinManager;
+    const csPin = getPin?.("SDA") ?? null;
+    let selected = csPin === null; // no CS wired → always listen
+    let unsubCs: (() => void) | null = null;
+    if (pinManager && csPin !== null) {
+      unsubCs = pinManager.onPinChange(csPin, (_: number, high: boolean) => {
+        selected = !high;
+        reg = -1; // every new transaction starts with an address byte
+      });
     }
+
+    const prevOnByte = spi.onByte as ((b: number) => void) | null | undefined;
+    spi.onByte = (mosi: number) => {
+      if (!selected) {
+        spi.completeTransfer?.(0x00);
+        return;
+      }
+      if (reg === -1) {
+        // Address byte: bit7 = read/write, bits6..1 = register index.
+        reg = (mosi >> 1) & 0x3f;
+        isRead = (mosi & 0x80) !== 0;
+        spi.completeTransfer?.(0x00);
+        return;
+      }
+      if (isRead) {
+        spi.completeTransfer?.(readRegister(reg));
+      } else {
+        writeRegister(reg, mosi);
+        spi.completeTransfer?.(0x00);
+      }
+    };
 
     registerSensorUpdate(componentId, (values) => {
       if ("cardPresent" in values) el.cardPresent = values.cardPresent;
@@ -890,7 +1068,8 @@ PartSimulationRegistry.register("rc522-rfid", {
     });
 
     return () => {
-      if (spi) spi.onTransmit = prevOnTransmit ?? null;
+      spi.onByte = prevOnByte ?? null;
+      unsubCs?.();
       unregisterSensorUpdate(componentId);
     };
   },

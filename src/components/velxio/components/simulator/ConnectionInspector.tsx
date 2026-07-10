@@ -69,6 +69,26 @@ type ConnectionInspectorProps = {
   onDeleteWire: (wireId: string) => void;
 };
 
+const collator = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: "base",
+});
+
+function compareEndpoints(a: EndpointDescription, b: EndpointDescription) {
+  // Missing endpoints sink to the bottom so real connections read first.
+  if (a.missing !== b.missing) return a.missing ? 1 : -1;
+  const byComponent = collator.compare(a.component, b.component);
+  if (byComponent !== 0) return byComponent;
+  return collator.compare(a.pin, b.pin);
+}
+
+function compareConnections(
+  a: WireConnection | PlugConnection,
+  b: WireConnection | PlugConnection,
+) {
+  return compareEndpoints(a.start, b.start) || compareEndpoints(a.end, b.end);
+}
+
 function customComponentName(component: CanvasComponent, fallback: string) {
   const candidate = component.properties.label ?? component.properties.name;
   return typeof candidate === "string" && candidate.trim()
@@ -182,8 +202,15 @@ export function ConnectionInspector({
       endpointDescription(componentId, pinName, labels, boardById);
 
     const describedWires: WireConnection[] = wires.map((wire) => {
-      const start = describe(wire.start.componentId, wire.start.pinName);
-      const end = describe(wire.end.componentId, wire.end.pinName);
+      const rawStart = describe(wire.start.componentId, wire.start.pinName);
+      const rawEnd = describe(wire.end.componentId, wire.end.pinName);
+      // Order endpoints so the alphabetically-lower one always reads first;
+      // wire direction isn't electrically meaningful, so this groups every
+      // connection touching a component together no matter how it was drawn.
+      const [start, end] =
+        compareEndpoints(rawStart, rawEnd) <= 0
+          ? [rawStart, rawEnd]
+          : [rawEnd, rawStart];
       return {
         kind: "wire",
         id: wire.id,
@@ -234,8 +261,8 @@ export function ConnectionInspector({
     }
 
     return {
-      wireConnections: describedWires,
-      plugConnections: describedPlugs,
+      wireConnections: describedWires.sort(compareConnections),
+      plugConnections: describedPlugs.sort(compareConnections),
     };
   }, [boards, components, wires]);
 

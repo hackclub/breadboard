@@ -27,12 +27,33 @@ export interface ButtonControl {
   label: string;
 }
 
-export type SensorControl = SliderControl | ButtonControl;
+export interface ToggleControl {
+  type: "toggle";
+  key: string;
+  label: string;
+  onLabel?: string;
+  offLabel?: string;
+  defaultValue: boolean;
+}
+
+export interface OptionControl {
+  type: "options";
+  key: string;
+  label: string;
+  options: { label: string; value: number | string; hint?: string }[];
+  defaultValue: number | string;
+}
+
+export type SensorControl =
+  | SliderControl
+  | ButtonControl
+  | ToggleControl
+  | OptionControl;
 
 export interface SensorControlDef {
   title: string;
   controls: SensorControl[];
-  defaultValues: Record<string, number | boolean>;
+  defaultValues: Record<string, number | boolean | string>;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -363,8 +384,29 @@ export const SENSOR_CONTROLS: Record<string, SensorControlDef> = {
 
   "rc522-rfid": {
     title: "RC522 RFID Module",
-    controls: [{ type: "button", key: "cardPresent", label: "Present card" }],
-    defaultValues: { cardPresent: true },
+    controls: [
+      {
+        type: "toggle",
+        key: "cardPresent",
+        label: "Card in field",
+        onLabel: "Tapped",
+        offLabel: "Removed",
+        defaultValue: false,
+      },
+      {
+        type: "options",
+        key: "uid",
+        label: "Card UID",
+        options: [
+          { label: "Blue keyfob", value: "DE AD BE EF", hint: "DE AD BE EF" },
+          { label: "White card", value: "A1 B2 C3 D4", hint: "A1 B2 C3 D4" },
+          { label: "Access tag", value: "12 34 56 78", hint: "12 34 56 78" },
+          { label: "Unknown card", value: "FF FF FF FF", hint: "FF FF FF FF" },
+        ],
+        defaultValue: "DE AD BE EF",
+      },
+    ],
+    defaultValues: { cardPresent: false, uid: "DE AD BE EF" },
   },
 
   // ── LCD1602 I2C Adapter (PCF8574) ─────────────────────────────────────────

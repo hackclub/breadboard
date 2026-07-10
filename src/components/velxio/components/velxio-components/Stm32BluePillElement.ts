@@ -21,6 +21,8 @@
  * the shared Stm32BoardElement class and the CONFIGS table.
  */
 
+import { assetUrl } from "@/lib/velxio/utils/assetBase";
+
 interface PinDef {
   name: string;
   x: number;
@@ -457,7 +459,7 @@ class Stm32BoardElement extends HTMLElementCtor {
           opacity: 0; transition: opacity 40ms linear; pointer-events: none;
         }
       </style>
-      <img src="${svgUrl}" width="${w}" height="${h}" draggable="false" alt="STM32 board" />
+      <img src="${assetUrl(svgUrl)}" width="${w}" height="${h}" draggable="false" alt="STM32 board" />
       <div id="led"></div>
     `;
   }

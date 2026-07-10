@@ -44,6 +44,8 @@
  * isolation overhead.
  */
 
+import { assetUrl, getAssetBase } from "@/lib/velxio/utils/assetBase";
+
 interface InitConfig {
   /** URL prefix where the WASM artifacts live (must end with '/'). */
   assetBaseUrl?: string;
@@ -86,15 +88,34 @@ export class NgSpiceInteractive {
   private subscribers: SubscriberCallbacks = {};
   private readonly assetBaseUrl: string;
   private readonly workerUrl: string;
+  private readonly crossOriginWorker: boolean;
 
   constructor(config: InitConfig = {}) {
-    this.assetBaseUrl = config.assetBaseUrl ?? DEFAULT_ASSET_BASE;
-    // Vite-flavored worker URL: resolves to the bundled worker at build
-    // time. When running in tests with `vitest` + a JSDOM/node env this
-    // import.meta.url scheme also works.
-    this.workerUrl =
-      config.workerUrl ??
-      new URL("./ngspice-interactive-worker.js", import.meta.url).href;
+    // In the standalone share player, __VELXIO_ASSET_BASE__ points wasm at the
+    // canonical host; assetUrl() prefixes it. In the normal app it's a no-op,
+    // leaving the default "/wasm/ngspice-interactive/" path unchanged.
+    this.assetBaseUrl = config.assetBaseUrl ?? assetUrl(DEFAULT_ASSET_BASE);
+    const base = getAssetBase();
+    if (config.workerUrl) {
+      this.workerUrl = config.workerUrl;
+      this.crossOriginWorker = false;
+    } else if (base) {
+      // Player: the worker script lives on the canonical host (cross-origin).
+      // `new Worker(crossOriginUrl)` is blocked, so init() wraps this in a
+      // same-origin blob that importScripts the canonical worker (the host
+      // serves CORS headers, which importScripts requires).
+      this.workerUrl = `${base}/ngspice-interactive-worker.js`;
+      this.crossOriginWorker = true;
+    } else {
+      // Vite-flavored worker URL: resolves to the bundled worker at build
+      // time. When running in tests with `vitest` + a JSDOM/node env this
+      // import.meta.url scheme also works.
+      this.workerUrl = new URL(
+        "./ngspice-interactive-worker.js",
+        import.meta.url,
+      ).href;
+      this.crossOriginWorker = false;
+    }
   }
 
   /**
@@ -113,7 +134,16 @@ export class NgSpiceInteractive {
   init(): Promise<void> {
     if (this.initPromise) return this.initPromise;
 
-    this.worker = new Worker(this.workerUrl);
+    if (this.crossOriginWorker) {
+      // Same-origin blob that pulls in the canonical (cross-origin) worker.
+      const blob = new Blob(
+        [`importScripts(${JSON.stringify(this.workerUrl)});`],
+        { type: "text/javascript" },
+      );
+      this.worker = new Worker(URL.createObjectURL(blob));
+    } else {
+      this.worker = new Worker(this.workerUrl);
+    }
     this.worker.addEventListener("message", this.handleMessage);
     this.worker.addEventListener("error", this.handleError);
 

@@ -20,6 +20,9 @@
 # Production builds
 /build
 /dist
+# Standalone share-player build output (Layer A). Published to the canonical
+# repo via share-player/publish-canonical.ts, not committed here.
+/share-player/dist/
 
 # Local files
 .DS_Store

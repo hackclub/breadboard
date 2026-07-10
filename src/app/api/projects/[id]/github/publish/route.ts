@@ -23,6 +23,7 @@ import {
   parseStoredBom,
   serializeBom,
 } from "@/lib/projects/bom";
+import { publishStaticShare, staticPlayUrl } from "@/lib/projects/sharePublish";
 
 type GitHubUser = { login: string };
 type GitHubRepo = { html_url: string; full_name: string };
@@ -476,7 +477,9 @@ export async function POST(
   } catch (err) {
     return error(err instanceof Error ? err.message : "Invalid URL", 400);
   }
-  const demoUrl = `${origin}/share/${projectId}`;
+  // Dynamic /share link, used only as a fallback if the static publish below
+  // fails. The durable link is the GitHub Pages URL (staticPlayUrl).
+  const shareFallbackUrl = `${origin}/share/${projectId}`;
   const screenshotUrl = absoluteScreenshotUrl(project.screenshotUrl, origin);
   const editorData = project.editorData
     ? toPublicProjectData(
@@ -528,6 +531,17 @@ export async function POST(
     return error(message, (err as GitHubError).status === 422 ? 422 : 502);
   }
 
+  const repoOwner = repo.full_name.split("/")[0] ?? "";
+  // Durable, server-independent play link (GitHub Pages, published below). The
+  // URL is deterministic (central repo path, or student repo), so it can go in
+  // the README before Pages finishes building. Empty if hosting isn't
+  // configured yet — buildReadme just omits the "Try it" line in that case.
+  const playUrl = staticPlayUrl({
+    projectId,
+    studentOwner: repoOwner,
+    studentRepo: repoName,
+  });
+
   const [journals, activityTotal] = await Promise.all([
     db
       .select({
@@ -557,14 +571,13 @@ export async function POST(
     title: project.title,
     description: project.description,
     howToUse,
-    demoUrl,
+    demoUrl: playUrl,
     videoUrl,
     screenshotUrl,
     bom: buildBom(bomItems, editorData),
     hours,
   });
   const journalsMarkdown = buildJournalsMarkdown(project.title, journals);
-  const repoOwner = repo.full_name.split("/")[0] ?? "";
   await putFile({
     token: githubAccount.accessToken,
     owner: repoOwner,
@@ -604,13 +617,41 @@ export async function POST(
     }
   }
 
+  // Publish the fully static, server-independent play page into the repo and
+  // enable GitHub Pages. On success the durable Pages URL becomes the playable
+  // link; on failure we keep the dynamic /share fallback so submission isn't
+  // blocked by a transient GitHub Pages hiccup.
+  let playableUrl = shareFallbackUrl;
+  if (project.editorData) {
+    try {
+      const { pagesUrl } = await publishStaticShare({
+        projectId,
+        title: project.title,
+        description: project.description,
+        editorData: project.editorData,
+        // Used only in "student" hosting mode; ignored in "central" mode.
+        studentToken: githubAccount.accessToken,
+        studentOwner: repoOwner,
+        studentRepo: repoName,
+      });
+      playableUrl = pagesUrl;
+    } catch (err) {
+      await audit(
+        "github.publish.static_share_failed",
+        "project",
+        String(projectId),
+        { message: err instanceof Error ? err.message : "unknown" },
+      );
+    }
+  }
+
   await db
     .update(projects)
     .set({
       codeUrl: repo.html_url,
       howToUse,
       ...(Array.isArray(body.bom) ? { bom: serializeBom(bomItems) } : {}),
-      playableUrl: demoUrl,
+      playableUrl,
       demoVideoUrl:
         typeof body.videoUrl === "string" && body.videoUrl.trim()
           ? body.videoUrl.trim()

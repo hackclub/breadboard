@@ -19,6 +19,7 @@
       "!drizzle/meta",
       "!oldvelxio",
       "!editor-backend",
+      "!share-player/_*",
       "!public/boards",
       "!public/components",
       "!public/component-svgs",

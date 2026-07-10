@@ -1,6 +1,8 @@
 // @ts-nocheck
 /** Native Velxio web components for starter-kit modules not covered by @wokwi/elements. */
 
+import { assetUrl } from "@/lib/velxio/utils/assetBase";
+
 const power = (signal: string, voltage?: number) => ({
   type: "power",
   signal,
@@ -65,7 +67,7 @@ class VibrationSwitchElement extends SvgPartElement {
     super(
       pins,
       `<svg width="86" height="68" viewBox="0 0 86 68">
-        <image href="/component-svgs/vibration-switch.svg" x="0" y="0" width="86" height="68"/>
+        <image href="${assetUrl("/component-svgs/vibration-switch.svg")}" x="0" y="0" width="86" height="68"/>
         <circle id="activity-led" class="red-led-off" cx="70" cy="22" r="3"/>
       </svg>`,
     );
@@ -163,7 +165,7 @@ class Rc522Element extends SvgPartElement {
           @keyframes rfid-ping { 0% { transform: scale(.6); opacity:.9 } 100% { transform: scale(1.25); opacity:0 } }
           #rfid-wave { transform-box: fill-box; transform-origin: center; animation: rfid-ping 1.4s ease-out infinite; }
         </style>
-        <image href="/component-svgs/rc522-rfid.svg" x="0" y="0" width="74.333" height="111.6"/>
+        <image href="${assetUrl("/component-svgs/rc522-rfid.svg")}" x="0" y="0" width="74.333" height="111.6"/>
         <circle id="rfid-wave" cx="27" cy="39" r="20" fill="none" stroke="#38bdf8" stroke-width="1.6" opacity="0"/>
         <rect id="rfid-card" x="14" y="30" width="26" height="18" rx="2" fill="#f8fafc" opacity="0.16" filter="drop-shadow(0 1px 2px rgba(0,0,0,.35))"/>
         <path d="M18 36h17M18 41h12" stroke="#f59e0b" stroke-width="1.2"/>
@@ -200,7 +202,7 @@ class WaterLevelElement extends SvgPartElement {
     super(
       pins,
       `<svg width="86" height="84" viewBox="0 0 86 84">
-        <image href="/component-svgs/water-level-sensor.svg" x="0" y="0" width="86" height="100" transform="scale(1 .84)"/>
+        <image href="${assetUrl("/component-svgs/water-level-sensor.svg")}" x="0" y="0" width="86" height="100" transform="scale(1 .84)"/>
         <rect id="water-fill" x="17" y="66" width="52" height="0" rx="2" fill="#38bdf8" opacity=".5"/>
         <text id="level-readout" class="readout" x="43" y="72">0%</text>
       </svg>`,
@@ -261,7 +263,7 @@ class Uln2003Element extends SvgPartElement {
     super(
       pins,
       `<svg width="87.87" height="99.21" viewBox="0 0 87.87 99.21">
-        <image href="/component-svgs/uln2003-driver.svg" x="0" y="0" width="87.87" height="99.21"/>
+        <image href="${assetUrl("/component-svgs/uln2003-driver.svg")}" x="0" y="0" width="87.87" height="99.21"/>
         <circle id="in1-led" class="red-led-off" cx="30" cy="78" r="2.7"/><circle id="in2-led" class="red-led-off" cx="39" cy="78" r="2.7"/><circle id="in3-led" class="red-led-off" cx="48" cy="78" r="2.7"/><circle id="in4-led" class="red-led-off" cx="57" cy="78" r="2.7"/>
       </svg>`,
     );
@@ -292,7 +294,7 @@ class Ds1302Element extends SvgPartElement {
     super(
       pins,
       `<svg width="92" height="80" viewBox="0 0 92 80">
-        <image href="/component-svgs/ds1302-module.svg" x="0" y="0" width="92" height="80"/>
+        <image href="${assetUrl("/component-svgs/ds1302-module.svg")}" x="0" y="0" width="92" height="80"/>
         <circle id="rtc-led" class="led-on" cx="78" cy="24" r="3"/>
       </svg>`,
     );
@@ -336,7 +338,7 @@ class Dht11Element extends SvgPartElement {
     super(
       pins,
       `<svg width="86" height="76" viewBox="0 0 86 76">
-        <image href="/component-svgs/dht22.svg" x="13" y="8" width="60" height="60"/>
+        <image href="${assetUrl("/component-svgs/dht22.svg")}" x="13" y="8" width="60" height="60"/>
         <rect x="12" y="66" width="62" height="6" rx="2" fill="#111827" stroke="#020617" stroke-width=".8"/>
         <circle cx="18" cy="69" r="1.8" fill="#f4c430"/><circle cx="43" cy="69" r="1.8" fill="#f4c430"/><circle cx="68" cy="69" r="1.8" fill="#f4c430"/>
         <circle id="dht-led" class="red-led-on" cx="70" cy="25" r="3"/>
@@ -567,5 +569,3 @@ for (const [name, ctor] of [
 ] as Array<[string, CustomElementConstructor]>) {
   if (!customElements.get(name)) customElements.define(name, ctor);
 }
-
-export {};

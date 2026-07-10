@@ -76,10 +76,18 @@ const demoSubmissionSchema = z.object({
     .string()
     .trim()
     .max(2048)
-    .refine(
-      (value) => value === "" || value.startsWith("/share/"),
-      "Demo link must be the Breadboard read-only share link.",
-    ),
+    .refine((value) => {
+      // Accept the durable static play link (GitHub Pages, set by Publish),
+      // and the dynamic /share fallback for projects published before the
+      // static pipeline or when Pages publishing failed.
+      if (value === "" || value.startsWith("/share/")) return true;
+      try {
+        const url = new URL(value);
+        return url.protocol === "https:" && url.hostname.endsWith(".github.io");
+      } catch {
+        return false;
+      }
+    }, "Demo link must be the Breadboard read-only play link."),
   demoVideoUrl: z
     .string()
     .trim()

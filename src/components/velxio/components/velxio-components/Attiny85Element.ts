@@ -31,6 +31,8 @@
  * wire a real wokwi-led + wokwi-resistor to PB1 like the c3-blink one does.
  */
 
+import { assetUrl } from "@/lib/velxio/utils/assetBase";
+
 const W = 160;
 const H = 132;
 const TOP_Y = 6; // CSS px — y of all four top-edge pin tips
@@ -113,7 +115,7 @@ class Attiny85Element extends HTMLElement {
       <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
         <!-- Fritzing ATtiny85 DIP-8 artwork (CC-BY-SA). Scaled to fill
              the 160x132 box; aspect ratio matches the source 1.211:1. -->
-        <image href="/component-svgs/attiny85.svg" x="0" y="0" width="${W}" height="${H}" />
+        <image href="${assetUrl("/component-svgs/attiny85.svg")}" x="0" y="0" width="${W}" height="${H}" />
 
         <!-- Pin labels overlaid above/below the connector pads. -->
         <text class="pin-label power" x="${PIN_X[0]}" y="${TOP_Y - 22}">VCC</text>
@@ -133,5 +135,3 @@ class Attiny85Element extends HTMLElement {
 if (!customElements.get("velxio-attiny85")) {
   customElements.define("velxio-attiny85", Attiny85Element);
 }
-
-export {};

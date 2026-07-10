@@ -11,19 +11,21 @@
  *   - esp32-c3     → ESP32-C3 DevKitM-1   (127 × 215 px)
  */
 
-// Board SVG assets are served from frontend/public/boards/ as static URLs.
-// No Vite import resolution needed — these resolve at runtime against the
-// static asset root.
-const esp32SvgUrl = "/boards/esp32-devkit-v1.svg";
-const esp32S3SvgUrl = "/boards/esp32-s3.svg";
-const esp32C3SvgUrl = "/boards/esp32-c3.svg";
-const esp32DevkitCV4SvgUrl = "/boards/esp32-devkit-c-v4.svg";
-const esp32CamSvgUrl = "/boards/esp32-cam.svg";
-const wemosLolin32SvgUrl = "/boards/wemos-lolin32-lite.svg";
-const xiaoEsp32S3SvgUrl = "/boards/xiao-esp32-s3.svg";
-const arduinoNanoEsp32SvgUrl = "/boards/arduino-nano-esp32.svg";
-const xiaoEsp32C3SvgUrl = "/boards/xiao-esp32-c3.svg";
-const aitewinC3SvgUrl = "/boards/esp32c3-supermini.svg";
+// Board SVG assets are served from public/boards/ as static URLs. assetUrl()
+// keeps them at the origin root in the app, and repoints them at the canonical
+// host in the standalone share player.
+import { assetUrl } from "@/lib/velxio/utils/assetBase";
+
+const esp32SvgUrl = assetUrl("/boards/esp32-devkit-v1.svg");
+const esp32S3SvgUrl = assetUrl("/boards/esp32-s3.svg");
+const esp32C3SvgUrl = assetUrl("/boards/esp32-c3.svg");
+const esp32DevkitCV4SvgUrl = assetUrl("/boards/esp32-devkit-c-v4.svg");
+const esp32CamSvgUrl = assetUrl("/boards/esp32-cam.svg");
+const wemosLolin32SvgUrl = assetUrl("/boards/wemos-lolin32-lite.svg");
+const xiaoEsp32S3SvgUrl = assetUrl("/boards/xiao-esp32-s3.svg");
+const arduinoNanoEsp32SvgUrl = assetUrl("/boards/arduino-nano-esp32.svg");
+const xiaoEsp32C3SvgUrl = assetUrl("/boards/xiao-esp32-c3.svg");
+const aitewinC3SvgUrl = assetUrl("/boards/esp32c3-supermini.svg");
 
 // ─── Pin positions (mm × 5 px/mm, from board.json) ───────────────────────────
 

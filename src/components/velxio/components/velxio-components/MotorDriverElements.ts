@@ -13,6 +13,8 @@
  * Tag: velxio-a4988  (metadataId 'a4988' via stripBrandPrefix).
  */
 
+import { assetUrl } from "@/lib/velxio/utils/assetBase";
+
 const STYLE = ":host{display:inline-block;line-height:0;position:relative}";
 
 type Pin = {
@@ -32,7 +34,7 @@ const RIGHT = ["VMOT", "GND", "2B", "2A", "1A", "1B", "VDD", "GND.2"];
 // Render the real Fritzing A4988 carrier SVG (public/components/a4988.svg).
 // The board is a uniform 2x8 0.1" header, so the connection points sit on an
 // even grid aligned to the two pad columns (margins tuned to the artwork).
-const SVG_URL = "/components/a4988.svg";
+const SVG_URL = assetUrl("/components/a4988.svg");
 const W = 72;
 const H = 96;
 const TOP_FRAC = 0.115;
@@ -78,5 +80,3 @@ class A4988Element extends HTMLElement {
 if (!customElements.get("velxio-a4988")) {
   customElements.define("velxio-a4988", A4988Element);
 }
-
-export {};

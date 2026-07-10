@@ -22,6 +22,8 @@
  * (Adafruit BMP180 breakout, variant 3).
  */
 
+import { assetUrl } from "@/lib/velxio/utils/assetBase";
+
 const W = 80; // CSS px
 const H = 100;
 const PIN_Y = 13.6; // CSS px — y of all four pin tips
@@ -64,7 +66,7 @@ class Bmp280Element extends HTMLElement {
       <svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
         <!-- Fritzing BMP180 breakout artwork (CC-BY-SA). The asset
              ships as a public static file so it stays editable separately. -->
-        <image href="/component-svgs/bmp280.svg" x="0" y="0" width="${W}" height="${H}" />
+        <image href="${assetUrl("/component-svgs/bmp280.svg")}" x="0" y="0" width="${W}" height="${H}" />
 
         <!-- Pin labels overlaid above the connector circles. The Fritzing
              source has no silkscreen labels on the pins themselves. -->
@@ -79,4 +81,3 @@ class Bmp280Element extends HTMLElement {
 if (!customElements.get("velxio-bmp280")) {
   customElements.define("velxio-bmp280", Bmp280Element);
 }
-export {};

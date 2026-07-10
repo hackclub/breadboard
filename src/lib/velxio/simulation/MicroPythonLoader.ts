@@ -9,8 +9,9 @@
 
 import { get as idbGet, set as idbSet } from "idb-keyval";
 import createLittleFS from "littlefs";
+import { assetUrl } from "@/lib/velxio/utils/assetBase";
 
-const littlefsWasmUrl = "/littlefs.wasm";
+const littlefsWasmUrl = assetUrl("/littlefs.wasm");
 
 // Flash geometry (matches rp2040js and MicroPython defaults)
 const FLASH_START_ADDRESS = 0x10000000;

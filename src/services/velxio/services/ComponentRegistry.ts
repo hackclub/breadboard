@@ -12,6 +12,7 @@ import type {
   ComponentMetadataCollection,
 } from "@/lib/velxio/types/component-metadata";
 import { filterAvailableComponents } from "@/lib/velxio/data/kitInventory";
+import { assetUrl } from "@/lib/velxio/utils/assetBase";
 
 // One-line picker descriptions for entries whose generated metadata ships
 // without one. Fallbacks only: a description already present in
@@ -106,7 +107,7 @@ export class ComponentRegistry {
       // `cache: 'no-store'` so adding a new component (or rebuilding the JSON)
       // shows up after a single page refresh — without this, the browser keeps
       // serving the stale copy until you do a hard reload.
-      const response = await fetch("/components-metadata.json", {
+      const response = await fetch(assetUrl("/components-metadata.json"), {
         cache: "no-store",
       });
       if (!response.ok) {

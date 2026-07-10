@@ -17,6 +17,12 @@ import {
 } from "@/lib/db/schema";
 import { ReviewWorkspace } from "@/components/platform/review-workspace";
 
+function toIso(value: Date | string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 export default async function AdminReviewProjectPage({
   params,
 }: {
@@ -172,7 +178,7 @@ export default async function AdminReviewProjectPage({
     playbackUrl: entry.playbackUrl,
     thumbnailUrl: entry.thumbnailUrl,
     durationSeconds: entry.durationSeconds,
-    recordedAt: entry.recordedAt ? entry.recordedAt.toISOString() : null,
+    recordedAt: toIso(entry.recordedAt),
   }));
   const activity = activityRows[0];
   const screenEvidence = screenEvidenceRows[0];
@@ -198,9 +204,8 @@ export default async function AdminReviewProjectPage({
         tracking={{
           trackedSeconds: activity?.trackedSeconds ?? 0,
           sessionCount: activity?.sessionCount ?? 0,
-          lastTrackedAt: activity?.lastTrackedAt?.toISOString() ?? null,
-          lastScreenEvidenceAt:
-            screenEvidence?.lastScreenEvidenceAt?.toISOString() ?? null,
+          lastTrackedAt: toIso(activity?.lastTrackedAt),
+          lastScreenEvidenceAt: toIso(screenEvidence?.lastScreenEvidenceAt),
           recordingSeconds,
           measuredSeconds: (activity?.trackedSeconds ?? 0) + recordingSeconds,
           journaledSeconds: journalTime?.journaledSeconds ?? 0,

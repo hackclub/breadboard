@@ -356,11 +356,7 @@ function attachSSD1306(
       console.info(
         `[ssd1306-i2c] not on the bus — check wiring: ${hookup.missing.join(", ")}`,
       );
-      reportWiringIssue(
-        enforceHookupComponentId,
-        "ssd1306-i2c",
-        hookup.missing,
-      );
+      reportWiringIssue(enforceHookupComponentId, "ssd1306-i2c", hookup.missing);
       return () => clearWiringIssue(enforceHookupComponentId);
     }
     clearWiringIssue(enforceHookupComponentId);
@@ -1859,22 +1855,8 @@ function makeI2cLcdAttach(cols: number, rows: number) {
  * (velxio-lcd1602-i2c-adapter) — mirror the wokwi-lcd1602 parallel header.
  */
 const LCD_ADAPTER_LCD_PINS = new Set([
-  "VSS",
-  "VDD",
-  "V0",
-  "RS",
-  "RW",
-  "E",
-  "D0",
-  "D1",
-  "D2",
-  "D3",
-  "D4",
-  "D5",
-  "D6",
-  "D7",
-  "A",
-  "K",
+  "VSS", "VDD", "V0", "RS", "RW", "E", "D0", "D1",
+  "D2", "D3", "D4", "D5", "D6", "D7", "A", "K",
 ]);
 
 /**

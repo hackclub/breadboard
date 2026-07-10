@@ -23,6 +23,8 @@ export interface EditorSnapshotState {
       y: number;
       running: boolean;
       serialMonitorOpen: boolean;
+      serialOutput: string;
+      serialBaudRate: number;
       languageMode?: string;
       activeFileGroupId: string;
       boardOptions?: Record<string, unknown>;
@@ -336,6 +338,8 @@ export function captureEditorState(
         y: b.y,
         running: b.running ?? false,
         serialMonitorOpen: b.serialMonitorOpen ?? false,
+        serialOutput: b.serialOutput ?? "",
+        serialBaudRate: b.serialBaudRate ?? 0,
         languageMode: b.languageMode,
         activeFileGroupId: b.activeFileGroupId,
         boardOptions: b.boardOptions

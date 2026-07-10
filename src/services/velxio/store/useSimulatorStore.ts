@@ -1154,7 +1154,7 @@ const { append: appendSerial } = createSerialBatcher((perBoard) => {
       const chunk = perBoard.get(b.id);
       if (!chunk) return b;
       if (s.activeBoardId === b.id) globalOut += chunk;
-      return { ...b, serialOutput: b.serialOutput + chunk };
+      return { ...b, serialOutput: (b.serialOutput ?? "") + chunk };
     });
     return { boards, serialOutput: globalOut };
   });
@@ -1232,9 +1232,18 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     ) => {
       const kitType = get().kitType;
       const ignoreStock = get().ignoreStock;
-      if (ignoreStock ? !isAnyKitBoard(boardKind) : !isKitBoard(boardKind, kitType)) return;
+      if (
+        ignoreStock
+          ? !isAnyKitBoard(boardKind)
+          : !isKitBoard(boardKind, kitType)
+      )
+        return;
       const boardCounts = countKitBoards(get().boards);
-      if (!ignoreStock && (boardCounts[boardKind] ?? 0) >= kitBoardLimit(boardKind, kitType)) return;
+      if (
+        !ignoreStock &&
+        (boardCounts[boardKind] ?? 0) >= kitBoardLimit(boardKind, kitType)
+      )
+        return;
 
       let id: string;
       if (explicitId) {
@@ -2692,7 +2701,10 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         if (!isKitComponent(metadataId, state.kitType)) return state;
 
         const counts = countKitComponents(state.components);
-        if ((counts[metadataId] ?? 0) >= kitComponentLimit(metadataId, state.kitType)) {
+        if (
+          (counts[metadataId] ?? 0) >=
+          kitComponentLimit(metadataId, state.kitType)
+        ) {
           return state;
         }
 
@@ -2786,9 +2798,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           if (state.ignoreStock) {
             return metadataId ? isAnyKitComponent(metadataId) : false;
           }
-          if (!metadataId || !isKitComponent(metadataId, state.kitType)) return false;
+          if (!metadataId || !isKitComponent(metadataId, state.kitType))
+            return false;
           const count = counts[metadataId] ?? 0;
-          if (count >= kitComponentLimit(metadataId, state.kitType)) return false;
+          if (count >= kitComponentLimit(metadataId, state.kitType))
+            return false;
           counts[metadataId] = count + 1;
           return true;
         });

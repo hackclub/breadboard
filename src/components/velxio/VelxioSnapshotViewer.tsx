@@ -8,9 +8,10 @@ import { type FC, useEffect, useRef, useState } from "react";
 
 loader.config({
   paths: {
-    vs: process.env.NODE_ENV === "production"
-      ? "https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs"
-      : "/monaco/vs",
+    vs:
+      process.env.NODE_ENV === "production"
+        ? "https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs"
+        : "/monaco/vs",
   },
 });
 import type { EditorSnapshotState } from "@/lib/editor/captureState";
@@ -18,7 +19,22 @@ import type { EditorSnapshotState } from "@/lib/editor/captureState";
 type SnapshotLike = EditorSnapshotState | Record<string, any>;
 
 function normalizeSnapshot(input: SnapshotLike): EditorSnapshotState {
-  if (input?.editor && input?.simulator) return input as EditorSnapshotState;
+  if (input?.editor && input?.simulator) {
+    const snapshot = input as EditorSnapshotState;
+    return {
+      ...snapshot,
+      simulator: {
+        ...snapshot.simulator,
+        serialOutput: snapshot.simulator.serialOutput ?? "",
+        serialBaudRate: snapshot.simulator.serialBaudRate ?? 0,
+        boards: (snapshot.simulator.boards ?? []).map((board) => ({
+          ...board,
+          serialOutput: board.serialOutput ?? "",
+          serialBaudRate: board.serialBaudRate ?? 0,
+        })),
+      },
+    };
+  }
   const payload = input as Record<string, any>;
 
   const boards = Array.isArray(payload.boards) ? payload.boards : [];
@@ -52,6 +68,8 @@ function normalizeSnapshot(input: SnapshotLike): EditorSnapshotState {
       boards: boards.map((board: any) => ({
         ...board,
         running: false,
+        serialOutput: board.serialOutput ?? "",
+        serialBaudRate: board.serialBaudRate ?? 0,
         serialMonitorOpen: false,
       })),
       activeBoardId,
@@ -116,34 +134,65 @@ function loadModules() {
     import("@/services/velxio/store/useVfsStore"),
     import("@/components/velxio/pages/EditorPage"),
     import("@/components/velxio/components/velxio-components/IC74HC595"),
-    import("@/components/velxio/components/velxio-components/LogicGateElements"),
-    import("@/components/velxio/components/velxio-components/TransistorElements"),
+    import(
+      "@/components/velxio/components/velxio-components/LogicGateElements"
+    ),
+    import(
+      "@/components/velxio/components/velxio-components/TransistorElements"
+    ),
     import("@/components/velxio/components/velxio-components/OpAmpElements"),
     import("@/components/velxio/components/velxio-components/PowerElements"),
     import("@/components/velxio/components/velxio-components/DiodeElements"),
     import("@/components/velxio/components/velxio-components/RelayElements"),
     import("@/components/velxio/components/velxio-components/LogicICElements"),
-    import("@/components/velxio/components/velxio-components/MotorDriverElements"),
+    import(
+      "@/components/velxio/components/velxio-components/MotorDriverElements"
+    ),
     import("@/components/velxio/components/velxio-components/FlipFlopElements"),
-    import("@/components/velxio/components/velxio-components/RaspberryPi3Element"),
+    import(
+      "@/components/velxio/components/velxio-components/RaspberryPi3Element"
+    ),
     import("@/components/velxio/components/velxio-components/Bmp280Element"),
     import("@/components/velxio/components/velxio-components/EPaperElement"),
-    import("@/components/velxio/components/velxio-components/BreadboardElements"),
+    import(
+      "@/components/velxio/components/velxio-components/BreadboardElements"
+    ),
     import("@/components/velxio/components/velxio-components/KitElements"),
-  ]).then(([_, editorMod, simMod, projectMod, compileLogsMod, oscilloscopeMod, electricalMod, vfsMod, pageMod]) => {
-    const EditorPage = (pageMod as any).EditorPage as FC<{
-      readOnly?: boolean;
-      shareMode?: boolean;
-    }>;
-    const editorStore = (editorMod as any).useEditorStore;
-    const simStore = (simMod as any).useSimulatorStore;
-    const projectStore = (projectMod as any).useProjectStore;
-    const compileLogsStore = (compileLogsMod as any).useCompileLogsStore;
-    const oscilloscopeStore = (oscilloscopeMod as any).useOscilloscopeStore;
-    const electricalStore = (electricalMod as any).useElectricalStore;
-    const vfsStore = (vfsMod as any).useVfsStore;
-    return { EditorPage, editorStore, simStore, projectStore, compileLogsStore, oscilloscopeStore, electricalStore, vfsStore };
-  });
+  ]).then(
+    ([
+      _,
+      editorMod,
+      simMod,
+      projectMod,
+      compileLogsMod,
+      oscilloscopeMod,
+      electricalMod,
+      vfsMod,
+      pageMod,
+    ]) => {
+      const EditorPage = (pageMod as any).EditorPage as FC<{
+        readOnly?: boolean;
+        shareMode?: boolean;
+      }>;
+      const editorStore = (editorMod as any).useEditorStore;
+      const simStore = (simMod as any).useSimulatorStore;
+      const projectStore = (projectMod as any).useProjectStore;
+      const compileLogsStore = (compileLogsMod as any).useCompileLogsStore;
+      const oscilloscopeStore = (oscilloscopeMod as any).useOscilloscopeStore;
+      const electricalStore = (electricalMod as any).useElectricalStore;
+      const vfsStore = (vfsMod as any).useVfsStore;
+      return {
+        EditorPage,
+        editorStore,
+        simStore,
+        projectStore,
+        compileLogsStore,
+        oscilloscopeStore,
+        electricalStore,
+        vfsStore,
+      };
+    },
+  );
 }
 
 function injectState(
@@ -179,7 +228,11 @@ function injectState(
   editorStore.getState().setActiveGroup(snapshot.editor.activeGroupId);
 
   simStore.setState({
-    boards: snapshot.simulator.boards,
+    boards: snapshot.simulator.boards.map((board) => ({
+      ...board,
+      serialOutput: board.serialOutput ?? "",
+      serialBaudRate: board.serialBaudRate ?? 0,
+    })),
     activeBoardId: snapshot.simulator.activeBoardId,
     components: snapshot.simulator.components,
     wires: snapshot.simulator.wires,
@@ -248,7 +301,10 @@ export function VelxioSnapshotViewer({
   shareMode?: boolean;
 }) {
   const [ready, setReady] = useState(false);
-  const editorPageRef = useRef<FC<{ readOnly?: boolean; shareMode?: boolean }> | null>(null);
+  const editorPageRef = useRef<FC<{
+    readOnly?: boolean;
+    shareMode?: boolean;
+  }> | null>(null);
   const storesRef = useRef<any>(null);
 
   useEffect(() => {
@@ -259,13 +315,32 @@ export function VelxioSnapshotViewer({
       storesRef.current = stores;
       setReady(true);
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []); // preload once
 
   useEffect(() => {
     if (!ready || !storesRef.current) return;
-    const { editorStore, simStore, projectStore, compileLogsStore, oscilloscopeStore, electricalStore, vfsStore } = storesRef.current;
-    injectState(editorStore, simStore, projectStore, compileLogsStore, oscilloscopeStore, electricalStore, vfsStore, snapshot);
+    const {
+      editorStore,
+      simStore,
+      projectStore,
+      compileLogsStore,
+      oscilloscopeStore,
+      electricalStore,
+      vfsStore,
+    } = storesRef.current;
+    injectState(
+      editorStore,
+      simStore,
+      projectStore,
+      compileLogsStore,
+      oscilloscopeStore,
+      electricalStore,
+      vfsStore,
+      snapshot,
+    );
   }, [snapshot, ready]);
 
   const EP = editorPageRef.current;

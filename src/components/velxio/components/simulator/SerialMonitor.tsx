@@ -125,7 +125,7 @@ export const SerialMonitor: React.FC = () => {
       if (board) {
         setLastSeenLen((prev) => ({
           ...prev,
-          [resolvedTabId]: board.serialOutput.length,
+          [resolvedTabId]: (board.serialOutput ?? "").length,
         }));
       }
     }
@@ -189,7 +189,7 @@ export const SerialMonitor: React.FC = () => {
     if (board) {
       setLastSeenLen((prev) => ({
         ...prev,
-        [boardId]: board.serialOutput.length,
+        [boardId]: (board.serialOutput ?? "").length,
       }));
     }
   };
@@ -213,7 +213,7 @@ export const SerialMonitor: React.FC = () => {
           const isActive = board.id === resolvedTabId;
           const color = BOARD_COLOR[board.boardKind] ?? "#999";
           const hasUnread =
-            board.serialOutput.length > (lastSeenLen[board.id] ?? 0);
+            (board.serialOutput ?? "").length > (lastSeenLen[board.id] ?? 0);
           return (
             <button
               key={board.id}

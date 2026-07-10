@@ -2,8 +2,8 @@
  * Produces the public form of an editor project for share pages and GitHub.
  *
  * Project source is private while the owner edits it, but it becomes public
- * when a demo link or repository is published. Keep environment files out of
- * that boundary and remove credential-shaped literals as defence in depth.
+ * when a demo link or repository is published. Explicitly marked string
+ * literals and credential-shaped values are redacted at that boundary.
  */
 const REDACTED_SECRET = "[REDACTED]";
 
@@ -14,15 +14,12 @@ const ASSIGNED_SECRET =
   /(\b[A-Za-z_][A-Za-z0-9_]*(?:token|secret|password|api[_-]?key)[A-Za-z0-9_]*\s*=\s*["'])([^"'\r\n]{8,})(["'])/gi;
 const JSON_SECRET =
   /(["'][A-Za-z_][A-Za-z0-9_]*(?:token|secret|password|api[_-]?key)[A-Za-z0-9_]*["']\s*:\s*["'])([^"'\r\n]{8,})(["'])/gi;
-
-function isEnvironmentFile(name: unknown) {
-  return (
-    typeof name === "string" && /(^|\/)\.env(?:\.[^/]+)?$/i.test(name.trim())
-  );
-}
+const MARKED_SECRET =
+  /"(?:\\.|[^"\\\r\n])*"\s*(?:\/\*\s*breadboard-secret\s*\*\/|#\s*breadboard-secret\b)/gi;
 
 export function redactPublicSource(source: string) {
   return source
+    .replace(MARKED_SECRET, `"${REDACTED_SECRET}"`)
     .replace(GITHUB_TOKEN, REDACTED_SECRET)
     .replace(BEARER_TOKEN, `$1${REDACTED_SECRET}`)
     .replace(ASSIGNED_SECRET, `$1${REDACTED_SECRET}$3`)
@@ -44,12 +41,7 @@ function sanitizeFileGroups(fileGroups: unknown) {
         groupId,
         Array.isArray(files)
           ? files
-              .filter(
-                (file) =>
-                  typeof file === "object" &&
-                  file !== null &&
-                  !isEnvironmentFile((file as Record<string, unknown>).name),
-              )
+              .filter((file) => typeof file === "object" && file !== null)
               .map((file) => {
                 const item = file as Record<string, unknown>;
                 return {

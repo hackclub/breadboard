@@ -38,6 +38,40 @@ export const CodeEditor = ({ readOnly = false }: { readOnly?: boolean }) => {
           if (readOnly) return;
           if (activeFileId) setFileContent(activeFileId, value || "");
         }}
+        onMount={(editor) => {
+          if (readOnly) return;
+          editor.addAction({
+            id: "breadboard.mark-selected-string-secret",
+            label: "Mark selected string as secret",
+            contextMenuGroupId: "9_cutcopypaste",
+            contextMenuOrder: 2,
+            precondition: "editorHasSelection",
+            run: (instance) => {
+              const selection = instance.getSelection();
+              const model = instance.getModel();
+              if (!selection || !model || selection.isEmpty()) return;
+
+              const selected = model.getValueInRange(selection);
+              if (
+                selected.length < 2 ||
+                !selected.startsWith('"') ||
+                !selected.endsWith('"')
+              ) {
+                window.alert("Select the complete quoted secret value first.");
+                return;
+              }
+              const marker = activeFile?.name.toLowerCase().endsWith(".py")
+                ? " # breadboard-secret"
+                : " /* breadboard-secret */";
+              instance.executeEdits("breadboard.mark-secret", [
+                {
+                  range: selection,
+                  text: `${selected}${marker}`,
+                },
+              ]);
+            },
+          });
+        }}
         options={{
           readOnly,
           domReadOnly: readOnly,

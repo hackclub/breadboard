@@ -1410,7 +1410,7 @@ PartSimulationRegistry.register("ir-remote", {
 /**
  * MicroSD card — SPI mode initialization handshake simulator.
  *
- * Hooks into the AVR's hardware SPI peripheral (simulator.spi.onTransmit).
+ * Hooks into the generic SPI bus adapter (simulator.spi.onByte).
  * Implements the SD card v2 / SDHC initialization sequence:
  *
  *   CMD0  (0x40) → R1 = 0x01  (idle)
@@ -1424,8 +1424,9 @@ PartSimulationRegistry.register("ir-remote", {
  * 0xFF bytes act as idle / clock-only bytes; the response queue is drained
  * one byte per SPI transfer.
  *
- * NOTE: This hooks into AVR SPI only (simulator.spi). RP2040 SPI integration
- * follows the same pattern but uses simulator.rp2040.spi[0].onTransmit.
+ * NOTE: Works across all boards via the shared simulator.spi adapter
+ * (onByte + completeTransfer), which routes to AVR SPI, RP2040 SPI0, or the
+ * ESP32 bridge.
  */
 PartSimulationRegistry.register("microsd-card", {
   attachEvents: (_element, simulator, _getPin) => {
@@ -1492,12 +1493,9 @@ PartSimulationRegistry.register("microsd-card", {
       }
     }
 
-    const prevOnTransmit = spi.onTransmit as
-      | ((b: number) => void)
-      | null
-      | undefined;
+    const prevOnByte = spi.onByte as ((b: number) => void) | null | undefined;
 
-    spi.onTransmit = (byte: number) => {
+    spi.onByte = (byte: number) => {
       if (byte & 0x40 && cmdBuf.length === 0) {
         // New command — start accumulation
         cmdBuf = [byte];
@@ -1511,11 +1509,11 @@ PartSimulationRegistry.register("microsd-card", {
 
       // Drain response queue; idle reply is 0xFF
       const reply = respQueue.length > 0 ? respQueue.shift()! : 0xff;
-      spi.completeTransmit(reply);
+      spi.completeTransfer?.(reply);
     };
 
     return () => {
-      spi.onTransmit = prevOnTransmit ?? null;
+      spi.onByte = prevOnByte ?? null;
       respQueue.length = 0;
       cmdBuf = [];
     };
@@ -1691,7 +1689,9 @@ PartSimulationRegistry.register("pcf8574", {
       const virtualPin = 200 + addr;
       sim.registerSensor("pcf8574", virtualPin, { addr });
       sim.addI2CTransactionListener?.(addr, (data: number[]) => {
-        if (data.length > 0) dev.writeByte(data[0]);
+        // PCF8574 is registerless — every byte updates the output latch, so
+        // apply them all (not just data[0]) to match the AVR/RP2040 path.
+        for (const b of data) dev.writeByte(b);
       });
       sim.addI2CDevice?.(dev);
       return () => {

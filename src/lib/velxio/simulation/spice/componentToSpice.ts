@@ -786,11 +786,20 @@ const MAPPERS: Record<string, Mapper> = {
     const active = boolLike(comp.properties.active);
     const activeHigh = comp.properties.activeHigh !== false;
     const volts = active === activeHigh ? ctx.vcc : 0;
+    const cards = [
+      `V_${comp.id}_out ${out} ${gnd} DC ${volts}`,
+      `R_${comp.id}_load ${out} ${gnd} 1Meg`,
+    ];
+    // The output is an ideal source referenced to the module's own GND pin.
+    // If that GND isn't solidly tied to circuit ground (e.g. the module is
+    // seated on the breadboard but its GND jumper is missing), the {OUT,GND}
+    // island has no DC reference and ngspice reports a singular matrix on the
+    // source branch. A weak bleeder to node 0 gives the island a reference so
+    // the solve converges (harmless next to a real GND wire). Skip it when GND
+    // is already ground to avoid a 0-0 self-loop card.
+    if (gnd !== "0") cards.push(`R_${comp.id}_gndref ${gnd} 0 100Meg`);
     return {
-      cards: [
-        `V_${comp.id}_out ${out} ${gnd} DC ${volts}`,
-        `R_${comp.id}_load ${out} ${gnd} 1Meg`,
-      ],
+      cards,
       modelsUsed: new Set(),
     };
   },

@@ -309,7 +309,7 @@ PartSimulationRegistry.register("flame-sensor", {
     const unsubscribers: (() => void)[] = [];
 
     if (pinAOUT !== null) {
-      setAdcVoltage(simulator, pinAOUT, 4.5); // no flame = high voltage
+      setAdcVoltage(simulator, pinAOUT, 5.0); // no flame = high voltage
     }
 
     if (pinDOUT !== null && pinManager) {
@@ -323,7 +323,9 @@ PartSimulationRegistry.register("flame-sensor", {
     const onInput = () => {
       const val = (el as any).value;
       if (val !== undefined && pinAOUT !== null) {
-        setAdcVoltage(simulator, pinAOUT, (val / 1023.0) * 5.0);
+        // Flame sensor output is inverted: higher value = flame = lower volts.
+        // Match the SensorControlPanel formula below so both paths agree.
+        setAdcVoltage(simulator, pinAOUT, 5.0 - (val / 1023.0) * 5.0);
       }
     };
     element.addEventListener("input", onInput);

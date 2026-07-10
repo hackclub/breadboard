@@ -112,6 +112,8 @@ interface EditorToolbarProps {
    */
   rightSlot?: React.ReactNode;
   readOnly?: boolean;
+  /** Lets public review/share pages run the saved sketch without edits. */
+  allowExecution?: boolean;
 }
 
 const _BOARD_PILL_ICON: Record<BoardKind, string> = {
@@ -164,6 +166,7 @@ export const EditorToolbar = ({
   centerSlot,
   rightSlot,
   readOnly = false,
+  allowExecution = false,
 }: EditorToolbarProps) => {
   const { t } = useTranslation();
   const { files, codeChangedSinceLastCompile, markCompiled } = useEditorStore();
@@ -201,6 +204,7 @@ export const EditorToolbar = ({
   // Run-All / Stop buttons (the flat `running` flag only tracks the ACTIVE
   // board, so it misreports a multi-board or non-active-board run).
   const anyBoardRunning = boards.some((b) => b.running);
+  const executionDisabled = readOnly && !allowExecution;
 
   // A "run target" is a board OR a programmable custom-chip (a CPU that runs a
   // ROM). When there is more than one target — two boards, a board + a chip, or
@@ -1285,7 +1289,7 @@ export const EditorToolbar = ({
             {/* Compile */}
             <button
               onClick={handleCompile}
-              disabled={readOnly || compiling || !activeBoard}
+              disabled={executionDisabled || compiling || !activeBoard}
               className="tb-btn tb-btn-compile"
               title={
                 !activeBoard
@@ -1333,7 +1337,7 @@ export const EditorToolbar = ({
             <button
               onClick={handleRun}
               disabled={
-                readOnly ||
+                executionDisabled ||
                 (isBoardless
                   ? digitalRunning
                   : running || compiling || !activeBoard)
@@ -1366,7 +1370,8 @@ export const EditorToolbar = ({
             <button
               onClick={handleStop}
               disabled={
-                readOnly || (isBoardless ? !digitalRunning : !anyBoardRunning)
+                executionDisabled ||
+                (isBoardless ? !digitalRunning : !anyBoardRunning)
               }
               className="tb-btn tb-btn-stop"
               title={
@@ -1390,7 +1395,8 @@ export const EditorToolbar = ({
             <button
               onClick={handleReset}
               disabled={
-                readOnly || (!compiledHex && !activeBoard?.compiledProgram)
+                executionDisabled ||
+                (!compiledHex && !activeBoard?.compiledProgram)
               }
               className="tb-btn tb-btn-reset"
               title={t("editor.toolbar.reset")}
@@ -1417,7 +1423,7 @@ export const EditorToolbar = ({
                 {/* Compile All — boards + programmable chips */}
                 <button
                   onClick={handleCompileAll}
-                  disabled={readOnly || compileAllRunning}
+                  disabled={executionDisabled || compileAllRunning}
                   className="tb-btn tb-btn-compile-all"
                   title={t("editor.toolbar.compileAll")}
                 >
@@ -1440,7 +1446,7 @@ export const EditorToolbar = ({
                 <button
                   onClick={handleRunAll}
                   disabled={
-                    readOnly ||
+                    executionDisabled ||
                     compileAllRunning ||
                     anyBoardRunning ||
                     digitalRunning

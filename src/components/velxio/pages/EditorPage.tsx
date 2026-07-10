@@ -30,9 +30,7 @@ import { SimulatorCanvas } from "@/components/velxio/components/simulator/Simula
 import { SerialMonitor } from "@/components/velxio/components/simulator/SerialMonitor";
 import { Oscilloscope } from "@/components/velxio/components/simulator/Oscilloscope";
 import { triggerSaveAction } from "@/lib/velxio/lib/proSaveAction";
-import {
-  useSimulatorStore,
-} from "@/services/velxio/store/useSimulatorStore";
+import { useSimulatorStore } from "@/services/velxio/store/useSimulatorStore";
 import { useEditorStore } from "@/services/velxio/store/useEditorStore";
 import { useCompileLogsStore } from "@/services/velxio/store/useCompileLogsStore";
 import { useOscilloscopeStore } from "@/services/velxio/store/useOscilloscopeStore";
@@ -57,10 +55,10 @@ const resizeHandleStyle: React.CSSProperties = {
   borderBottom: "1px solid #3c3c3c",
 };
 
-export const EditorPage: React.FC<{ readOnly?: boolean; shareMode?: boolean }> = ({
-  readOnly = false,
-  shareMode = false,
-}) => {
+export const EditorPage: React.FC<{
+  readOnly?: boolean;
+  shareMode?: boolean;
+}> = ({ readOnly = false, shareMode = false }) => {
   const { t } = useTranslation();
   useAutoSaveProject();
   const [editorWidthPct, setEditorWidthPct] = useState(45);
@@ -264,25 +262,6 @@ export const EditorPage: React.FC<{ readOnly?: boolean; shareMode?: boolean }> =
 
   return (
     <div className="app">
-      {/* ── Mobile tab bar (top, above panels) ── */}
-      {shareMode && (
-        <div
-          style={{
-            flexShrink: 0,
-            borderBottom: "1px solid #3c3c3c",
-            background: "#BD0F32",
-            color: "white",
-            padding: "10px 16px",
-            fontSize: 13,
-            fontWeight: 900,
-            letterSpacing: ".12em",
-            textAlign: "center",
-          }}
-        >
-          READ ONLY SIMULATION - run the project, but editing is disabled
-        </div>
-      )}
-
       {isMobile && !shareMode && (
         <nav className="mobile-tab-bar">
           <button
@@ -437,6 +416,7 @@ export const EditorPage: React.FC<{ readOnly?: boolean; shareMode?: boolean }> =
               setCompileLogs={setCompileLogs}
               centerSlot={!isRaspberryPi3 ? <FileTabs /> : null}
               readOnly={readOnly}
+              allowExecution={shareMode}
             />
           </div>
           <div className="unified-toolbar-canvas" ref={setCanvasHeaderSlot} />
@@ -474,7 +454,10 @@ export const EditorPage: React.FC<{ readOnly?: boolean; shareMode?: boolean }> =
                   overflow: "hidden",
                 }}
               >
-                <FileExplorer onSaveClick={handleSaveClick} readOnly={readOnly} />
+                <FileExplorer
+                  onSaveClick={handleSaveClick}
+                  readOnly={readOnly}
+                />
               </div>
               {!isMobile && (
                 <div
@@ -533,6 +516,7 @@ export const EditorPage: React.FC<{ readOnly?: boolean; shareMode?: boolean }> =
                     setCompileLogs={setCompileLogs}
                     centerSlot={!isRaspberryPi3 ? <FileTabs /> : null}
                     readOnly={readOnly}
+                    allowExecution={shareMode}
                   />
                 </div>
               </div>
@@ -621,7 +605,8 @@ export const EditorPage: React.FC<{ readOnly?: boolean; shareMode?: boolean }> =
                 setConsoleOpen={setConsoleOpen}
                 compileLogs={compileLogs}
                 setCompileLogs={setCompileLogs}
-                readOnly={false}
+                readOnly={readOnly}
+                allowExecution
               />
             </div>
           )}

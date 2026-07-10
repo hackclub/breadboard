@@ -18,6 +18,22 @@ import type { EditorSnapshotState } from "@/lib/editor/captureState";
 
 type SnapshotLike = EditorSnapshotState | Record<string, any>;
 
+function isPortableProject(input: SnapshotLike) {
+  return (
+    !(
+      typeof input === "object" &&
+      input !== null &&
+      "editor" in input &&
+      "simulator" in input
+    ) &&
+    typeof input === "object" &&
+    input !== null &&
+    Array.isArray((input as Record<string, unknown>).boards) &&
+    Array.isArray((input as Record<string, unknown>).components) &&
+    Array.isArray((input as Record<string, unknown>).wires)
+  );
+}
+
 function normalizeSnapshot(input: SnapshotLike): EditorSnapshotState {
   if (input?.editor && input?.simulator) {
     const snapshot = input as EditorSnapshotState;
@@ -206,6 +222,7 @@ function injectState(
   state: SnapshotLike,
 ) {
   const snapshot = normalizeSnapshot(state);
+  const portableProject = isPortableProject(state);
   projectStore.getState().setCurrentProject({
     id: snapshot.project?.id ?? "snapshot",
     slug: snapshot.project?.slug ?? "Snapshot",
@@ -214,42 +231,59 @@ function injectState(
     visibility: "private" as any,
   });
 
+  // Published projects store portable .vlx files, whose files intentionally
+  // have no editor-only IDs. Loading them directly leaves Monaco with an
+  // active id that cannot match any file, which made shared demos show a
+  // blank code pane. Let the editor store assign stable IDs just as a normal
+  // project load does.
   editorStore.setState({
     viewMode: snapshot.editor.viewMode as any,
     theme: snapshot.editor.theme as any,
     fontSize: snapshot.editor.fontSize,
-    fileGroups: snapshot.editor.fileGroups,
-    activeGroupId: snapshot.editor.activeGroupId,
-    activeGroupFileId: snapshot.editor.activeGroupFileId,
-    openGroupFileIds: snapshot.editor.openGroupFileIds,
     codeChangedSinceLastCompile: snapshot.editor.codeChangedSinceLastCompile,
   });
+  editorStore.getState().replaceFileGroups(snapshot.editor.fileGroups);
+  const requestedGroup = snapshot.editor.activeGroupId;
+  if (snapshot.editor.fileGroups[requestedGroup]) {
+    editorStore.getState().setActiveGroup(requestedGroup);
+  }
 
-  editorStore.getState().setActiveGroup(snapshot.editor.activeGroupId);
-
-  simStore.setState({
-    boards: snapshot.simulator.boards.map((board) => ({
-      ...board,
-      serialOutput: board.serialOutput ?? "",
-      serialBaudRate: board.serialBaudRate ?? 0,
-    })),
-    activeBoardId: snapshot.simulator.activeBoardId,
-    components: snapshot.simulator.components,
-    wires: snapshot.simulator.wires,
-    serialOutput: snapshot.simulator.serialOutput,
-    serialBaudRate: snapshot.simulator.serialBaudRate,
-    running: false,
-    compiledHex: snapshot.simulator.compiledHex,
-    hexEpoch: snapshot.simulator.hexEpoch,
-    esp32CrashBoardId: snapshot.simulator.esp32CrashBoardId,
-    canvasPan: snapshot.simulator?.canvasPan ?? { x: 0, y: 0 },
-    canvasZoom: snapshot.simulator?.canvasZoom ?? 1,
-    _timelapseReplay: true,
-    selectedWireId: snapshot.simulator.selectedWireId,
-    wireInProgress: null,
-    history: [],
-    historyIndex: -1,
-  });
+  if (portableProject) {
+    // A published share is a .vlx project, not a visual-only timelapse
+    // capture. Use the normal loader so board simulators are created and its
+    // saved sketch can actually compile and run.
+    simStore.getState().loadProjectState({
+      boards: snapshot.simulator.boards,
+      fileGroups: snapshot.editor.fileGroups,
+      components: snapshot.simulator.components,
+      wires: snapshot.simulator.wires,
+      activeBoardId: snapshot.simulator.activeBoardId,
+    });
+  } else {
+    simStore.setState({
+      boards: snapshot.simulator.boards.map((board) => ({
+        ...board,
+        serialOutput: board.serialOutput ?? "",
+        serialBaudRate: board.serialBaudRate ?? 0,
+      })),
+      activeBoardId: snapshot.simulator.activeBoardId,
+      components: snapshot.simulator.components,
+      wires: snapshot.simulator.wires,
+      serialOutput: snapshot.simulator.serialOutput,
+      serialBaudRate: snapshot.simulator.serialBaudRate,
+      running: false,
+      compiledHex: snapshot.simulator.compiledHex,
+      hexEpoch: snapshot.simulator.hexEpoch,
+      esp32CrashBoardId: snapshot.simulator.esp32CrashBoardId,
+      canvasPan: snapshot.simulator?.canvasPan ?? { x: 0, y: 0 },
+      canvasZoom: snapshot.simulator?.canvasZoom ?? 1,
+      _timelapseReplay: true,
+      selectedWireId: snapshot.simulator.selectedWireId,
+      wireInProgress: null,
+      history: [],
+      historyIndex: -1,
+    });
+  }
 
   compileLogsStore.setState({ logs: snapshot.compileLogs ?? [] });
   oscilloscopeStore.setState({

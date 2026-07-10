@@ -14,6 +14,7 @@ import {
   enforceSameOrigin,
   hasAllowedContentLength,
 } from "@/lib/editor/security";
+import { toPublicProjectData } from "@/lib/editor/public-project";
 import { GITHUB_PUBLISH_PROVIDER_ID } from "@/lib/github/oauth";
 import {
   type BomItem,
@@ -478,7 +479,9 @@ export async function POST(
   const demoUrl = `${origin}/share/${projectId}`;
   const screenshotUrl = absoluteScreenshotUrl(project.screenshotUrl, origin);
   const editorData = project.editorData
-    ? (JSON.parse(project.editorData) as Record<string, unknown>)
+    ? toPublicProjectData(
+        JSON.parse(project.editorData) as Record<string, unknown>,
+      )
     : null;
   // An array in the body is authoritative (an empty one clears the custom
   // BOM and falls back to the schematic); anything else keeps the saved BOM.

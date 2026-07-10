@@ -745,7 +745,7 @@ export function ReviewWorkspace({
               </span>
             </div>
             <div className="flex justify-between gap-3">
-              <span>Recorded video time</span>
+              <span>Lapse recording time</span>
               <span className="font-black text-black">
                 {formatExactDuration(tracking.recordingSeconds)}
               </span>
@@ -827,7 +827,7 @@ export function ReviewWorkspace({
         <section className="rounded-[16px] border border-black bg-white p-4 shadow-[4px_4px_0_#000]">
           <div className="flex items-center gap-2 text-sm font-black text-black">
             <HiFilm className="size-5 text-[#BD0F32]" />
-            Lapse timelapses ({timelapses.length})
+            Attached recordings ({timelapses.length})
           </div>
           {timelapses.length > 0 ? (
             <ul className="mt-2 grid gap-3 sm:grid-cols-2">
@@ -870,7 +870,7 @@ export function ReviewWorkspace({
             </ul>
           ) : (
             <p className="mt-2 rounded-lg border border-dashed border-black/10 bg-zinc-50 p-2.5 text-xs text-black/35">
-              No Lapse timelapses synced for this project.
+              No attached recordings for this project.
             </p>
           )}
         </section>

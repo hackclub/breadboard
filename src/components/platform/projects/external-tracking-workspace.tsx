@@ -172,7 +172,7 @@ export function ExternalTrackingWorkspace({
               </p>
               <p className="text-xs font-semibold text-black/50">
                 {formatHours(confirmedTrackedSeconds)}h screen-tracked ·{" "}
-                {formatHours(recordingSeconds)}h from recordings
+                {formatHours(recordingSeconds)}h from Lapse recordings
               </p>
             </div>
           </div>

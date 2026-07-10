@@ -32,7 +32,7 @@ export default async function AdminReviewPage() {
     );
   }
 
-  const queue = await db
+  const submissionRows = await db
     .select({
       id: projects.id,
       submissionId: projectSubmissions.id,
@@ -64,6 +64,22 @@ export default async function AdminReviewPage() {
       ]),
     )
     .orderBy(asc(projectSubmissions.submittedAt));
+
+  // A resubmission is a new immutable submission row. Keep prior decisions in
+  // history, but show reviewers only the newest row for each project/phase so
+  // an old "needs changes" card cannot be mistaken for the current review.
+  const latestSubmissions = new Map<string, (typeof submissionRows)[number]>();
+  for (const submission of submissionRows) {
+    latestSubmissions.set(
+      `${submission.id}:${submission.submissionType}`,
+      submission,
+    );
+  }
+  const queue = [...latestSubmissions.values()].toSorted(
+    (left, right) =>
+      new Date(left.shippedAt ?? 0).getTime() -
+      new Date(right.shippedAt ?? 0).getTime(),
+  );
 
   return (
     <main className="space-y-5">

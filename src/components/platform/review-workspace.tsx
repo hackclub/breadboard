@@ -102,6 +102,7 @@ type SubmissionHistoryEntry = {
   submissionNumber: number;
   editorVersionNumber: number | null;
   hoursSpent: number;
+  trackedSeconds: number;
   approvedHours: number | null;
   status: string;
   userComment: string;
@@ -970,7 +971,9 @@ export function ReviewWorkspace({
                           </span>
                         </td>
                         <td className="px-1 py-2.5 font-bold text-black">
-                          {entry.hoursSpent}h
+                          {entry.trackedSeconds > 0
+                            ? formatExactDuration(entry.trackedSeconds)
+                            : `${entry.hoursSpent}h`}
                           {entry.approvedHours !== null &&
                           entry.approvedHours !== entry.hoursSpent ? (
                             <span className="mt-0.5 block text-[10px] font-semibold text-black/40">

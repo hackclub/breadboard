@@ -802,6 +802,7 @@ export const projectSubmissions = pgTable(
     firstName: text("first_name").notNull().default(""),
     lastName: text("last_name").notNull().default(""),
     hoursSpent: integer("hours_spent").notNull().default(0),
+    trackedSeconds: integer("tracked_seconds").notNull().default(0),
     editorVersionNumber: integer("editor_version_number"),
     approvedHours: integer("approved_hours"),
     internalNote: text("internal_note").notNull().default(""),

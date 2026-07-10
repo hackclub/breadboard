@@ -1,0 +1,1 @@
+ALTER TABLE "project_submissions" ADD COLUMN "tracked_seconds" integer DEFAULT 0 NOT NULL;

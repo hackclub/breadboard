@@ -75,6 +75,22 @@ export async function submitDemoForUser(
       throw new Error("Demo can only be submitted after the kit is sent.");
     }
 
+    const demoTracked = await tx
+      .select({
+        activeSeconds: sql<number>`coalesce(sum(${editorActivitySessions.activeSeconds}), 0)::int`,
+      })
+      .from(editorActivitySessions)
+      .where(
+        and(
+          eq(editorActivitySessions.projectId, projectId),
+          eq(editorActivitySessions.userId, owner.userId),
+        ),
+      );
+    const demoHours = project.overrideHoursSpent ?? project.hoursSpent;
+    const demoTrackedSeconds = project.overrideHoursSpent
+      ? project.overrideHoursSpent * 3600
+      : (demoTracked[0]?.activeSeconds ?? project.hoursSpent * 3600);
+
     await tx.insert(projectSubmissions).values({
       projectId,
       userId: owner.userId,
@@ -94,7 +110,8 @@ export async function submitDemoForUser(
       birthday: project.birthday,
       firstName: project.firstName,
       lastName: project.lastName,
-      hoursSpent: project.overrideHoursSpent ?? project.hoursSpent,
+      hoursSpent: demoHours,
+      trackedSeconds: demoTrackedSeconds,
       status: "pending_review",
       submittedAt: now,
       createdAt: now,
@@ -238,6 +255,7 @@ export async function shipProjectForUser(
       firstName: clean(data.firstName),
       lastName: clean(data.lastName),
       hoursSpent,
+      trackedSeconds: activeSeconds,
       editorVersionNumber,
       status: "pending_review",
       submittedAt: now,
@@ -319,6 +337,7 @@ export async function shipCustomProjectForUser(
       firstName: clean(data.firstName),
       lastName: clean(data.lastName),
       hoursSpent,
+      trackedSeconds: hoursSpent * 3600,
       submissionSource: "manual",
       status: "pending_review",
       submittedAt: now,

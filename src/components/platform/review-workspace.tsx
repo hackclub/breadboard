@@ -97,6 +97,18 @@ type TrackingSummary = {
   lastScreenEvidenceAt: string | null;
 };
 
+type SubmissionHistoryEntry = {
+  id: number;
+  submissionNumber: number;
+  editorVersionNumber: number | null;
+  hoursSpent: number;
+  approvedHours: number | null;
+  status: string;
+  userComment: string;
+  submittedAt: string | null;
+  reviewedAt: string | null;
+};
+
 function formatTimelapseDuration(seconds: number) {
   const total = Math.max(0, Math.floor(seconds));
   const minutes = Math.floor(total / 60);
@@ -315,12 +327,14 @@ export function ReviewWorkspace({
   project: initial,
   journals,
   timelapses,
+  submissionHistory,
   tracking,
   breadPerHour,
 }: {
   project: ReviewProject;
   journals: Journal[];
   timelapses: Timelapse[];
+  submissionHistory: SubmissionHistoryEntry[];
   tracking: TrackingSummary;
   breadPerHour: number;
 }) {
@@ -908,39 +922,114 @@ export function ReviewWorkspace({
           </div>
         </section>
 
-        <section className="rounded-[16px] border border-black bg-white p-4 shadow-[4px_4px_0_#000]">
-          <h3 className="text-sm font-black text-black">Review history</h3>
-          <div className="mt-2 space-y-1.5 text-xs text-black/50">
-            <p>Created · {new Date(initial.createdAt).toLocaleDateString()}</p>
-            <p>
-              Shipped ·{" "}
-              {initial.shippedAt
-                ? new Date(initial.shippedAt).toLocaleDateString()
-                : "N/A"}
-            </p>
-            <p>Updated · {new Date(initial.updatedAt).toLocaleDateString()}</p>
-            <p>Claimed · {initial.hoursSpent}h</p>
-            {initial.reviewNote ? (
-              <div className="mt-2 rounded-lg border border-black/8 bg-[#fffaf1] p-2.5 text-black/65">
-                <p className="text-[10px] font-black uppercase tracking-[0.12em] text-black/35">
-                  Last user-facing note
-                </p>
-                <p className="mt-1 text-xs leading-snug">
-                  {initial.reviewNote}
-                </p>
-              </div>
-            ) : null}
-            {initial.overrideHoursSpentJustification ? (
-              <div className="mt-2 rounded-lg border border-black/8 bg-zinc-50 p-2.5 text-black/65">
-                <p className="text-[10px] font-black uppercase tracking-[0.12em] text-black/35">
-                  Hour justification
-                </p>
-                <p className="mt-1 text-xs leading-snug">
-                  {initial.overrideHoursSpentJustification}
-                </p>
-              </div>
-            ) : null}
+        <section className="border-t border-black/15 pt-4">
+          <div className="flex items-baseline justify-between gap-3">
+            <h3 className="text-sm font-black text-black">
+              Submission history
+            </h3>
+            <span className="text-xs font-bold text-black/45">
+              {submissionHistory.length} prior
+            </span>
           </div>
+          {submissionHistory.length ? (
+            <div className="mt-2 overflow-x-auto border-y border-black/10">
+              <table className="w-full min-w-[280px] text-left text-xs">
+                <thead className="border-b border-black/10 text-[10px] font-black tracking-[0.1em] text-black/40 uppercase">
+                  <tr>
+                    <th className="px-1 py-2">Attempt</th>
+                    <th className="px-1 py-2">Time</th>
+                    <th className="px-1 py-2">Outcome</th>
+                    <th className="px-1 py-2 text-right">Evidence</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {submissionHistory.map((entry) => {
+                    const submittedAt = entry.submittedAt
+                      ? new Date(entry.submittedAt).toLocaleDateString()
+                      : "Unknown";
+                    const reviewedAt = entry.reviewedAt
+                      ? new Date(entry.reviewedAt).toLocaleDateString()
+                      : "Not reviewed";
+                    const editorHref =
+                      entry.editorVersionNumber === null
+                        ? null
+                        : `/editor/${initial.id}?version=${entry.editorVersionNumber}`;
+                    const timelapseHref = entry.submittedAt
+                      ? `/platform/admin/projects/${initial.id}/timelapse?until=${encodeURIComponent(entry.submittedAt)}`
+                      : null;
+
+                    return (
+                      <tr
+                        key={entry.id}
+                        className="border-t border-black/8 align-top text-black/65"
+                      >
+                        <td className="px-1 py-2.5 font-black text-black">
+                          #{entry.submissionNumber}
+                          <span className="mt-0.5 block text-[10px] font-semibold text-black/40">
+                            {submittedAt}
+                          </span>
+                        </td>
+                        <td className="px-1 py-2.5 font-bold text-black">
+                          {entry.hoursSpent}h
+                          {entry.approvedHours !== null &&
+                          entry.approvedHours !== entry.hoursSpent ? (
+                            <span className="mt-0.5 block text-[10px] font-semibold text-black/40">
+                              {entry.approvedHours}h approved
+                            </span>
+                          ) : null}
+                        </td>
+                        <td className="px-1 py-2.5">
+                          <span className="font-black text-black">
+                            {statusLabel(entry.status)}
+                          </span>
+                          <span className="mt-0.5 block text-[10px] font-semibold text-black/40">
+                            {reviewedAt}
+                          </span>
+                          {entry.userComment ? (
+                            <p className="mt-1 leading-snug text-black/60">
+                              {entry.userComment}
+                            </p>
+                          ) : null}
+                        </td>
+                        <td className="px-1 py-2.5">
+                          <div className="flex justify-end gap-1">
+                            {editorHref ? (
+                              <a
+                                href={editorHref}
+                                target="_blank"
+                                rel="noreferrer"
+                                title={`Open frozen editor version ${entry.editorVersionNumber}`}
+                                aria-label={`Open frozen editor version ${entry.editorVersionNumber}`}
+                                className="grid size-7 place-items-center rounded-md text-black/55 hover:bg-black hover:text-white"
+                              >
+                                <HiCodeBracket className="size-4" />
+                              </a>
+                            ) : null}
+                            {timelapseHref ? (
+                              <a
+                                href={timelapseHref}
+                                target="_blank"
+                                rel="noreferrer"
+                                title="Open timelapse through this submission"
+                                aria-label="Open timelapse through this submission"
+                                className="grid size-7 place-items-center rounded-md text-black/55 hover:bg-black hover:text-white"
+                              >
+                                <HiFilm className="size-4" />
+                              </a>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-black/45">
+              This is the first submission.
+            </p>
+          )}
         </section>
       </aside>
     </article>

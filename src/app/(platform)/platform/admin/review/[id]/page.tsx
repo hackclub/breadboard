@@ -133,6 +133,7 @@ export default async function AdminReviewProjectPage({
     activityRows,
     screenEvidenceRows,
     journalTimeRows,
+    submissionHistoryRows,
   ] = await Promise.all([
     db
       .select()
@@ -171,6 +172,26 @@ export default async function AdminReviewProjectPage({
       })
       .from(projectJournals)
       .where(eq(projectJournals.projectId, projectId)),
+    db
+      .select({
+        id: projectSubmissions.id,
+        submissionNumber: projectSubmissions.submissionNumber,
+        editorVersionNumber: projectSubmissions.editorVersionNumber,
+        hoursSpent: projectSubmissions.hoursSpent,
+        approvedHours: projectSubmissions.approvedHours,
+        status: projectSubmissions.status,
+        userComment: projectSubmissions.userComment,
+        submittedAt: projectSubmissions.submittedAt,
+        reviewedAt: projectSubmissions.reviewedAt,
+      })
+      .from(projectSubmissions)
+      .where(
+        and(
+          eq(projectSubmissions.projectId, projectId),
+          eq(projectSubmissions.type, "materials"),
+        ),
+      )
+      .orderBy(desc(projectSubmissions.submissionNumber)),
   ]);
   const timelapses = timelapseRows.map((entry) => ({
     id: entry.id,
@@ -187,6 +208,19 @@ export default async function AdminReviewProjectPage({
     0,
   );
   const journalTime = journalTimeRows[0];
+  const submissionHistory = submissionHistoryRows
+    .filter((entry) => entry.id !== project.submissionId)
+    .map((entry) => ({
+      id: entry.id,
+      submissionNumber: entry.submissionNumber,
+      editorVersionNumber: entry.editorVersionNumber,
+      hoursSpent: entry.hoursSpent,
+      approvedHours: entry.approvedHours,
+      status: entry.status,
+      userComment: entry.userComment,
+      submittedAt: toIso(entry.submittedAt),
+      reviewedAt: toIso(entry.reviewedAt),
+    }));
 
   return (
     <main className="space-y-4">
@@ -201,6 +235,7 @@ export default async function AdminReviewProjectPage({
         project={project}
         journals={journals}
         timelapses={timelapses}
+        submissionHistory={submissionHistory}
         tracking={{
           trackedSeconds: activity?.trackedSeconds ?? 0,
           sessionCount: activity?.sessionCount ?? 0,

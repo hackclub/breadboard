@@ -548,14 +548,12 @@ export async function storeScreenEvidenceFrame(
       sessionId,
       imageDigest,
     );
-    if (serverDetectedPixelChange) {
-      imageKey = `editor-screen-evidence/project-${projectId}/session-${sessionId}/${Date.now()}-${randomUUID()}-${imageDigest}.jpg`;
-      await putStorageObject({
-        key: imageKey,
-        contentType: "image/jpeg",
-        body: imageBody,
-      });
-    }
+    imageKey = `editor-screen-evidence/project-${projectId}/session-${sessionId}/${Date.now()}-${randomUUID()}-${imageDigest}.jpg`;
+    await putStorageObject({
+      key: imageKey,
+      contentType: "image/jpeg",
+      body: imageBody,
+    });
   }
 
   await db.insert(editorScreenEvidenceFrames).values({

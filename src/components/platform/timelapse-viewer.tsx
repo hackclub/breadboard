@@ -33,6 +33,8 @@ interface ScreenFrame {
   imageUrl: string;
   pixelChanged: boolean;
   diffScore: number;
+  screenWidth: number;
+  screenHeight: number;
   paused: boolean;
 }
 
@@ -337,6 +339,29 @@ export function TimelapseViewer({
   const current =
     visibleFrames.find((frame) => frameKey(frame) === selectedFrameKey) ??
     visibleFrames.at(-1);
+  const currentScreen = current?.kind === "screen" ? current : null;
+  // A metadata-only marker can exist in historical data. Carry the latest
+  // readable image forward within its session, so replay stays visual.
+  const visibleScreenImage = useMemo(() => {
+    if (!currentScreen) return null;
+    if (currentScreen.imageUrl) return currentScreen;
+    const currentTime = new Date(currentScreen.capturedAt).getTime();
+    for (let index = allFrames.length - 1; index >= 0; index -= 1) {
+      const frame = allFrames[index];
+      if (
+        frame.kind === "screen" &&
+        frame.imageUrl &&
+        frame.sessionId === currentScreen.sessionId &&
+        new Date(frame.capturedAt).getTime() <= currentTime
+      ) {
+        return frame;
+      }
+    }
+    return null;
+  }, [allFrames, currentScreen]);
+  const carriesPreviousScreenImage =
+    Boolean(currentScreen && visibleScreenImage) &&
+    visibleScreenImage?.id !== currentScreen?.id;
   const currentIndex = current
     ? Math.max(
         0,
@@ -588,7 +613,6 @@ export function TimelapseViewer({
     );
   }
 
-  const currentScreen = current?.kind === "screen" ? current : null;
   const currentFrameSessionIndex = currentSession
     ? sessions.findIndex((session) => session.id === currentSession.id) + 1
     : null;
@@ -707,23 +731,37 @@ export function TimelapseViewer({
 
             {currentScreen ? (
               <div className="grid h-full min-h-[360px] place-items-center p-3 sm:p-6">
-                {currentScreen.imageUrl ? (
+                {visibleScreenImage ? (
                   <img
-                    src={currentScreen.imageUrl}
-                    alt="Private screen evidence"
+                    src={visibleScreenImage.imageUrl}
+                    alt={
+                      carriesPreviousScreenImage
+                        ? "Previous private screen evidence carried forward because the current capture did not change"
+                        : "Private screen evidence"
+                    }
                     className="max-h-[min(68dvh,900px)] max-w-full border border-violet-300/35 bg-black object-contain shadow-[4px_4px_0_rgba(167,139,250,0.25)]"
                   />
                 ) : (
                   <div className="max-w-sm border border-violet-300/30 bg-violet-950/25 p-6 text-center shadow-[4px_4px_0_rgba(167,139,250,0.2)]">
                     <Monitor className="mx-auto size-6 text-violet-200" />
                     <p className="mt-3 text-sm font-black text-violet-100">
-                      Screen marker only
+                      No readable screen image yet
                     </p>
                     <p className="mt-1 text-xs leading-5 text-violet-200/75">
-                      No new image was stored for this capture.
+                      This marker has no image and there is no earlier image in
+                      this session to carry forward.
                     </p>
                   </div>
                 )}
+                {carriesPreviousScreenImage ? (
+                  <div className="absolute right-3 bottom-3 max-w-[calc(100%-1.5rem)] border border-violet-300/40 bg-black/80 px-2.5 py-2 text-right text-[10px] font-black tracking-[0.06em] text-violet-100 uppercase backdrop-blur-sm">
+                    Same screen as{" "}
+                    {fmtTime(visibleScreenImage?.capturedAt ?? "")}
+                    <span className="ml-2 text-violet-200/60">
+                      Current marker: {fmtTime(currentScreen.capturedAt)}
+                    </span>
+                  </div>
+                ) : null}
               </div>
             ) : current?.kind === "editor" ? (
               <VelxioSnapshotViewer snapshot={current.parsed} />
@@ -1010,6 +1048,36 @@ export function TimelapseViewer({
                       : currentScreen.pixelChanged
                         ? "Changed"
                         : "Unchanged"}
+                  </dd>
+                </div>
+              ) : null}
+              {currentScreen ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-zinc-400">Visual context</dt>
+                  <dd className="text-right font-black text-white">
+                    {visibleScreenImage
+                      ? carriesPreviousScreenImage
+                        ? `Carried from ${fmtTime(visibleScreenImage.capturedAt)}`
+                        : "Current capture"
+                      : "No image in this session"}
+                  </dd>
+                </div>
+              ) : null}
+              {currentScreen ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-zinc-400">Pixel difference</dt>
+                  <dd className="text-right font-black text-white">
+                    {currentScreen.diffScore.toLocaleString()}
+                  </dd>
+                </div>
+              ) : null}
+              {currentScreen &&
+              currentScreen.screenWidth > 0 &&
+              currentScreen.screenHeight > 0 ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-zinc-400">Screen size</dt>
+                  <dd className="text-right font-black text-white">
+                    {currentScreen.screenWidth} x {currentScreen.screenHeight}
                   </dd>
                 </div>
               ) : null}

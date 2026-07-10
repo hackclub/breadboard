@@ -32,7 +32,6 @@ const MAX_UPLOAD_BATCH = 8;
 const DIFF_WIDTH = 160;
 const EVIDENCE_WIDTH = 960;
 const JPEG_QUALITY = 0.72;
-const ANCHOR_FRAME_MS = 5 * 60_000;
 const EVIDENCE_UPLOAD_TIMEOUT_MS = 20_000;
 
 function shouldCaptureOutsideSite() {
@@ -182,7 +181,6 @@ export function ScreenShareTracker({
   const screensRef = useRef<SharedScreen[]>([]);
   const nextScreenIdRef = useRef(1);
   const lastChangeRef = useRef(Date.now());
-  const lastUploadedImageRef = useRef(0);
   const captureInFlightRef = useRef(false);
   // Whether the OS reports more than one display (Window Management API,
   // Chrome/Edge). Used only to nudge multi-monitor users in the setup modal.
@@ -318,49 +316,42 @@ export function ScreenShareTracker({
 
       const now = Date.now();
       setInactiveMs(now - lastChangeRef.current);
-      const shouldUploadReadableImage =
-        pixelChanged || now - lastUploadedImageRef.current >= ANCHOR_FRAME_MS;
       let imageData = "";
       let compositeWidth = 0;
       let compositeHeight = 0;
-      if (shouldUploadReadableImage) {
-        // All live screens stitch side-by-side into one evidence JPEG, so a
-        // multi-monitor session still produces one frame per capture and the
-        // upload schema stays unchanged. Total width is capped so three
-        // screens don't balloon the payload.
-        const perScreenWidth = Math.round(
-          Math.min(EVIDENCE_WIDTH, 1920 / screens.length),
-        );
-        const heights = screens.map((entry) =>
-          Math.max(
-            1,
-            Math.round(
-              (entry.video.videoHeight / entry.video.videoWidth) *
-                perScreenWidth,
-            ) || 540,
-          ),
-        );
-        compositeWidth = perScreenWidth * screens.length;
-        compositeHeight = Math.max(...heights);
-        const imageCanvas = document.createElement("canvas");
-        imageCanvas.width = compositeWidth;
-        imageCanvas.height = compositeHeight;
-        const imageCtx = imageCanvas.getContext("2d");
-        if (imageCtx) {
-          imageCtx.fillStyle = "#000";
-          imageCtx.fillRect(0, 0, compositeWidth, compositeHeight);
-          screens.forEach((entry, index) => {
-            imageCtx.drawImage(
-              entry.video,
-              index * perScreenWidth,
-              0,
-              perScreenWidth,
-              heights[index],
-            );
-          });
-          imageData = imageCanvas.toDataURL("image/jpeg", JPEG_QUALITY);
-          lastUploadedImageRef.current = now;
-        }
+      // Store a readable image for every capture, including unchanged frames.
+      // The server independently marks whether pixels changed, while reviewers
+      // get a continuous visual replay instead of sparse five-minute anchors.
+      const perScreenWidth = Math.round(
+        Math.min(EVIDENCE_WIDTH, 1920 / screens.length),
+      );
+      const heights = screens.map((entry) =>
+        Math.max(
+          1,
+          Math.round(
+            (entry.video.videoHeight / entry.video.videoWidth) * perScreenWidth,
+          ) || 540,
+        ),
+      );
+      compositeWidth = perScreenWidth * screens.length;
+      compositeHeight = Math.max(...heights);
+      const imageCanvas = document.createElement("canvas");
+      imageCanvas.width = compositeWidth;
+      imageCanvas.height = compositeHeight;
+      const imageCtx = imageCanvas.getContext("2d");
+      if (imageCtx) {
+        imageCtx.fillStyle = "#000";
+        imageCtx.fillRect(0, 0, compositeWidth, compositeHeight);
+        screens.forEach((entry, index) => {
+          imageCtx.drawImage(
+            entry.video,
+            index * perScreenWidth,
+            0,
+            perScreenWidth,
+            heights[index],
+          );
+        });
+        imageData = imageCanvas.toDataURL("image/jpeg", JPEG_QUALITY);
       }
 
       await enqueue({

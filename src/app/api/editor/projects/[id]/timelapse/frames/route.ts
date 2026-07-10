@@ -100,6 +100,8 @@ export async function GET(
           imageUrl: sql<string>`case when ${editorScreenEvidenceFrames.imageKey} = '' then '' else '/api/editor/projects/' || ${projectId} || '/timelapse/screen-frame/' || ${editorScreenEvidenceFrames.id} end`,
           pixelChanged: editorScreenEvidenceFrames.pixelChanged,
           diffScore: editorScreenEvidenceFrames.diffScore,
+          screenWidth: editorScreenEvidenceFrames.screenWidth,
+          screenHeight: editorScreenEvidenceFrames.screenHeight,
           paused: editorScreenEvidenceFrames.paused,
         })
         .from(editorScreenEvidenceFrames)

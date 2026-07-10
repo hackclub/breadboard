@@ -922,7 +922,7 @@ export function ReviewWorkspace({
           </div>
         </section>
 
-        <section className="border-t border-black/15 pt-4">
+        <section className="rounded-[16px] border border-black bg-white p-4 shadow-[4px_4px_0_#000]">
           <div className="flex items-baseline justify-between gap-3">
             <h3 className="text-sm font-black text-black">
               Submission history

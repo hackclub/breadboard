@@ -68,11 +68,17 @@ async def gateway_proxy(client_id: str, path: str, request: Request) -> Response
         )
 
     # Capability check: the caller must present the token issued to the
-    # simulation WebSocket that created this client_id. This binds the proxy
-    # to the session owner so a leaked/observed client_id isn't enough to
-    # reach someone else's ESP32 web server. Token comes from the `gwt` query
-    # param (browser navigations) or the X-Gateway-Token header (fetch).
-    token = request.query_params.get('gwt') or request.headers.get('x-gateway-token')
+    # simulation WebSocket that created this client_id. The first browser
+    # navigation supplies it in `gwt`; after verification we store it in a
+    # HttpOnly cookie scoped to this one simulated board. That lets ordinary
+    # relative links in ESP32 web pages keep working without exposing the
+    # token to the sketch or sending users to the Breadboard app's routes.
+    query_token = request.query_params.get('gwt')
+    token = (
+        query_token
+        or request.headers.get('x-gateway-token')
+        or request.cookies.get('velxio_gateway_token')
+    )
     if not verify_token(client_id, token):
         return Response(
             content='{"error":"Invalid or missing gateway token for this session."}',
@@ -125,9 +131,25 @@ async def gateway_proxy(client_id: str, path: str, request: Request) -> Response
     for h in ('transfer-encoding', 'connection', 'content-encoding'):
         resp_headers.pop(h, None)
 
-    return Response(
+    response = Response(
         content=resp.content,
         status_code=resp.status_code,
         headers=resp_headers,
         media_type=resp.headers.get('content-type'),
     )
+
+    if query_token:
+        # The client_id is part of the route, so this cookie cannot be sent
+        # to a different simulated board. Keep it session-only; the backing
+        # token is also removed when the simulation WebSocket closes.
+        cookie_path = f'/api/gateway/{client_id}/'
+        response.set_cookie(
+            key='velxio_gateway_token',
+            value=query_token,
+            httponly=True,
+            secure=request.url.scheme == 'https',
+            samesite='lax',
+            path=cookie_path,
+        )
+
+    return response

@@ -70,6 +70,19 @@ except ImportError:
     _I2CWriteSink = _mod.I2CWriteSink  # type: ignore[assignment]
     _ProxySlave   = _mod.ProxySlave    # type: ignore[assignment]
 
+# DHT payloads follow the same import pattern as the I2C helpers: the worker
+# is normally launched as a standalone script, not as a package module.
+try:
+    from app.services.dht_protocol import build_payload as _dht_build_payload
+except ImportError:
+    import importlib.util, pathlib
+    _dht_spec = importlib.util.spec_from_file_location(
+        'dht_protocol', pathlib.Path(__file__).parent / 'dht_protocol.py'
+    )
+    _dht_mod = importlib.util.module_from_spec(_dht_spec)  # type: ignore[arg-type]
+    _dht_spec.loader.exec_module(_dht_mod)  # type: ignore[union-attr]
+    _dht_build_payload = _dht_mod.build_payload  # type: ignore[assignment]
+
 # SPI slaves (Phase 1: SSD168x ePaper). Same fallback dance — when the worker
 # runs as a subprocess from backend/ the package import won't resolve.
 try:
@@ -549,18 +562,6 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
     #   3. No changes to the dispatcher are needed
     _sync_handlers: list = []
 
-    def _dht22_build_payload(temperature: float, humidity: float) -> list[int]:
-        """Build 5-byte DHT22 data payload: [hum_H, hum_L, temp_H, temp_L, checksum]."""
-        hum = round(humidity * 10)
-        tmp = round(temperature * 10)
-        h_H = (hum >> 8) & 0xFF
-        h_L = hum & 0xFF
-        raw_t = ((-tmp) & 0x7FFF) | 0x8000 if tmp < 0 else tmp & 0x7FFF
-        t_H = (raw_t >> 8) & 0xFF
-        t_L = raw_t & 0xFF
-        chk = (h_H + h_L + t_H + t_L) & 0xFF
-        return [h_H, h_L, t_H, t_L, chk]
-
     def _dht22_build_sync_phases(payload: list[int]) -> list[tuple[int, int]]:
         """Build list of (sync_count, pin_value) phase transitions for DHT22.
 
@@ -777,7 +778,7 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
 
         stype = sensor.get('type', '')
 
-        if stype == 'dht22':
+        if stype in ('dht11', 'dht22'):
             # Record that the firmware drove the pin LOW (start signal).
             # The actual response is triggered from _on_dir_change when the
             # firmware switches the pin to INPUT mode.
@@ -852,7 +853,7 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             gpio = int(_PINMAP[slot]) if slot <= _GPIO_COUNT else slot
             with _sensors_lock:
                 sensor = _sensors.get(gpio)
-            if sensor is not None and sensor.get('type') == 'dht22':
+            if sensor is not None and sensor.get('type') in ('dht11', 'dht22'):
                 if direction == 1:
                     # OUTPUT mode — record timestamp for diagnostics
                     sensor['dir_out_ns'] = time.perf_counter_ns()
@@ -865,7 +866,7 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                         # Build the response waveform phases
                         temp = sensor.get('temperature', 25.0)
                         hum = sensor.get('humidity', 50.0)
-                        payload = _dht22_build_payload(temp, hum)
+                        payload = _dht_build_payload(sensor['type'], temp, hum)
                         phases = _dht22_build_sync_phases(payload)
 
                         # Drive pin LOW synchronously — firmware sees LOW
@@ -874,7 +875,7 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
 
                         # Arm the sync-based response state machine
                         _sync_handlers.append(DHT22SyncHandler(gpio, slot, phases))
-                        _log(f'DHT22 sync armed gpio={gpio} '
+                        _log(f'{sensor["type"].upper()} sync armed gpio={gpio} '
                              f'temp={temp} hum={hum} '
                              f'phases={len(phases)} payload={payload}')
         gpio = int(_PINMAP[slot]) if 1 <= slot <= _GPIO_COUNT else slot

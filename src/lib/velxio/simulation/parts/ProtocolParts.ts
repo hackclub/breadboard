@@ -624,8 +624,18 @@ PartSimulationRegistry.register("mpu6050", {
  * Default values: 50.0% humidity, 25.0°C temperature.
  * These can be changed by setting element properties: `el.temperature`, `el.humidity`.
  */
-function buildDHT22Payload(element: HTMLElement): Uint8Array {
+function buildDHTPayload(
+  element: HTMLElement,
+  sensorType: "dht11" | "dht22",
+): Uint8Array {
   const el = element as any;
+  if (sensorType === "dht11") {
+    // DHT11 uses whole values: [humidity, 0, temperature, 0, checksum].
+    const humidity = Math.max(0, Math.min(100, Math.round(el.humidity ?? 50)));
+    const temperature = Math.max(0, Math.min(50, Math.round(el.temperature ?? 25)));
+    return new Uint8Array([humidity, 0, temperature, 0, (humidity + temperature) & 0xff]);
+  }
+
   const humidity = Math.round((el.humidity ?? 50.0) * 10); // tenths of %
   const temperature = Math.round((el.temperature ?? 25.0) * 10); // tenths of °C
   const h_H = (humidity >> 8) & 0xff;
@@ -654,10 +664,11 @@ function scheduleDHT22Response(
   simulator: any,
   pin: number,
   element: HTMLElement,
+  sensorType: "dht11" | "dht22",
 ): void {
   if (typeof simulator.schedulePinChange !== "function") {
     // Fallback: synchronous drive (legacy / non-AVR simulators)
-    const payload = buildDHT22Payload(element);
+    const payload = buildDHTPayload(element, sensorType);
     simulator.setPinState(pin, false);
     simulator.setPinState(pin, true);
     for (const byte of payload) {
@@ -671,7 +682,7 @@ function scheduleDHT22Response(
     return;
   }
 
-  const payload = buildDHT22Payload(element);
+  const payload = buildDHTPayload(element, sensorType);
   const now = simulator.getCurrentCycles() as number;
 
   // Scale timing by CPU clock — AVR runs at 16 MHz, RP2040 at 125 MHz.
@@ -715,8 +726,13 @@ function scheduleDHT22Response(
   simulator.schedulePinChange(pin, true, t);
 }
 
-PartSimulationRegistry.register("dht22", {
-  attachEvents: (element, simulator, getPin, componentId) => {
+function attachDHTEvents(
+  sensorType: "dht11" | "dht22",
+  element: HTMLElement,
+  simulator: any,
+  getPin: any,
+  componentId: string,
+) {
     // wokwi-dht22 element uses 'SDA' as the data pin name (not 'DATA')
     const pin = getPin("SDA") ?? getPin("DATA");
     if (pin === null) return () => {};
@@ -729,7 +745,7 @@ PartSimulationRegistry.register("dht22", {
 
     const handledNatively =
       typeof (simulator as any).registerSensor === "function" &&
-      (simulator as any).registerSensor("dht22", pin, {
+      (simulator as any).registerSensor(sensorType, pin, {
         temperature,
         humidity,
       });
@@ -791,7 +807,7 @@ PartSimulationRegistry.register("dht22", {
           const cur = getCycles();
           responseEndCycle = cur >= 0 ? cur + RESPONSE_GATE_CYCLES : 0;
           responseEndTimeMs = Date.now() + 20; // 20ms gate for non-cycle simulators
-          scheduleDHT22Response(simulator, pin, element);
+          scheduleDHT22Response(simulator, pin, element, sensorType);
         }
       },
     );
@@ -812,13 +828,17 @@ PartSimulationRegistry.register("dht22", {
       simulator.setPinState(pin, true);
       unregisterSensorUpdate(componentId);
     };
-  },
+}
+
+PartSimulationRegistry.register("dht22", {
+  attachEvents: (element, simulator, getPin, componentId) =>
+    attachDHTEvents("dht22", element, simulator, getPin, componentId),
 });
 
-const dhtLogic = PartSimulationRegistry.get("dht22");
-if (dhtLogic) {
-  PartSimulationRegistry.register("dht11", dhtLogic);
-}
+PartSimulationRegistry.register("dht11", {
+  attachEvents: (element, simulator, getPin, componentId) =>
+    attachDHTEvents("dht11", element, simulator, getPin, componentId),
+});
 
 // ─── RC522 RFID Module ───────────────────────────────────────────────────────
 

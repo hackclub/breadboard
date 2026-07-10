@@ -29,6 +29,7 @@ import socket
 import tempfile
 import time
 from typing import Callable, Awaitable
+from app.services.dht_protocol import build_payload as _dht_build_payload
 from app.services.wifi_status_parser import parse_serial_text
 
 logger = logging.getLogger(__name__)
@@ -320,34 +321,21 @@ class EspQemuManager:
 
                 # Sensor protocol: dispatch by sensor type
                 sensor = inst.sensors.get(pin)
-                if sensor is not None and sensor.get('type') == 'dht22':
+                if sensor is not None and sensor.get('type') in ('dht11', 'dht22'):
                     if state == 0 and not sensor.get('responding', False):
                         sensor['saw_low'] = True
                     elif state == 1 and sensor.get('saw_low', False):
                         sensor['saw_low'] = False
                         sensor['responding'] = True
                         asyncio.create_task(
-                            self._dht22_respond(inst, pin,
+                            self._dht_respond(inst, pin, sensor['type'],
                                                 sensor.get('temperature', 25.0),
                                                 sensor.get('humidity', 50.0))
                         )
             except ValueError:
                 pass
 
-    # ── DHT22 protocol emulation ────────────────────────────────────────────
-
-    @staticmethod
-    def _dht22_build_payload(temperature: float, humidity: float) -> list[int]:
-        """Build 5-byte DHT22 data payload: [hum_H, hum_L, temp_H, temp_L, checksum]."""
-        hum = round(humidity * 10)
-        tmp = round(temperature * 10)
-        h_H = (hum >> 8) & 0xFF
-        h_L = hum & 0xFF
-        raw_t = ((-tmp) & 0x7FFF) | 0x8000 if tmp < 0 else tmp & 0x7FFF
-        t_H = (raw_t >> 8) & 0xFF
-        t_L = raw_t & 0xFF
-        chk = (h_H + h_L + t_H + t_L) & 0xFF
-        return [h_H, h_L, t_H, t_L, chk]
+    # ── DHT protocol emulation ──────────────────────────────────────────────
 
     @staticmethod
     def _busy_wait_us(us: int) -> None:
@@ -356,14 +344,15 @@ class EspQemuManager:
         while time.perf_counter_ns() < end:
             pass
 
-    def _dht22_respond_sync(self, inst: EspInstance, gpio_pin: int,
-                            temperature: float, humidity: float) -> None:
-        """Thread function: inject DHT22 protocol waveform via GPIO SET commands.
+    def _dht_respond_sync(self, inst: EspInstance, gpio_pin: int,
+                           sensor_type: str, temperature: float,
+                           humidity: float) -> None:
+        """Thread function: inject a DHT11/DHT22 waveform via GPIO SET commands.
 
         Uses synchronous socket writes + busy-wait to achieve µs-level timing.
         asyncio.sleep() is too coarse (15ms on Windows) for this protocol.
         """
-        payload = self._dht22_build_payload(temperature, humidity)
+        payload = _dht_build_payload(sensor_type, temperature, humidity)
 
         def _send_pin(state: bool) -> None:
             """Synchronous GPIO write directly on the TCP socket."""
@@ -392,24 +381,26 @@ class EspQemuManager:
             _send_pin(False)
             self._busy_wait_us(100)
             _send_pin(True)
-            logger.debug('[%s] DHT22 response sent on GPIO %d', inst.client_id, gpio_pin)
+            logger.debug('[%s] %s response sent on GPIO %d',
+                         inst.client_id, sensor_type.upper(), gpio_pin)
         except Exception as exc:
-            logger.warning('[%s] DHT22 respond error on GPIO %d: %s',
-                           inst.client_id, gpio_pin, exc)
+            logger.warning('[%s] %s respond error on GPIO %d: %s',
+                           inst.client_id, sensor_type.upper(), gpio_pin, exc)
         finally:
             sensor = inst.sensors.get(gpio_pin)
             if sensor:
                 sensor['responding'] = False
 
-    async def _dht22_respond(self, inst: EspInstance, gpio_pin: int,
-                             temperature: float, humidity: float) -> None:
+    async def _dht_respond(self, inst: EspInstance, gpio_pin: int,
+                           sensor_type: str, temperature: float,
+                           humidity: float) -> None:
         """Run the DHT22 response in a thread for accurate µs timing."""
         import threading
         t = threading.Thread(
-            target=self._dht22_respond_sync,
-            args=(inst, gpio_pin, temperature, humidity),
+            target=self._dht_respond_sync,
+            args=(inst, gpio_pin, sensor_type, temperature, humidity),
             daemon=True,
-            name=f'dht22-gpio{gpio_pin}',
+            name=f'{sensor_type}-gpio{gpio_pin}',
         )
         t.start()
 

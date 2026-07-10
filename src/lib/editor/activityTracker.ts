@@ -184,6 +184,10 @@ function checkRecentActivity(): boolean {
   return Date.now() - lastActivity < MIN_ACTIVITY_MS;
 }
 
+function canCaptureEditorSnapshot() {
+  return document.visibilityState === "visible" && document.hasFocus();
+}
+
 export async function startActivityTracking(
   pid: number,
   captureState: () => unknown,
@@ -229,15 +233,17 @@ export async function startActivityTracking(
 
   if (snapshotsEnabled) {
     snapshotTimer = setInterval(() => {
-      if (generation === trackingGeneration && active && sessionId > 0) {
+      if (
+        generation === trackingGeneration &&
+        active &&
+        sessionId > 0 &&
+        canCaptureEditorSnapshot()
+      ) {
         try {
-          const state = captureState();
-          void storeSnapshot(
-            trackedProjectId,
-            sessionId,
-            JSON.stringify(state),
-            generation,
-          );
+          const captured = captureState();
+          const state =
+            typeof captured === "string" ? captured : JSON.stringify(captured);
+          void storeSnapshot(trackedProjectId, sessionId, state, generation);
         } catch {
           snapshotWarning =
             "Timelapse capture could not be prepared. Time is still server-confirmed, but this work may be missing visual evidence.";
@@ -266,6 +272,7 @@ export async function startActivityTracking(
     if (
       snapshotsEnabled &&
       active &&
+      canCaptureEditorSnapshot() &&
       !snapshotWarning &&
       now - (lastSnapshotValidatedAt || trackingStartedAt) > HEARTBEAT_STALE_MS
     ) {

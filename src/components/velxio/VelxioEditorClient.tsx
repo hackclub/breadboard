@@ -32,13 +32,17 @@ const NON_TRACKING_PROJECT_STATUSES = new Set([
 
 loader.config({
   paths: {
-    vs: process.env.NODE_ENV === "production"
-      ? "https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs"
-      : "/monaco/vs",
+    vs:
+      process.env.NODE_ENV === "production"
+        ? "https://cdn.jsdelivr.net/npm/monaco-editor@0.55.1/min/vs"
+        : "/monaco/vs",
   },
 });
 
-import { captureEditorState } from "@/lib/editor/captureState";
+import {
+  captureEditorState,
+  serializeEditorSnapshot,
+} from "@/lib/editor/captureState";
 
 type EditorProjectMeta = {
   id: number;
@@ -385,14 +389,16 @@ export function VelxioNextEditor({
 
         if (trackTime) {
           startActivityTracking(projectId, () =>
-            captureEditorState(
-              modules.useEditorStore,
-              modules.useSimulatorStore,
-              modules.useProjectStore,
-              modules.useCompileLogsStore,
-              modules.useOscilloscopeStore,
-              modules.useElectricalStore,
-              modules.useVfsStore,
+            serializeEditorSnapshot(
+              captureEditorState(
+                modules.useEditorStore,
+                modules.useSimulatorStore,
+                modules.useProjectStore,
+                modules.useCompileLogsStore,
+                modules.useOscilloscopeStore,
+                modules.useElectricalStore,
+                modules.useVfsStore,
+              ),
             ),
           );
         }

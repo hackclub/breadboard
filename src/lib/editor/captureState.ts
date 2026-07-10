@@ -111,6 +111,89 @@ export interface EditorSnapshotState {
   };
 }
 
+const SNAPSHOT_TARGET_BYTES = 220_000;
+const MAX_SNAPSHOT_SOURCE_CHARS = 120_000;
+const MAX_SERIAL_CHARS = 8_000;
+const MAX_LOG_ENTRIES = 80;
+const MAX_LOG_MESSAGE_CHARS = 1_500;
+
+function trimText(value: string, maximum: number) {
+  if (value.length <= maximum) return value;
+  return `${value.slice(0, maximum)}\n// [trimmed in timelapse capture]`;
+}
+
+function snapshotByteLength(value: string) {
+  return new TextEncoder().encode(value).byteLength;
+}
+
+function trimFileGroups(
+  fileGroups: EditorSnapshotState["editor"]["fileGroups"],
+  maximumChars: number,
+) {
+  let remaining = maximumChars;
+  return Object.fromEntries(
+    Object.entries(fileGroups).map(([groupId, files]) => [
+      groupId,
+      files.map((file) => {
+        const allowed = Math.max(0, remaining);
+        const content = trimText(file.content, allowed);
+        remaining -= Math.min(file.content.length, allowed);
+        return { ...file, content };
+      }),
+    ]),
+  );
+}
+
+// Timelapse snapshots are reviewer evidence, not a backup of the complete
+// runtime. In particular compiled firmware and SPIFFS contents can be much
+// larger than the circuit itself and used to make otherwise healthy captures
+// exceed the request limit after a build.
+export function serializeEditorSnapshot(snapshot: EditorSnapshotState) {
+  const compact: EditorSnapshotState = {
+    ...snapshot,
+    editor: {
+      ...snapshot.editor,
+      fileGroups: trimFileGroups(
+        snapshot.editor.fileGroups,
+        MAX_SNAPSHOT_SOURCE_CHARS,
+      ),
+    },
+    simulator: {
+      ...snapshot.simulator,
+      boards: snapshot.simulator.boards.map(({ spiffsFiles, ...board }) => ({
+        ...board,
+        boardOptions: undefined,
+      })),
+      serialOutput: trimText(snapshot.simulator.serialOutput, MAX_SERIAL_CHARS),
+      compiledHex: null,
+    },
+    compileLogs: snapshot.compileLogs.slice(-MAX_LOG_ENTRIES).map((entry) => ({
+      ...entry,
+      message: trimText(entry.message, MAX_LOG_MESSAGE_CHARS),
+    })),
+  };
+
+  const serialized = JSON.stringify(compact);
+  if (snapshotByteLength(serialized) <= SNAPSHOT_TARGET_BYTES)
+    return serialized;
+
+  // Extremely large projects retain the visual circuit and active editor
+  // position, but drop optional diagnostics before giving up on a capture.
+  return JSON.stringify({
+    ...compact,
+    editor: { ...compact.editor, fileGroups: {} },
+    simulator: {
+      ...compact.simulator,
+      serialOutput: "",
+      boards: compact.simulator.boards.map(
+        ({ boardOptions, ...board }) => board,
+      ),
+    },
+    compileLogs: [],
+    electrical: { ...compact.electrical, nodeVoltages: null },
+  });
+}
+
 function readUIState(): EditorSnapshotState["ui"] {
   if (typeof document === "undefined") {
     return {

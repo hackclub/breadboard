@@ -18,6 +18,13 @@ function fmt(sec: number): string {
   return `${m}m ${s.toString().padStart(2, "0")}s`;
 }
 
+function confirmationLabel(validatedAt: number, now: number) {
+  if (!validatedAt) return "confirming";
+  const seconds = Math.max(0, Math.floor((now - validatedAt) / 1000));
+  if (seconds < 10) return "confirmed now";
+  return `confirmed ${seconds}s ago`;
+}
+
 type JournalEntry = {
   id: number;
   content: string;
@@ -424,7 +431,17 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
   const canJournal = displayUnjournaledSeconds >= JOURNAL_MIN_SECONDS;
 
   return (
-    <span className="flex items-center gap-2 text-xs text-green-400/70">
+    <span className="flex items-center gap-2">
+      <span
+        className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-300"
+        title={`Tracking active. Breadboard ${confirmationLabel(validatedAt, now)}.`}
+      >
+        <span className="relative flex size-2">
+          <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-300 opacity-60" />
+          <span className="relative inline-flex size-2 rounded-full bg-emerald-300" />
+        </span>
+        Active
+      </span>
       <button
         type="button"
         onClick={() => setOpen(true)}

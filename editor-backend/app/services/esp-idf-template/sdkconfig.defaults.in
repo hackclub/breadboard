@@ -48,6 +48,12 @@ ${PSRAM_LINES}
 # ── WiFi / networking ────────────────────────────────────────────────────
 ${WIFI_LINES}
 
+# WiFiClientSecure in arduino-esp32 v2.0.17 only compiles its TLS
+# implementation when a PSK key-exchange suite is enabled. Without these,
+# sketches using HTTPS compile but fail to link with missing ssl_* symbols.
+CONFIG_MBEDTLS_PSK_MODES=y
+CONFIG_MBEDTLS_KEY_EXCHANGE_PSK=y
+
 # ── LWIP — reassembly needed for slirp networking ────────────────────────
 ${LWIP_LINES}
 

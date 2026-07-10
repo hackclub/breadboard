@@ -166,6 +166,17 @@ def test_render_sdkconfig_psram_off_emits_disabled(compiler: ESPIDFCompiler) -> 
     assert 'CONFIG_SPIRAM=n' in text
 
 
+def test_render_sdkconfig_enables_tls_for_wifi_client_secure(
+    compiler: ESPIDFCompiler,
+) -> None:
+    from app.services.espidf_compiler import _TEMPLATE_DIR
+    opts = compiler._normalize_options(None, idf_target='esp32')
+    text = compiler._render_sdkconfig(opts, _TEMPLATE_DIR, {'wifi': True})
+    # Arduino-ESP32 v2.0.17 omits ssl_client.cpp unless this suite is enabled.
+    assert 'CONFIG_MBEDTLS_PSK_MODES=y' in text
+    assert 'CONFIG_MBEDTLS_KEY_EXCHANGE_PSK=y' in text
+
+
 def test_render_sdkconfig_psram_opi_for_s3(compiler: ESPIDFCompiler) -> None:
     from app.services.espidf_compiler import _TEMPLATE_DIR
     opts = compiler._normalize_options({'psram': 'opi'}, idf_target='esp32s3')

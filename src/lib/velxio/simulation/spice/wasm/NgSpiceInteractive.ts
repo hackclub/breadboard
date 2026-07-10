@@ -44,11 +44,17 @@
  * isolation overhead.
  */
 
-import { assetUrl, getAssetBase } from "@/lib/velxio/utils/assetBase";
+import {
+  assetUrl,
+  getAssetBase,
+  wasmAssetUrl,
+} from "@/lib/velxio/utils/assetBase";
 
 interface InitConfig {
   /** URL prefix where the WASM artifacts live (must end with '/'). */
   assetBaseUrl?: string;
+  /** Optional separate prefix for the large .wasm (defaults to assetBaseUrl). */
+  wasmBaseUrl?: string;
   /** Optional override for the worker URL (defaults to the vendored worker). */
   workerUrl?: string;
 }
@@ -87,6 +93,7 @@ export class NgSpiceInteractive {
   private pending = new Map<number, PendingRequest>();
   private subscribers: SubscriberCallbacks = {};
   private readonly assetBaseUrl: string;
+  private readonly wasmBaseUrl: string;
   private readonly workerUrl: string;
   private readonly crossOriginWorker: boolean;
 
@@ -95,6 +102,10 @@ export class NgSpiceInteractive {
     // canonical host; assetUrl() prefixes it. In the normal app it's a no-op,
     // leaving the default "/wasm/ngspice-interactive/" path unchanged.
     this.assetBaseUrl = config.assetBaseUrl ?? assetUrl(DEFAULT_ASSET_BASE);
+    // The .wasm alone can live on a different host (GitHub raw) because it's too
+    // big for jsDelivr; glue + code models stay on assetBaseUrl. Same as
+    // assetBaseUrl unless __VELXIO_WASM_BASE__ is set.
+    this.wasmBaseUrl = config.wasmBaseUrl ?? wasmAssetUrl(DEFAULT_ASSET_BASE);
     const base = getAssetBase();
     if (config.workerUrl) {
       this.workerUrl = config.workerUrl;
@@ -149,7 +160,7 @@ export class NgSpiceInteractive {
 
     this.initPromise = this.request(
       "init",
-      { config: { assetBaseUrl: this.assetBaseUrl } },
+      { config: { assetBaseUrl: this.assetBaseUrl, wasmBaseUrl: this.wasmBaseUrl } },
       "ready",
     ).then(() => undefined);
     return this.initPromise;

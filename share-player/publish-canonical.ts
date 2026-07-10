@@ -53,6 +53,30 @@ await $`git -C ${DIST} push -f ${remote} main`;
 await $`git -C ${DIST} tag -f ${version}`;
 await $`git -C ${DIST} push -f ${remote} ${version}`;
 
+// Purge jsDelivr for the key files so a re-pushed tag (or a premature request
+// that negative-cached a 404) is picked up immediately instead of after the
+// cache TTL. Best-effort; parse owner/repo from the remote.
+const slug = remote
+  .replace(/\.git$/, "")
+  .match(/github\.com[/:]([^/]+\/[^/]+)/);
+if (slug) {
+  const files = [
+    "player.js",
+    "player.css",
+    "ngspice-interactive-worker.js",
+    "components-metadata.json",
+    "wasm/ngspice-interactive/ngspice-lib.js",
+  ];
+  await Promise.all(
+    files.map((f) =>
+      fetch(`https://purge.jsdelivr.net/gh/${slug[1]}@${version}/${f}`).catch(
+        () => {},
+      ),
+    ),
+  );
+  console.log("Purged jsDelivr cache for key files.");
+}
+
 console.log(`Published player ${version}.`);
 console.log(`jsDelivr: https://cdn.jsdelivr.net/gh/<owner>/<repo>@${version}/`);
 console.log(

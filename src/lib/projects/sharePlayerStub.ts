@@ -25,6 +25,22 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/**
+ * jsDelivr refuses GitHub files over 20 MB and the ngspice wasm is ~24 MB, so
+ * that one file is served from GitHub's raw host instead (CORS-enabled, no size
+ * cap). Derive the raw base from a jsDelivr `/gh/<owner>/<repo>@<ref>` URL.
+ * Returns "" for any other base (e.g. jsDelivr /npm/, which allows 50 MB and
+ * needs no split), so the player just uses the normal asset base.
+ */
+function deriveWasmBase(assetBase: string): string {
+  const m = assetBase.match(
+    /^https:\/\/cdn\.jsdelivr\.net\/gh\/([^/]+)\/([^@/]+)@([^/]+)/,
+  );
+  if (!m) return "";
+  const [, owner, repo, ref] = m;
+  return `https://raw.githubusercontent.com/${owner}/${repo}/${ref}`;
+}
+
 export function renderStub(opts: {
   title: string;
   description?: string;
@@ -52,8 +68,13 @@ export function renderStub(opts: {
         )};</script>`
       : "";
 
+  const wasmBase = base ? deriveWasmBase(base) : "";
   const assetBaseScript = base
-    ? `<script>window.__VELXIO_ASSET_BASE__ = ${JSON.stringify(base)};</script>`
+    ? `<script>window.__VELXIO_ASSET_BASE__ = ${JSON.stringify(base)};${
+        wasmBase
+          ? `window.__VELXIO_WASM_BASE__ = ${JSON.stringify(wasmBase)};`
+          : ""
+      }</script>`
     : "";
 
   return `<!doctype html>

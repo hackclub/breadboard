@@ -653,8 +653,11 @@ async function ensureModule(config) {
         noInitialRun: true,
         locateFile: (path) => {
           if (path.endsWith(".wasm")) {
+            // wasmBaseUrl may differ from assetBaseUrl: the 24 MB wasm exceeds
+            // jsDelivr's 20 MB/file limit, so the player serves it from GitHub
+            // raw while glue + code models stay on the CDN.
             return resolveAssetUrl(
-              moduleConfig.assetBaseUrl,
+              moduleConfig.wasmBaseUrl,
               moduleConfig.wasmFile,
             );
           }
@@ -1092,6 +1095,8 @@ function allocateCString(value) {
 function normalizeConfig(config) {
   return {
     assetBaseUrl: config.assetBaseUrl || "./",
+    // Separate host for the oversized wasm; defaults to assetBaseUrl.
+    wasmBaseUrl: config.wasmBaseUrl || config.assetBaseUrl || "./",
     moduleScript: config.moduleScript || "ngspice-lib.js",
     wasmFile: config.wasmFile || "ngspice-lib.wasm",
   };

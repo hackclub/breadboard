@@ -24,6 +24,11 @@
 declare global {
   // eslint-disable-next-line no-var
   var __VELXIO_ASSET_BASE__: string | undefined;
+  // Separate base for oversized assets (the 24 MB ngspice wasm) that exceed
+  // jsDelivr's 20 MB/file limit. The player points this at GitHub raw, which is
+  // CORS-enabled and has no size cap. Falls back to __VELXIO_ASSET_BASE__.
+  // eslint-disable-next-line no-var
+  var __VELXIO_WASM_BASE__: string | undefined;
 }
 
 /**
@@ -37,12 +42,30 @@ export function getAssetBase(): string {
 }
 
 /**
+ * Base for the large ngspice wasm. Falls back to the normal asset base (and thus
+ * to "" in the app, leaving origin-root paths unchanged).
+ */
+export function getWasmBase(): string {
+  const base = (globalThis as { __VELXIO_WASM_BASE__?: string })
+    .__VELXIO_WASM_BASE__;
+  const b = typeof base === "string" && base ? base.replace(/\/+$/, "") : "";
+  return b || getAssetBase();
+}
+
+/**
  * Resolve a root-absolute asset path ("/wasm/...", "/component-svgs/...") to a
  * fully-qualified URL. Returns the path unchanged when no asset base is set,
  * which is the default (and only) behavior inside the Next.js app.
  */
 export function assetUrl(path: string): string {
   const base = getAssetBase();
+  if (!base) return path;
+  return path.startsWith("/") ? `${base}${path}` : `${base}/${path}`;
+}
+
+/** Like assetUrl, but resolves against the (larger-file) wasm base. */
+export function wasmAssetUrl(path: string): string {
+  const base = getWasmBase();
   if (!base) return path;
   return path.startsWith("/") ? `${base}${path}` : `${base}/${path}`;
 }

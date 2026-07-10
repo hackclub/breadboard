@@ -56,6 +56,18 @@ but in the player it prefixes the canonical host set by the stub. The stub sets
 that global in an inline `<script>` before the module loads, so module-eval-time
 asset consts resolve correctly.
 
+### The 24 MB wasm exception
+jsDelivr refuses GitHub files over **20 MB**, and `ngspice-lib.wasm` is ~24 MB.
+So the stub also sets `__VELXIO_WASM_BASE__` to the same repo/ref on GitHub's
+**raw** host (`raw.githubusercontent.com`, CORS-enabled, no size cap), and the
+ngspice worker loads just the `.wasm` from there while glue + code models + the
+rest of the player stay on jsDelivr ([sharePlayerStub.ts](../src/lib/projects/sharePlayerStub.ts)
+`deriveWasmBase`, [NgSpiceInteractive.ts](../src/lib/velxio/simulation/spice/wasm/NgSpiceInteractive.ts)).
+If you instead publish the player to jsDelivr's **npm** endpoint (50 MB limit),
+no split is needed and `deriveWasmBase` returns "" so everything loads from one
+base. `publish-canonical.ts` purges jsDelivr for the key files after each push
+(jsDelivr negative-caches a premature 404 for ~a minute otherwise).
+
 ## What is and isn't interactive offline
 
 - Fully interactive: Arduino (Uno/Nano/Mega/ATtiny85), Raspberry Pi Pico

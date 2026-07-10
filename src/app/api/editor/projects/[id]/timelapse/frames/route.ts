@@ -71,53 +71,59 @@ export async function GET(
     }
 
     const sessionIds = sessions.map((session) => session.id);
-    const newestSnapshots = await db
-      .select({
-        id: editorTimelapseSnapshots.id,
-        sessionId: editorTimelapseSnapshots.sessionId,
-        capturedAt: editorTimelapseSnapshots.capturedAt,
-        stateData: editorTimelapseSnapshots.stateData,
-      })
-      .from(editorTimelapseSnapshots)
-      .where(
-        until
-          ? and(
-              inArray(editorTimelapseSnapshots.sessionId, sessionIds),
-              lte(editorTimelapseSnapshots.capturedAt, until),
-            )
-          : inArray(editorTimelapseSnapshots.sessionId, sessionIds),
-      )
-      .orderBy(desc(editorTimelapseSnapshots.capturedAt))
-      .limit(MAX_STITCHED_FRAMES);
+    const [newestSnapshots, newestScreenFrames] = await Promise.all([
+      db
+        .select({
+          id: editorTimelapseSnapshots.id,
+          sessionId: editorTimelapseSnapshots.sessionId,
+          capturedAt: editorTimelapseSnapshots.capturedAt,
+          stateData: editorTimelapseSnapshots.stateData,
+        })
+        .from(editorTimelapseSnapshots)
+        .where(
+          until
+            ? and(
+                inArray(editorTimelapseSnapshots.sessionId, sessionIds),
+                lte(editorTimelapseSnapshots.capturedAt, until),
+              )
+            : inArray(editorTimelapseSnapshots.sessionId, sessionIds),
+        )
+        .orderBy(desc(editorTimelapseSnapshots.capturedAt))
+        .limit(MAX_STITCHED_FRAMES),
+      db
+        .select({
+          id: editorScreenEvidenceFrames.id,
+          sessionId: editorScreenEvidenceFrames.sessionId,
+          // Client capture clocks are useful for local ordering but not trusted
+          // review evidence. The review timeline uses the server receipt time.
+          capturedAt: editorScreenEvidenceFrames.receivedAt,
+          imageUrl: sql<string>`case when ${editorScreenEvidenceFrames.imageKey} = '' then '' else '/api/editor/projects/' || ${projectId} || '/timelapse/screen-frame/' || ${editorScreenEvidenceFrames.id} end`,
+          pixelChanged: editorScreenEvidenceFrames.pixelChanged,
+          diffScore: editorScreenEvidenceFrames.diffScore,
+          paused: editorScreenEvidenceFrames.paused,
+        })
+        .from(editorScreenEvidenceFrames)
+        .where(
+          until
+            ? and(
+                inArray(editorScreenEvidenceFrames.sessionId, sessionIds),
+                lte(editorScreenEvidenceFrames.receivedAt, until),
+              )
+            : inArray(editorScreenEvidenceFrames.sessionId, sessionIds),
+        )
+        .orderBy(desc(editorScreenEvidenceFrames.receivedAt))
+        .limit(MAX_STITCHED_FRAMES),
+    ]);
     const snapshots = newestSnapshots.toReversed();
-    const newestScreenFrames = await db
-      .select({
-        id: editorScreenEvidenceFrames.id,
-        sessionId: editorScreenEvidenceFrames.sessionId,
-        capturedAt: editorScreenEvidenceFrames.capturedAt,
-        imageUrl: sql<string>`case when ${editorScreenEvidenceFrames.imageKey} = '' then '' else '/api/editor/projects/' || ${projectId} || '/timelapse/screen-frame/' || ${editorScreenEvidenceFrames.id} end`,
-        pixelChanged: editorScreenEvidenceFrames.pixelChanged,
-        diffScore: editorScreenEvidenceFrames.diffScore,
-        paused: editorScreenEvidenceFrames.paused,
-      })
-      .from(editorScreenEvidenceFrames)
-      .where(
-        until
-          ? and(
-              inArray(editorScreenEvidenceFrames.sessionId, sessionIds),
-              lte(editorScreenEvidenceFrames.capturedAt, until),
-            )
-          : inArray(editorScreenEvidenceFrames.sessionId, sessionIds),
-      )
-      .orderBy(desc(editorScreenEvidenceFrames.capturedAt))
-      .limit(MAX_STITCHED_FRAMES);
     const screenFrames = newestScreenFrames.toReversed();
 
     return NextResponse.json({
       sessions,
       snapshots,
       screenFrames,
-      truncated: newestSnapshots.length === MAX_STITCHED_FRAMES,
+      truncated:
+        newestSnapshots.length === MAX_STITCHED_FRAMES ||
+        newestScreenFrames.length === MAX_STITCHED_FRAMES,
     });
   }
 

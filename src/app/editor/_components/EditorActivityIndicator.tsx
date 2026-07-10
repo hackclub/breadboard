@@ -85,27 +85,21 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
     if (!open) return;
     void refreshEntries();
   }, [open, refreshEntries]);
-  const validatedElapsedSeconds =
-    status === "active" && validatedAt
-      ? Math.floor((now - validatedAt) / 1000)
-      : 0;
   const heartbeatStale =
     status === "active" &&
     (!validatedAt || now - validatedAt > HEARTBEAT_STALE_MS);
   const displayStatus = heartbeatStale ? "error" : status;
-  const displayTrackedSeconds =
-    displayStatus === "active"
-      ? trackedSeconds + validatedElapsedSeconds
-      : trackedSeconds;
-  const displayUnjournaledSeconds =
-    displayStatus === "active"
-      ? liveUnjournaledSeconds + validatedElapsedSeconds
-      : liveUnjournaledSeconds;
+  // These values are intentionally not locally incremented. A user may be
+  // looking at this panel while a request is stalled, and showing seconds the
+  // server has not acknowledged would make the journal threshold unreliable.
+  const displayTrackedSeconds = trackedSeconds;
+  const displayUnjournaledSeconds = liveUnjournaledSeconds;
   const journalDue =
     needsJournal || displayUnjournaledSeconds >= JOURNAL_REMINDER_SECONDS;
 
   useEffect(() => {
     return setActivityStatusListener((s) => {
+      if (s.projectId !== projectId) return;
       setStatus(s.status);
       setTrackedSeconds(s.activeSeconds);
       setLiveUnjournaledSeconds(s.unjournaledSeconds ?? s.activeSeconds);
@@ -114,17 +108,17 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
       setReason(s.reason ?? (s.needsJournal ? "Journal due" : ""));
       setNeedsJournal(Boolean(s.needsJournal));
     });
-  }, []);
+  }, [projectId]);
 
   useEffect(() => {
     if (status !== "active") return;
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    const timer = window.setInterval(() => setNow(Date.now()), 5000);
     return () => window.clearInterval(timer);
   }, [status]);
 
   useEffect(() => {
-    if (status === "blocked") setOpen(true);
-  }, [status]);
+    if (status === "blocked" && needsJournal) setOpen(true);
+  }, [needsJournal, status]);
 
   useEffect(() => {
     if (!journalDue || displayStatus === "blocked" || journalToastDismissed)
@@ -160,7 +154,6 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
     setDraftTab("write");
     setNeedsJournal(false);
     setJournalToastDismissed(false);
-    setLiveUnjournaledSeconds(0);
     setReason("");
     await refreshActivityTracking();
     await refreshEntries();
@@ -324,6 +317,14 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
   }
 
   if (displayStatus === "blocked") {
+    if (!needsJournal) {
+      return (
+        <span className="flex items-center gap-1 rounded bg-red-950 px-2 py-1 text-xs font-semibold text-red-200">
+          <Clock className="size-3" />
+          {reason || "Time tracking needs attention"}
+        </span>
+      );
+    }
     return (
       <span className="flex items-center gap-1 rounded bg-red-950 px-2 py-1 text-xs font-semibold text-red-200">
         <Clock className="size-3" />

@@ -30,6 +30,7 @@ export interface InProgressProject {
   lastRecordingAt: string | null;
   lastYoutubeAt: string | null;
   lastLapseAt: string | null;
+  lastScreenEvidenceAt: string | null;
   lastActivityAt: string | null;
   createdAt: string;
   ownerName: string | null;
@@ -97,6 +98,37 @@ function TimeCell({
       {text}
     </span>
   );
+}
+
+function ScreenProofCell({
+  project,
+  now,
+}: {
+  project: InProgressProject;
+  now: number;
+}) {
+  if (project.submissionSource !== "manual") {
+    return <span className="text-xs font-semibold text-black/35">—</span>;
+  }
+  if (!project.lastScreenEvidenceAt) {
+    return <span className="text-xs font-black text-[#BD0F32]">No proof</span>;
+  }
+  const evidenceAt = new Date(project.lastScreenEvidenceAt).getTime();
+  const recordingAt = project.lastRecordingAt
+    ? new Date(project.lastRecordingAt).getTime()
+    : 0;
+  const hasGap = recordingAt - evidenceAt > 6 * 60 * 1000;
+  if (hasGap) {
+    return (
+      <span
+        className="text-xs font-black text-[#BD0F32]"
+        title="Tracked activity is more than six minutes newer than the latest saved screen proof."
+      >
+        Evidence gap
+      </span>
+    );
+  }
+  return <TimeCell iso={project.lastScreenEvidenceAt} now={now} tone />;
 }
 
 export function AdminInProgressTable({
@@ -179,6 +211,9 @@ export function AdminInProgressTable({
                   </span>
                 </TableHeaderCell>
                 <TableHeaderCell className="text-white">
+                  Screen proof
+                </TableHeaderCell>
+                <TableHeaderCell className="text-white">
                   <span className="inline-flex items-center gap-1">
                     <HiPlayCircle className="size-3.5" /> YouTube
                   </span>
@@ -245,6 +280,9 @@ export function AdminInProgressTable({
                   </TableCell>
                   <TableCell>
                     <TimeCell iso={project.lastRecordingAt} now={now} />
+                  </TableCell>
+                  <TableCell>
+                    <ScreenProofCell project={project} now={now} />
                   </TableCell>
                   <TableCell>
                     <TimeCell iso={project.lastYoutubeAt} now={now} />

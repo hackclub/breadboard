@@ -70,19 +70,20 @@ export default async function ProjectEditorPage({
     ? `Shipped snapshot #${submissionRows[0].submissionNumber}`
     : undefined;
 
-  const [tracked] = isOwner
-    ? await db
-        .select({
-          total: sql<number>`coalesce(sum(${editorActivitySessions.activeSeconds}), 0)::int`,
-        })
-        .from(editorActivitySessions)
-        .where(
-          and(
-            eq(editorActivitySessions.projectId, projectId),
-            eq(editorActivitySessions.userId, session.user.id),
-          ),
-        )
-    : [];
+  const [tracked] =
+    isOwner || isAdmin
+      ? await db
+          .select({
+            total: sql<number>`coalesce(sum(${editorActivitySessions.activeSeconds}), 0)::int`,
+          })
+          .from(editorActivitySessions)
+          .where(
+            and(
+              eq(editorActivitySessions.projectId, projectId),
+              eq(editorActivitySessions.userId, project.userId),
+            ),
+          )
+      : [];
   const trackedSeconds = tracked?.total ?? 0;
 
   void audit("editor.access", "project", String(projectId));
@@ -100,6 +101,7 @@ export default async function ProjectEditorPage({
         initialBom={project.bom || null}
         version={version}
         readOnly={readOnly}
+        canManageProject={canPersist}
         reviewLabel={reviewLabel}
         trackedSeconds={trackedSeconds}
       />

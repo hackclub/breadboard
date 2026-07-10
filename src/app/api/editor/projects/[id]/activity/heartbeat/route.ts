@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { sendHeartbeat } from "@/lib/editor/actions";
-import { enforceSameOrigin } from "@/lib/editor/security";
+import {
+  enforceSameOrigin,
+  hasAllowedContentLength,
+} from "@/lib/editor/security";
 
 export async function POST(
   request: Request,
@@ -15,8 +18,15 @@ export async function POST(
   if (!(await enforceSameOrigin(request))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  if (!hasAllowedContentLength(request, 1024)) {
+    return NextResponse.json({ error: "Request too large" }, { status: 413 });
+  }
 
-  const result = await sendHeartbeat(projectId);
+  const body = await request.json().catch(() => null);
+  const result = await sendHeartbeat(projectId, {
+    screenShare: body?.screenShare === true,
+    externalTracking: body?.externalTracking === true,
+  });
   if (!result) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

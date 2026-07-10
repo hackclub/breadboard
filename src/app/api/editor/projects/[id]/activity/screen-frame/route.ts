@@ -3,7 +3,7 @@ import { storeScreenEvidenceFrame } from "@/lib/editor/actions";
 import { enforceSameOrigin } from "@/lib/editor/security";
 
 const MAX_BODY_BYTES = 10_000_000;
-const MAX_BATCH_FRAMES = 20;
+const MAX_BATCH_FRAMES = 8;
 
 export async function POST(
   request: Request,
@@ -35,8 +35,11 @@ export async function POST(
   }
   const payload = body as { frames?: unknown[] } | null;
   const frames = Array.isArray(payload?.frames) ? payload.frames : [payload];
+  if (frames.length === 0 || frames.length > MAX_BATCH_FRAMES) {
+    return NextResponse.json({ error: "Invalid frame batch" }, { status: 400 });
+  }
   const results = [];
-  for (const rawFrame of frames.slice(0, MAX_BATCH_FRAMES)) {
+  for (const rawFrame of frames) {
     const frame = rawFrame as Record<string, unknown> | null;
     const sessionId = Number(frame?.sessionId);
     results.push(
@@ -56,6 +59,7 @@ export async function POST(
   const result = {
     stored: results.some((item) => item.stored),
     storedCount: results.filter((item) => item.stored).length,
+    results,
   };
 
   return NextResponse.json(result);

@@ -33,10 +33,12 @@ import { ScreenShareTracker } from "./ScreenShareTracker";
 // estimate badge: server baseline plus heartbeat growth since mount.
 function ProjectTimeTotal({
   initialTotalSeconds,
+  projectId,
 }: {
   initialTotalSeconds: number;
+  projectId: number;
 }) {
-  const totalSeconds = useLiveTrackedSeconds(initialTotalSeconds);
+  const totalSeconds = useLiveTrackedSeconds(initialTotalSeconds, projectId);
   return (
     <span
       className="flex items-center gap-1.5 rounded bg-[#2a2a2a] px-2 py-1 text-xs font-black text-[#ddd]"
@@ -101,6 +103,7 @@ export function EditorHeader({
   initialBom,
   version,
   readOnly,
+  canManageProject = false,
   reviewLabel,
   trackedSeconds,
 }: {
@@ -114,6 +117,7 @@ export function EditorHeader({
   initialBom?: string | null;
   version?: number;
   readOnly?: boolean;
+  canManageProject?: boolean;
   reviewLabel?: string;
   trackedSeconds?: number;
 }) {
@@ -174,7 +178,7 @@ export function EditorHeader({
   const handleBack = useCallback(
     (e: React.MouseEvent<HTMLAnchorElement>) => {
       e.preventDefault();
-      if (readOnly) {
+      if (!canManageProject) {
         router.push(backHref);
         return;
       }
@@ -183,19 +187,19 @@ export function EditorHeader({
         .catch(() => {})
         .finally(() => router.push(backHref));
     },
-    [backHref, readOnly, router],
+    [backHref, canManageProject, router],
   );
 
   const handleManualSave = useCallback(async () => {
-    if (readOnly) return;
+    if (!canManageProject) return;
     if (saving || state.status === "saving") return;
     setSaving(true);
     await triggerManualSave().catch(() => {});
     setSaving(false);
-  }, [readOnly, saving, state.status]);
+  }, [canManageProject, saving, state.status]);
 
   const handlePublish = useCallback(async () => {
-    if (readOnly || publishing) return;
+    if (!canManageProject || publishing) return;
     const cleanedHowToUse = howToUse.trim();
     if (cleanedHowToUse.split(/\s+/).filter(Boolean).length < 3) {
       setPublishError(
@@ -266,10 +270,10 @@ export function EditorHeader({
     } finally {
       setPublishing(false);
     }
-  }, [bomRows, howToUse, projectId, publishUrl, publishing, readOnly]);
+  }, [bomRows, canManageProject, howToUse, projectId, publishUrl, publishing]);
 
   useEffect(() => {
-    if (readOnly || autoPublishStarted.current) return;
+    if (!canManageProject || autoPublishStarted.current) return;
     const url = new URL(window.location.href);
     const github = url.searchParams.get("github");
     if (!github) return;
@@ -292,7 +296,7 @@ export function EditorHeader({
       "user-error": "Could not read your GitHub account.",
     };
     setPublishError(messages[github] ?? "GitHub connection failed.");
-  }, [handlePublish, readOnly]);
+  }, [canManageProject, handlePublish]);
 
   const showStatus = state.status !== "idle";
   const trackingBlocked = [
@@ -333,7 +337,12 @@ export function EditorHeader({
           {reviewLabel ?? "Read-only review"}
         </span>
       ) : null}
-      {trackingBlocked && !readOnly ? (
+      {!readOnly && !canManageProject ? (
+        <span className="rounded-full border border-[#444] px-2 py-0.5 text-[11px] font-semibold text-[#999]">
+          Review mode
+        </span>
+      ) : null}
+      {trackingBlocked && canManageProject ? (
         <span className="rounded border border-[#BD0F32] bg-[#BD0F32] px-3 py-1 text-sm font-black tracking-[0.04em] text-white uppercase">
           No extra time here will be tracked
         </span>
@@ -345,15 +354,21 @@ export function EditorHeader({
       ) : null}
 
       <div className="ml-auto flex items-center gap-3">
-        {!readOnly && !trackingBlocked ? (
+        <ProjectTimeTotal
+          initialTotalSeconds={trackedSeconds ?? 0}
+          projectId={projectId}
+        />
+        {canManageProject && !trackingBlocked ? (
           <>
-            <BreadEstimatePill initialTotalSeconds={trackedSeconds ?? 0} />
-            <ProjectTimeTotal initialTotalSeconds={trackedSeconds ?? 0} />
+            <BreadEstimatePill
+              initialTotalSeconds={trackedSeconds ?? 0}
+              projectId={projectId}
+            />
             <ScreenShareTracker projectId={projectId} />
             <EditorActivityIndicator projectId={projectId} />
           </>
         ) : null}
-        {showStatus && (
+        {canManageProject && showStatus && (
           <span
             className="flex items-center gap-1.5 text-xs text-[#888]"
             title={`Last saved: ${state.lastSavedAt ? new Date(state.lastSavedAt).toLocaleString() : "never"}${
@@ -366,7 +381,7 @@ export function EditorHeader({
             {statusText(state.status, state.lastSavedAt)}
           </span>
         )}
-        {!readOnly ? (
+        {canManageProject ? (
           <button
             type="button"
             onClick={() => setPublishModalOpen(true)}
@@ -379,7 +394,7 @@ export function EditorHeader({
             {publishing ? "Publishing..." : "Publish"}
           </button>
         ) : null}
-        {!readOnly ? (
+        {canManageProject ? (
           <button
             type="button"
             onClick={handleManualSave}

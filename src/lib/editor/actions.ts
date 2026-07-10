@@ -1,8 +1,12 @@
 "use server";
 
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
-import { canWriteEditorProject, getEditorProject } from "@/lib/editor/access";
+import { and, desc, eq, gte, isNull, ne, sql } from "drizzle-orm";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  canTrackEditorProject,
+  canWriteEditorProject,
+  getEditorProject,
+} from "@/lib/editor/access";
 import {
   getUnjournaledSeconds,
   JOURNAL_MIN_SECONDS,
@@ -16,37 +20,121 @@ import {
 } from "@/lib/db/schema";
 import { putStorageObject } from "@/lib/storage/s3";
 
-const INACTIVITY_TIMEOUT_SECONDS = 60;
+const INACTIVITY_TIMEOUT_SECONDS = 120;
 const MIN_HEARTBEAT_GAP_SECONDS = 10;
-const MAX_HEARTBEAT_CREDIT_SECONDS = 60;
+const MAX_HEARTBEAT_CREDIT_SECONDS = 120;
+// Screen sharing is deliberately more generous than normal editor activity:
+// someone can be reading or inspecting a static external tool for two minutes.
+const SCREEN_SHARE_INACTIVITY_TIMEOUT_SECONDS = 120;
+const SCREEN_SHARE_MAX_HEARTBEAT_CREDIT_SECONDS = 120;
 const JOURNAL_REMINDER_SECONDS = 50 * 60;
 const JOURNAL_BLOCK_SECONDS = 60 * 60;
 
-export async function sendHeartbeat(projectId: number) {
+function formatDuration(seconds: number) {
+  const total = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remainder = total % 60;
+  return hours > 0
+    ? `${hours}h ${minutes}m ${remainder}s`
+    : `${minutes}m ${remainder}s`;
+}
+
+async function trackedSecondsFor(projectId: number, userId: string) {
+  const [row] = await db
+    .select({
+      total: sql<number>`coalesce(sum(${editorActivitySessions.activeSeconds}), 0)::int`,
+    })
+    .from(editorActivitySessions)
+    .where(
+      and(
+        eq(editorActivitySessions.projectId, projectId),
+        eq(editorActivitySessions.userId, userId),
+      ),
+    );
+  return row?.total ?? 0;
+}
+
+async function hasFreshScreenEvidence(sessionId: number, now: Date) {
+  const [frame] = await db
+    .select({ id: editorScreenEvidenceFrames.id })
+    .from(editorScreenEvidenceFrames)
+    .where(
+      and(
+        eq(editorScreenEvidenceFrames.sessionId, sessionId),
+        gte(
+          editorScreenEvidenceFrames.receivedAt,
+          new Date(
+            now.getTime() - SCREEN_SHARE_INACTIVITY_TIMEOUT_SECONDS * 1000,
+          ),
+        ),
+        ne(editorScreenEvidenceFrames.imageKey, ""),
+        eq(editorScreenEvidenceFrames.pixelChanged, true),
+        eq(editorScreenEvidenceFrames.paused, false),
+      ),
+    )
+    .orderBy(desc(editorScreenEvidenceFrames.receivedAt))
+    .limit(1);
+  return Boolean(frame);
+}
+
+async function screenImageChangedSinceLastFrame(
+  sessionId: number,
+  imageDigest: string,
+) {
+  const [previous] = await db
+    .select({ imageKey: editorScreenEvidenceFrames.imageKey })
+    .from(editorScreenEvidenceFrames)
+    .where(
+      and(
+        eq(editorScreenEvidenceFrames.sessionId, sessionId),
+        ne(editorScreenEvidenceFrames.imageKey, ""),
+      ),
+    )
+    .orderBy(desc(editorScreenEvidenceFrames.receivedAt))
+    .limit(1);
+  if (!previous) return true;
+  const previousDigest = /-([a-f0-9]{64})\.jpg$/.exec(previous.imageKey)?.[1];
+  return previousDigest !== imageDigest;
+}
+
+function boundedInteger(value: number, maximum: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(maximum, Math.round(value)));
+}
+
+export async function sendHeartbeat(
+  projectId: number,
+  options: { screenShare?: boolean; externalTracking?: boolean } = {},
+) {
   const { session, project } = await getEditorProject(projectId);
   if (!project || !session) return null;
   if (!canWriteEditorProject(project, session)) return null;
-  const trackingBlocked =
-    [
-      "materials_review",
-      "shipped",
-      "reviewed",
-      "approved",
-      "paid_out",
-      "fulfilled",
-      "kit_approved",
-      "kit_fulfillment",
-      "kit_sent",
-      "building",
-      "demo_review",
-      "done",
-    ].includes(project.status);
-  if (trackingBlocked) {
+  const screenShare = options.screenShare === true;
+  const screenEvidenceRequired =
+    screenShare || options.externalTracking === true;
+  const totalTrackedSeconds = await trackedSecondsFor(
+    projectId,
+    session.user.id,
+  );
+  if (!canTrackEditorProject(project, session)) {
+    await db
+      .update(editorActivitySessions)
+      .set({ endedAt: new Date() })
+      .where(
+        and(
+          eq(editorActivitySessions.projectId, projectId),
+          eq(editorActivitySessions.userId, session.user.id),
+          isNull(editorActivitySessions.endedAt),
+        ),
+      );
     return {
       blocked: true,
       reason: "No extra time here will be tracked.",
       needsJournal: false,
       activeSeconds: 0,
+      unjournaledSeconds: 0,
+      totalTrackedSeconds,
     };
   }
 
@@ -61,6 +149,7 @@ export async function sendHeartbeat(projectId: number) {
       needsJournal: true,
       unjournaledSeconds,
       activeSeconds: unjournaledSeconds,
+      totalTrackedSeconds,
     };
   }
 
@@ -83,20 +172,79 @@ export async function sendHeartbeat(projectId: number) {
     startedAt: Date;
   } | null = null;
   let activeSecondsAdded = 0;
+  let trackingWarning: string | undefined;
+  const canUseScreenShareGrace =
+    screenEvidenceRequired &&
+    Boolean(existing[0] && !existing[0].endedAt) &&
+    (existing[0] ? await hasFreshScreenEvidence(existing[0].id, now) : false);
+  const elapsedSinceLastHeartbeat =
+    existing[0] && !existing[0].endedAt
+      ? Math.floor(
+          (now.getTime() - existing[0].lastActivityAt.getTime()) / 1000,
+        )
+      : 0;
+  const allowedHeartbeatGapSeconds = canUseScreenShareGrace
+    ? SCREEN_SHARE_INACTIVITY_TIMEOUT_SECONDS
+    : INACTIVITY_TIMEOUT_SECONDS;
+  const canRecoverScreenShareGap =
+    screenEvidenceRequired &&
+    canUseScreenShareGrace &&
+    elapsedSinceLastHeartbeat > allowedHeartbeatGapSeconds;
+
+  if (
+    screenEvidenceRequired &&
+    existing[0] &&
+    !existing[0].endedAt &&
+    !canUseScreenShareGrace
+  ) {
+    const [touched] = await db
+      .update(editorActivitySessions)
+      .set({ lastActivityAt: now })
+      .where(
+        and(
+          eq(editorActivitySessions.id, existing[0].id),
+          eq(editorActivitySessions.lastActivityAt, existing[0].lastActivityAt),
+          isNull(editorActivitySessions.endedAt),
+        ),
+      )
+      .returning({ activeSeconds: editorActivitySessions.activeSeconds });
+    return {
+      blocked: true,
+      reason:
+        "Screen activity has not been verified recently. No new time is being saved until a changed screen frame reaches Breadboard.",
+      needsJournal: false,
+      activeSeconds: touched?.activeSeconds ?? existing[0].activeSeconds,
+      unjournaledSeconds,
+      totalTrackedSeconds,
+    };
+  }
 
   if (
     existing[0] &&
     !existing[0].endedAt &&
-    now.getTime() - existing[0].lastActivityAt.getTime() <
-      INACTIVITY_TIMEOUT_SECONDS * 1000
+    (elapsedSinceLastHeartbeat <= allowedHeartbeatGapSeconds ||
+      canRecoverScreenShareGap)
   ) {
-    const elapsedSeconds = Math.floor(
-      (now.getTime() - existing[0].lastActivityAt.getTime()) / 1000,
+    const elapsedSeconds = elapsedSinceLastHeartbeat;
+    if (elapsedSeconds < MIN_HEARTBEAT_GAP_SECONDS) {
+      return {
+        sessionId: existing[0].id,
+        activeSeconds: existing[0].activeSeconds,
+        needsJournal: unjournaledSeconds >= JOURNAL_REMINDER_SECONDS,
+        unjournaledSeconds,
+        startedAt: existing[0].startedAt,
+        totalTrackedSeconds,
+      };
+    }
+    activeSecondsAdded = Math.min(
+      elapsedSeconds,
+      canUseScreenShareGrace
+        ? SCREEN_SHARE_MAX_HEARTBEAT_CREDIT_SECONDS
+        : MAX_HEARTBEAT_CREDIT_SECONDS,
     );
-    activeSecondsAdded =
-      elapsedSeconds >= MIN_HEARTBEAT_GAP_SECONDS
-        ? Math.min(elapsedSeconds, MAX_HEARTBEAT_CREDIT_SECONDS)
-        : 0;
+    if (screenEvidenceRequired && elapsedSeconds > activeSecondsAdded) {
+      trackingWarning = `A ${formatDuration(elapsedSeconds)} screen-share gap was detected. ${formatDuration(elapsedSeconds - activeSecondsAdded)} could not be confirmed.`;
+    }
     const [updated] = await db
       .update(editorActivitySessions)
       .set({
@@ -116,16 +264,25 @@ export async function sendHeartbeat(projectId: number) {
         startedAt: editorActivitySessions.startedAt,
       });
     if (!updated) {
+      const currentTrackedSeconds = await trackedSecondsFor(
+        projectId,
+        session.user.id,
+      );
       return {
         sessionId: existing[0].id,
         activeSeconds: existing[0].activeSeconds,
         needsJournal: unjournaledSeconds >= JOURNAL_REMINDER_SECONDS,
         unjournaledSeconds,
         startedAt: existing[0].startedAt,
+        totalTrackedSeconds: currentTrackedSeconds,
+        trackingWarning,
       };
     }
     activeSession = updated;
   } else {
+    if (screenEvidenceRequired && elapsedSinceLastHeartbeat > 0) {
+      trackingWarning = `A ${formatDuration(elapsedSinceLastHeartbeat)} screen-share gap could not be confirmed, so that time was not added.`;
+    }
     if (existing[0] && !existing[0].endedAt) {
       await db
         .update(editorActivitySessions)
@@ -148,6 +305,7 @@ export async function sendHeartbeat(projectId: number) {
   }
 
   const nextUnjournaledSeconds = unjournaledSeconds + activeSecondsAdded;
+  const persistedTrackedSeconds = totalTrackedSeconds + activeSecondsAdded;
 
   return {
     sessionId: activeSession.id,
@@ -155,6 +313,8 @@ export async function sendHeartbeat(projectId: number) {
     needsJournal: nextUnjournaledSeconds >= JOURNAL_REMINDER_SECONDS,
     unjournaledSeconds: nextUnjournaledSeconds,
     startedAt: activeSession.startedAt,
+    totalTrackedSeconds: persistedTrackedSeconds,
+    trackingWarning,
   };
 }
 
@@ -169,7 +329,9 @@ export async function addProjectJournal(projectId: number, content: string) {
     session.user.id,
   );
   if (activeSecondsCovered < JOURNAL_MIN_SECONDS) {
-    throw new Error("You need at least 10 minutes of tracked work before journaling.");
+    throw new Error(
+      "You need at least 10 minutes of tracked work before journaling.",
+    );
   }
   const [inserted] = await db
     .insert(projectJournals)
@@ -256,7 +418,9 @@ export async function storeSnapshot(
 ) {
   const { session, project } = await getEditorProject(projectId);
   if (!project || !session) return { stored: false };
-  if (!canWriteEditorProject(project, session)) return { stored: false };
+  if (!canTrackEditorProject(project, session)) {
+    return { stored: false, reason: "tracking_closed" };
+  }
 
   if (!stateData || typeof stateData !== "string") return { stored: false };
   if (!Number.isInteger(sessionId) || sessionId < 1) return { stored: false };
@@ -324,7 +488,9 @@ export async function storeScreenEvidenceFrame(
 ) {
   const { session, project } = await getEditorProject(projectId);
   if (!project || !session) return { stored: false };
-  if (!canWriteEditorProject(project, session)) return { stored: false };
+  if (!canTrackEditorProject(project, session)) {
+    return { stored: false, reason: "tracking_closed" };
+  }
   if (!Number.isInteger(sessionId) || sessionId < 1) return { stored: false };
 
   const capturedAt = new Date(input.capturedAt);
@@ -347,22 +513,49 @@ export async function storeScreenEvidenceFrame(
     .limit(1);
   if (!activitySession) return { stored: false, reason: "invalid_session" };
 
+  const [duplicate] = await db
+    .select({ id: editorScreenEvidenceFrames.id })
+    .from(editorScreenEvidenceFrames)
+    .where(
+      and(
+        eq(editorScreenEvidenceFrames.sessionId, sessionId),
+        eq(editorScreenEvidenceFrames.capturedAt, capturedAt),
+      ),
+    )
+    .limit(1);
+  if (duplicate) return { stored: true, duplicate: true };
+
   let imageKey = "";
+  let serverDetectedPixelChange = false;
   if (input.imageData) {
     const match = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(
       input.imageData,
     );
     if (!match) return { stored: false, reason: "invalid_image" };
     const imageBody = Buffer.from(match[1], "base64");
-    if (imageBody.length < 100 || imageBody.length > 700_000) {
+    if (
+      imageBody.length < 100 ||
+      imageBody.length > 700_000 ||
+      imageBody[0] !== 0xff ||
+      imageBody[1] !== 0xd8 ||
+      imageBody.at(-2) !== 0xff ||
+      imageBody.at(-1) !== 0xd9
+    ) {
       return { stored: false, reason: "invalid_image_size" };
     }
-    imageKey = `editor-screen-evidence/project-${projectId}/session-${sessionId}/${capturedAt.getTime()}-${randomUUID()}.jpg`;
-    await putStorageObject({
-      key: imageKey,
-      contentType: "image/jpeg",
-      body: imageBody,
-    });
+    const imageDigest = createHash("sha256").update(imageBody).digest("hex");
+    serverDetectedPixelChange = await screenImageChangedSinceLastFrame(
+      sessionId,
+      imageDigest,
+    );
+    if (serverDetectedPixelChange) {
+      imageKey = `editor-screen-evidence/project-${projectId}/session-${sessionId}/${Date.now()}-${randomUUID()}-${imageDigest}.jpg`;
+      await putStorageObject({
+        key: imageKey,
+        contentType: "image/jpeg",
+        body: imageBody,
+      });
+    }
   }
 
   await db.insert(editorScreenEvidenceFrames).values({
@@ -371,10 +564,10 @@ export async function storeScreenEvidenceFrame(
     userId: session.user.id,
     capturedAt,
     imageKey,
-    pixelChanged: Boolean(input.pixelChanged),
-    diffScore: Math.max(0, Math.min(1_000_000, Math.round(input.diffScore))),
-    screenWidth: Math.max(0, Math.min(16_000, Math.round(input.screenWidth))),
-    screenHeight: Math.max(0, Math.min(16_000, Math.round(input.screenHeight))),
+    pixelChanged: serverDetectedPixelChange,
+    diffScore: boundedInteger(input.diffScore, 1_000_000),
+    screenWidth: boundedInteger(input.screenWidth, 16_000),
+    screenHeight: boundedInteger(input.screenHeight, 16_000),
     paused: Boolean(input.paused),
   });
 

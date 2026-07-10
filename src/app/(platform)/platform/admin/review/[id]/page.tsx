@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import Link from "next/link";
 import { HiArrowLeft } from "react-icons/hi2";
 import { LoginButton } from "@/components/shared/auth-buttons";
@@ -8,6 +8,8 @@ import { isBuildShip } from "@/lib/projects/project-type";
 import { db } from "@/lib/db/db";
 import {
   projectSubmissions,
+  editorActivitySessions,
+  editorScreenEvidenceFrames,
   projectJournals,
   projects,
   projectTimelapses,
@@ -119,24 +121,51 @@ export default async function AdminReviewProjectPage({
     );
   }
 
-  const journals = await db
-    .select()
-    .from(projectJournals)
-    .where(eq(projectJournals.projectId, projectId))
-    .orderBy(asc(projectJournals.createdAt));
-
-  const timelapseRows = await db
-    .select({
-      id: projectTimelapses.id,
-      name: projectTimelapses.name,
-      playbackUrl: projectTimelapses.playbackUrl,
-      thumbnailUrl: projectTimelapses.thumbnailUrl,
-      durationSeconds: projectTimelapses.durationSeconds,
-      recordedAt: projectTimelapses.recordedAt,
-    })
-    .from(projectTimelapses)
-    .where(eq(projectTimelapses.projectId, projectId))
-    .orderBy(desc(projectTimelapses.recordedAt));
+  const [
+    journals,
+    timelapseRows,
+    activityRows,
+    screenEvidenceRows,
+    journalTimeRows,
+  ] = await Promise.all([
+    db
+      .select()
+      .from(projectJournals)
+      .where(eq(projectJournals.projectId, projectId))
+      .orderBy(asc(projectJournals.createdAt)),
+    db
+      .select({
+        id: projectTimelapses.id,
+        name: projectTimelapses.name,
+        playbackUrl: projectTimelapses.playbackUrl,
+        thumbnailUrl: projectTimelapses.thumbnailUrl,
+        durationSeconds: projectTimelapses.durationSeconds,
+        recordedAt: projectTimelapses.recordedAt,
+      })
+      .from(projectTimelapses)
+      .where(eq(projectTimelapses.projectId, projectId))
+      .orderBy(desc(projectTimelapses.recordedAt)),
+    db
+      .select({
+        trackedSeconds: sql<number>`coalesce(sum(${editorActivitySessions.activeSeconds}), 0)::int`,
+        sessionCount: sql<number>`count(${editorActivitySessions.id})::int`,
+        lastTrackedAt: sql<Date | null>`max(${editorActivitySessions.lastActivityAt})`,
+      })
+      .from(editorActivitySessions)
+      .where(eq(editorActivitySessions.projectId, projectId)),
+    db
+      .select({
+        lastScreenEvidenceAt: sql<Date | null>`max(${editorScreenEvidenceFrames.receivedAt}) filter (where ${editorScreenEvidenceFrames.imageKey} <> '' and ${editorScreenEvidenceFrames.pixelChanged} = true)`,
+      })
+      .from(editorScreenEvidenceFrames)
+      .where(eq(editorScreenEvidenceFrames.projectId, projectId)),
+    db
+      .select({
+        journaledSeconds: sql<number>`coalesce(sum(${projectJournals.activeSecondsCovered}), 0)::int`,
+      })
+      .from(projectJournals)
+      .where(eq(projectJournals.projectId, projectId)),
+  ]);
   const timelapses = timelapseRows.map((entry) => ({
     id: entry.id,
     name: entry.name,
@@ -145,6 +174,13 @@ export default async function AdminReviewProjectPage({
     durationSeconds: entry.durationSeconds,
     recordedAt: entry.recordedAt ? entry.recordedAt.toISOString() : null,
   }));
+  const activity = activityRows[0];
+  const screenEvidence = screenEvidenceRows[0];
+  const recordingSeconds = timelapseRows.reduce(
+    (total, entry) => total + entry.durationSeconds,
+    0,
+  );
+  const journalTime = journalTimeRows[0];
 
   return (
     <main className="space-y-4">
@@ -159,6 +195,16 @@ export default async function AdminReviewProjectPage({
         project={project}
         journals={journals}
         timelapses={timelapses}
+        tracking={{
+          trackedSeconds: activity?.trackedSeconds ?? 0,
+          sessionCount: activity?.sessionCount ?? 0,
+          lastTrackedAt: activity?.lastTrackedAt?.toISOString() ?? null,
+          lastScreenEvidenceAt:
+            screenEvidence?.lastScreenEvidenceAt?.toISOString() ?? null,
+          recordingSeconds,
+          measuredSeconds: (activity?.trackedSeconds ?? 0) + recordingSeconds,
+          journaledSeconds: journalTime?.journaledSeconds ?? 0,
+        }}
         breadPerHour={
           isBuildShip(project) ? GOLD_BREAD_PER_HOUR : BREAD_PER_HOUR
         }

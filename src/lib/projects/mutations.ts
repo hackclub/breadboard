@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, max, sql } from "drizzle-orm";
+import { and, eq, isNull, max, sql } from "drizzle-orm";
 import { db } from "@/lib/db/db";
 import {
   editorActivitySessions,
@@ -169,6 +169,21 @@ export async function shipProjectForUser(
       .from(projectSubmissions)
       .where(eq(projectSubmissions.projectId, projectId));
     const submissionNumber = (latest[0]?.submissionNumber ?? 0) + 1;
+    const now = new Date();
+    // Closing the session before reading its total makes submission a hard
+    // accounting boundary. Any heartbeat that began before this transaction
+    // will fail its open-session compare-and-set instead of adding time after
+    // the submitted snapshot.
+    await tx
+      .update(editorActivitySessions)
+      .set({ endedAt: now })
+      .where(
+        and(
+          eq(editorActivitySessions.projectId, projectId),
+          eq(editorActivitySessions.userId, owner.userId),
+          isNull(editorActivitySessions.endedAt),
+        ),
+      );
     const tracked = await tx
       .select({
         activeSeconds: sql<number>`coalesce(sum(${editorActivitySessions.activeSeconds}), 0)::int`,
@@ -182,7 +197,6 @@ export async function shipProjectForUser(
       );
     const activeSeconds = tracked[0]?.activeSeconds ?? 0;
     const hoursSpent = Math.max(0, Math.ceil(activeSeconds / 3600));
-    const now = new Date();
     const projectRows = await tx
       .select({ editorData: projects.editorData, codeUrl: projects.codeUrl })
       .from(projects)
@@ -272,8 +286,18 @@ export async function shipCustomProjectForUser(
       .from(projectSubmissions)
       .where(eq(projectSubmissions.projectId, projectId));
     const submissionNumber = (latest[0]?.submissionNumber ?? 0) + 1;
-    const hoursSpent = Math.max(0, Math.floor(data.hoursSpent || 0));
     const now = new Date();
+    await tx
+      .update(editorActivitySessions)
+      .set({ endedAt: now })
+      .where(
+        and(
+          eq(editorActivitySessions.projectId, projectId),
+          eq(editorActivitySessions.userId, owner.userId),
+          isNull(editorActivitySessions.endedAt),
+        ),
+      );
+    const hoursSpent = Math.max(0, Math.floor(data.hoursSpent || 0));
     const codeUrl = clean(data.gitUrl);
     if (!codeUrl)
       throw new Error("Git URL is required for custom submissions.");

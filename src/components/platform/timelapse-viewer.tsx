@@ -1,8 +1,21 @@
 "use client";
 
 import Link from "next/link";
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  CircleAlert,
+  Clock3,
+  Frame,
+  Layers3,
+  Monitor,
+  Pause,
+  Play,
+  RefreshCw,
+  RotateCcw,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { HiArrowLeft, HiPause, HiPlay } from "react-icons/hi2";
 import { VelxioSnapshotViewer } from "@/components/velxio/VelxioSnapshotViewer";
 import type { EditorSnapshotState } from "@/lib/editor/captureState";
 
@@ -23,6 +36,14 @@ interface ScreenFrame {
   paused: boolean;
 }
 
+interface SessionInfo {
+  id: number;
+  startedAt: string;
+  endedAt: string | null;
+  lastActivityAt: string;
+  activeSeconds: number;
+}
+
 type ParsedSnapshot = Omit<Snapshot, "stateData"> & {
   kind: "editor";
   parsed: EditorSnapshotState;
@@ -32,18 +53,28 @@ type TimelineFrame =
   | ParsedSnapshot
   | (ScreenFrame & { kind: "screen"; likelyInactive: boolean });
 
-interface SessionInfo {
-  id: number;
-  startedAt: string;
-  endedAt: string | null;
-  lastActivityAt: string;
-  activeSeconds: number;
-}
+type SourceFilter = "all" | "editor" | "screen";
+
+type SessionSummary = SessionInfo & {
+  captureCount: number;
+  editorCaptureCount: number;
+  screenCaptureCount: number;
+  lastCaptureAt: string | null;
+};
+
+type GapEvent = {
+  frame: TimelineFrame;
+  previous: TimelineFrame;
+  duration: string;
+};
 
 const SPEEDS = [0.5, 1, 2, 4, 8];
 const SCREEN_FRAME_INTERVAL_SECONDS = 30;
-const OFFSITE_INACTIVE_AFTER_SECONDS = 5 * 60;
-const OFFSITE_DIFF_THRESHOLD = 1_800;
+const OFFSITE_INACTIVE_AFTER_SECONDS = 120;
+
+function frameKey(frame: TimelineFrame) {
+  return `${frame.kind}:${frame.id}`;
+}
 
 async function preloadImages(urls: string[]) {
   await Promise.allSettled(
@@ -99,25 +130,62 @@ function parseSnapshot(value: unknown): ParsedSnapshot | null {
   }
 }
 
-function fmtDuration(sec: number): string {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = sec % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
+function fmtDuration(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remainder = total % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${remainder}s`;
+  return `${remainder}s`;
 }
 
-function fmtDateTime(dateStr: string): string {
-  return new Date(dateStr).toLocaleString();
+function fmtDateTime(value: string): string {
+  return new Date(value).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function fmtTime(value: string): string {
+  return new Date(value).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function gapLabel(previous: string, next: string): string | null {
   const diff = Math.floor(
     (new Date(next).getTime() - new Date(previous).getTime()) / 1000,
   );
-  if (diff < 300) return null;
-  return fmtDuration(diff);
+  return diff >= 300 ? fmtDuration(diff) : null;
+}
+
+function sourceLabel(frame: TimelineFrame) {
+  return frame.kind === "editor" ? "Editor state" : "Screen evidence";
+}
+
+function SourcePill({ frame }: { frame: TimelineFrame }) {
+  const isEditor = frame.kind === "editor";
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 border px-2 py-1 text-[10px] font-black tracking-[0.08em] uppercase ${
+        isEditor
+          ? "border-sky-300/30 bg-sky-400/10 text-sky-100"
+          : "border-violet-300/30 bg-violet-400/10 text-violet-100"
+      }`}
+    >
+      {isEditor ? (
+        <Layers3 className="size-3" />
+      ) : (
+        <Monitor className="size-3" />
+      )}
+      {sourceLabel(frame)}
+    </span>
+  );
 }
 
 export function TimelapseViewer({
@@ -130,14 +198,18 @@ export function TimelapseViewer({
   until?: string;
 }) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const [frames, setFrames] = useState<TimelineFrame[]>([]);
+  const [allFrames, setAllFrames] = useState<TimelineFrame[]>([]);
+  const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [selectedFrameKey, setSelectedFrameKey] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(4);
-  const [index, setIndex] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const indexRef = useRef(0);
+  const selectedFrameKeyRef = useRef<string | null>(null);
+  const visibleFramesRef = useRef<TimelineFrame[]>([]);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
@@ -148,63 +220,83 @@ export function TimelapseViewer({
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
+    setTruncated(false);
     stopTimer();
     setPlaying(false);
 
-    const query = until ? `?until=${encodeURIComponent(until)}` : "";
+    const search = new URLSearchParams({ refresh: String(reloadKey) });
+    if (until) search.set("until", until);
+    const query = `?${search.toString()}`;
     fetch(`/api/editor/projects/${projectId}/timelapse/frames${query}`, {
       credentials: "include",
+      signal: controller.signal,
     })
       .then(async (response) => {
         const data = await response.json();
-        if (!response.ok)
+        if (!response.ok) {
           throw new Error(data.error ?? "Failed to load timelapse");
+        }
         return data;
       })
-      .then(async (data) => {
+      .then((data) => {
         if (cancelled) return;
-        const loaded = ((data.snapshots ?? []) as unknown[]).flatMap((item) => {
-          const parsed = parseSnapshot(item);
-          return parsed ? [parsed] : [];
-        });
-        const rawScreenFrames = (data.screenFrames ?? []) as ScreenFrame[];
-        let lastChangedAt = 0;
-        const screenFrames = rawScreenFrames.map((frame) => {
-          const capturedAt = new Date(frame.capturedAt).getTime();
-          if (frame.pixelChanged) lastChangedAt = capturedAt;
-          return {
-            ...frame,
-            kind: "screen" as const,
-            likelyInactive:
-              !frame.paused &&
-              !frame.pixelChanged &&
-              lastChangedAt > 0 &&
-              capturedAt - lastChangedAt >= 5 * 60_000,
-          };
-        });
-        const timeline = [...loaded, ...screenFrames].sort(
-          (a, b) =>
-            new Date(a.capturedAt).getTime() - new Date(b.capturedAt).getTime(),
+        const snapshots = ((data.snapshots ?? []) as unknown[]).flatMap(
+          (item) => {
+            const parsed = parseSnapshot(item);
+            return parsed ? [parsed] : [];
+          },
         );
-        await preloadImages(
+        let lastChangedAt: number | null = null;
+        const screenFrames = ((data.screenFrames ?? []) as ScreenFrame[]).map(
+          (frame) => {
+            const capturedAt = new Date(frame.capturedAt).getTime();
+            if (frame.paused || frame.pixelChanged) lastChangedAt = capturedAt;
+            return {
+              ...frame,
+              kind: "screen" as const,
+              likelyInactive:
+                !frame.paused &&
+                !frame.pixelChanged &&
+                lastChangedAt !== null &&
+                capturedAt - lastChangedAt >=
+                  OFFSITE_INACTIVE_AFTER_SECONDS * 1000,
+            };
+          },
+        );
+        const timeline = [...snapshots, ...screenFrames].sort(
+          (left, right) =>
+            new Date(left.capturedAt).getTime() -
+            new Date(right.capturedAt).getTime(),
+        );
+
+        setSessions((data.sessions ?? []) as SessionInfo[]);
+        setAllFrames(timeline);
+        setTruncated(Boolean(data.truncated));
+        const latest = timeline.at(-1);
+        const latestKey = latest ? frameKey(latest) : null;
+        selectedFrameKeyRef.current = latestKey;
+        setSelectedFrameKey(latestKey);
+        void preloadImages(
           screenFrames
+            .slice(-12)
             .map((frame) => frame.imageUrl)
             .filter((url) => url.length > 0),
         );
-        if (cancelled) return;
-        setSessions((data.sessions ?? []) as SessionInfo[]);
-        setFrames(timeline);
-        const latest = Math.max(0, timeline.length - 1);
-        setIndex(latest);
-        indexRef.current = latest;
       })
-      .catch((err) => {
-        if (!cancelled)
+      .catch((caught) => {
+        if (
+          !cancelled &&
+          !(caught instanceof DOMException && caught.name === "AbortError")
+        ) {
           setError(
-            err instanceof Error ? err.message : "Failed to load timelapse",
+            caught instanceof Error
+              ? caught.message
+              : "Failed to load timelapse",
           );
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -212,68 +304,108 @@ export function TimelapseViewer({
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [projectId, stopTimer, until]);
+  }, [projectId, reloadKey, stopTimer, until]);
 
-  const seekToIndex = useCallback(
-    (next: number) => {
-      stopTimer();
-      setPlaying(false);
-      const clamped = Math.max(0, Math.min(next, frames.length - 1));
-      setIndex(clamped);
-      indexRef.current = clamped;
-    },
-    [frames.length, stopTimer],
+  const visibleFrames = useMemo(
+    () =>
+      sourceFilter === "all"
+        ? allFrames
+        : allFrames.filter((frame) => frame.kind === sourceFilter),
+    [allFrames, sourceFilter],
   );
 
-  const seekTo = useCallback(
-    (fraction: number) => {
-      const target = Math.round(fraction * (frames.length - 1));
-      seekToIndex(target);
-    },
-    [seekToIndex, frames.length],
-  );
-
-  const startPlayback = useCallback(() => {
-    if (frames.length === 0) return;
-    stopTimer();
-    if (indexRef.current >= frames.length - 1) {
-      setIndex(0);
-      indexRef.current = 0;
+  useEffect(() => {
+    visibleFramesRef.current = visibleFrames;
+    if (visibleFrames.length === 0) return;
+    if (
+      !selectedFrameKey ||
+      !visibleFrames.some((frame) => frameKey(frame) === selectedFrameKey)
+    ) {
+      const latestFrame = visibleFrames.at(-1);
+      if (latestFrame) {
+        const nextKey = frameKey(latestFrame);
+        selectedFrameKeyRef.current = nextKey;
+        setSelectedFrameKey(nextKey);
+      }
     }
-    const ms = Math.max(60, 600 / speed);
-    timerRef.current = setInterval(() => {
-      setIndex((currentIndex) => {
-        if (currentIndex >= frames.length - 1) {
-          stopTimer();
-          setPlaying(false);
-          indexRef.current = currentIndex;
-          return currentIndex;
-        }
-        indexRef.current = currentIndex + 1;
-        return currentIndex + 1;
-      });
-    }, ms);
-  }, [frames.length, speed, stopTimer]);
+  }, [selectedFrameKey, visibleFrames]);
 
   useEffect(() => () => stopTimer(), [stopTimer]);
 
-  const togglePlay = useCallback(() => {
-    if (playing) {
+  const current =
+    visibleFrames.find((frame) => frameKey(frame) === selectedFrameKey) ??
+    visibleFrames.at(-1);
+  const currentIndex = current
+    ? Math.max(
+        0,
+        visibleFrames.findIndex(
+          (frame) => frameKey(frame) === frameKey(current),
+        ),
+      )
+    : 0;
+  const progressDivisor = Math.max(1, visibleFrames.length - 1);
+  const progress =
+    visibleFrames.length > 1 ? currentIndex / (visibleFrames.length - 1) : 0;
+
+  const selectFrame = useCallback(
+    (frame: TimelineFrame) => {
       stopTimer();
       setPlaying(false);
-    } else {
-      setPlaying(true);
+      const nextKey = frameKey(frame);
+      selectedFrameKeyRef.current = nextKey;
+      setSelectedFrameKey(nextKey);
+    },
+    [stopTimer],
+  );
+
+  const selectIndex = useCallback(
+    (nextIndex: number) => {
+      const frame = visibleFramesRef.current[nextIndex];
+      if (frame) selectFrame(frame);
+    },
+    [selectFrame],
+  );
+
+  const startPlayback = useCallback(() => {
+    const playbackFrames = visibleFramesRef.current;
+    if (playbackFrames.length === 0) return;
+
+    stopTimer();
+    const selectedIndex = playbackFrames.findIndex(
+      (frame) => frameKey(frame) === selectedFrameKeyRef.current,
+    );
+    if (selectedIndex >= playbackFrames.length - 1) {
+      const firstKey = frameKey(playbackFrames[0]);
+      selectedFrameKeyRef.current = firstKey;
+      setSelectedFrameKey(firstKey);
     }
-  }, [playing, stopTimer]);
+
+    timerRef.current = setInterval(
+      () => {
+        const frames = visibleFramesRef.current;
+        const activeIndex = frames.findIndex(
+          (frame) => frameKey(frame) === selectedFrameKeyRef.current,
+        );
+        const nextIndex = activeIndex < 0 ? 0 : activeIndex + 1;
+        if (nextIndex >= frames.length) {
+          stopTimer();
+          setPlaying(false);
+          return;
+        }
+        const nextKey = frameKey(frames[nextIndex]);
+        selectedFrameKeyRef.current = nextKey;
+        setSelectedFrameKey(nextKey);
+      },
+      Math.max(80, 700 / speed),
+    );
+  }, [speed, stopTimer]);
 
   useEffect(() => {
     if (playing) startPlayback();
     else stopTimer();
   }, [playing, startPlayback, stopTimer]);
-
-  const current = frames[index];
-  const parsed = current?.kind === "editor" ? current.parsed : null;
 
   const sessionMap = useMemo(
     () => new Map(sessions.map((session) => [session.id, session])),
@@ -281,281 +413,680 @@ export function TimelapseViewer({
   );
   const currentSession = current?.sessionId
     ? sessionMap.get(current.sessionId)
-    : null;
-  const progress = frames.length > 1 ? index / (frames.length - 1) : 0;
-  const progressDivisor = Math.max(1, frames.length - 1);
+    : undefined;
   const totalActive = sessions.reduce(
     (sum, session) => sum + session.activeSeconds,
     0,
   );
-  const firstFrame = frames[0];
-  const lastFrame = frames.at(-1);
-  const previous = index > 0 ? frames[index - 1] : null;
-  const gap =
-    previous && current
-      ? gapLabel(previous.capturedAt, current.capturedAt)
-      : null;
-  const screenFrameCount = frames.filter(
-    (frame) => frame.kind === "screen",
+  const editorFrameCount = allFrames.filter(
+    (frame) => frame.kind === "editor",
   ).length;
-  const inactiveFrameCount = frames.filter(
-    (frame) => frame.kind === "screen" && frame.likelyInactive,
+  const screenFrames = allFrames.filter((frame) => frame.kind === "screen");
+  const screenFrameCount = screenFrames.length;
+  const readableScreenFrameCount = screenFrames.filter(
+    (frame) => frame.imageUrl.length > 0,
+  ).length;
+  const changedScreenFrameCount = screenFrames.filter(
+    (frame) => frame.pixelChanged,
+  ).length;
+  const inactiveFrameCount = screenFrames.filter(
+    (frame) => frame.likelyInactive,
   ).length;
   const estimatedInactiveSeconds =
     inactiveFrameCount * SCREEN_FRAME_INTERVAL_SECONDS;
-  const inactivePercent =
-    screenFrameCount > 0
-      ? Math.round((inactiveFrameCount / screenFrameCount) * 100)
-      : 0;
+
+  const gapEvents = useMemo<GapEvent[]>(
+    () =>
+      allFrames.slice(1).flatMap((frame, index) => {
+        const previous = allFrames[index];
+        const duration = gapLabel(previous.capturedAt, frame.capturedAt);
+        return duration ? [{ frame, previous, duration }] : [];
+      }),
+    [allFrames],
+  );
+
+  const sessionSummaries = useMemo<SessionSummary[]>(
+    () =>
+      sessions.map((session) => {
+        const captures = allFrames.filter(
+          (frame) => frame.sessionId === session.id,
+        );
+        const editorCaptures = captures.filter(
+          (frame) => frame.kind === "editor",
+        ).length;
+        const screenCaptures = captures.length - editorCaptures;
+        return {
+          ...session,
+          captureCount: captures.length,
+          editorCaptureCount: editorCaptures,
+          screenCaptureCount: screenCaptures,
+          lastCaptureAt: captures.at(-1)?.capturedAt ?? null,
+        };
+      }),
+    [allFrames, sessions],
+  );
+
+  const firstFrame = allFrames[0];
+  const lastFrame = allFrames.at(-1);
+  const previous = currentIndex > 0 ? visibleFrames[currentIndex - 1] : null;
+  const gapBeforeCurrent =
+    previous && current
+      ? gapLabel(previous.capturedAt, current.capturedAt)
+      : null;
+
+  const jumpToSession = useCallback(
+    (sessionId: number) => {
+      const target = allFrames.find((frame) => frame.sessionId === sessionId);
+      if (!target) return;
+      setSourceFilter("all");
+      selectFrame(target);
+    },
+    [allFrames, selectFrame],
+  );
+
+  const jumpToGap = useCallback(
+    (event: GapEvent) => {
+      setSourceFilter("all");
+      selectFrame(event.frame);
+    },
+    [selectFrame],
+  );
+
+  const changeSourceFilter = useCallback(
+    (next: SourceFilter) => {
+      stopTimer();
+      setPlaying(false);
+      setSourceFilter(next);
+    },
+    [stopTimer],
+  );
 
   if (loading) {
     return (
-      <div className="grid min-h-[420px] place-items-center rounded-[16px] border border-black bg-white p-6 shadow-[4px_4px_0_#000]">
-        <div className="text-center">
-          <p className="text-xs font-black tracking-[0.18em] text-[#BD0F32] uppercase">
-            Timelapse
-          </p>
-          <h1 className="mt-2 text-3xl font-black text-black">
-            Loading activity...
-          </h1>
-        </div>
-      </div>
-    );
-  }
-
-  if (error || frames.length === 0) {
-    return (
-      <div className="rounded-[16px] border border-black bg-white p-6 shadow-[4px_4px_0_#000]">
-        <p className="text-xs font-black tracking-[0.18em] text-[#BD0F32] uppercase">
-          Timelapse
-        </p>
-        <h1 className="mt-2 text-3xl font-black text-black">{projectTitle}</h1>
-        <p className="mt-4 text-sm text-black/50">
-          {error ?? "No timelapse snapshots recorded yet."}
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 z-40 flex flex-col bg-[#1e1e1e]">
-      <div className="flex shrink-0 items-center justify-between gap-4 border-b border-[#333] bg-[#181818] p-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <Link
-            href={`/platform/admin/review/${projectId}`}
-            className="inline-flex items-center gap-2 rounded-xl bg-black px-4 py-2.5 text-sm font-black text-white no-underline hover:bg-[#BD0F32]"
-          >
-            <HiArrowLeft className="size-4" />
-            Review
-          </Link>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-black text-white">
-              {projectTitle}
+      <div className="fixed inset-0 z-40 grid place-items-center bg-[#181818] p-6 text-white">
+        <div className="flex items-center gap-3 border border-[#454545] bg-[#242424] px-5 py-4 shadow-[4px_4px_0_#000]">
+          <RefreshCw className="size-5 animate-spin text-[#BD0F32]" />
+          <div>
+            <p className="text-xs font-black tracking-[0.16em] text-[#BD0F32] uppercase">
+              Timelapse review
             </p>
-            {until ? (
-              <p className="text-xs font-black uppercase tracking-[0.14em] text-[#BD0F32]">
-                Through shipped point
-              </p>
-            ) : null}
-            <p className="text-xs text-[#777]">
-              {frames.length} frames stitched across {sessions.length} sessions
-              · {fmtDuration(totalActive)} active
+            <p className="mt-1 text-sm font-bold text-white">
+              Loading evidence
             </p>
-            {screenFrameCount > 0 ? (
-              <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-purple-300">
-                <span>{screenFrameCount} outside-site frames</span>
-                <span>{inactivePercent}% likely inactive</span>
-                <span>
-                  {fmtDuration(estimatedInactiveSeconds)} suggested review
-                </span>
-                <span>
-                  inactive after {fmtDuration(OFFSITE_INACTIVE_AFTER_SECONDS)}
-                  no pixel changes
-                </span>
-              </div>
-            ) : null}
           </div>
         </div>
-        <div className="hidden text-right text-xs text-[#777] md:block">
-          <p>Newest frame loaded first</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="fixed inset-0 z-40 grid place-items-center bg-[#181818] p-6 text-white">
+        <div className="max-w-lg border border-red-400/40 bg-[#242424] p-6 shadow-[4px_4px_0_#000]">
+          <div className="flex items-start gap-3">
+            <CircleAlert className="mt-0.5 size-5 shrink-0 text-red-300" />
+            <div>
+              <p className="text-xs font-black tracking-[0.16em] text-red-300 uppercase">
+                Timelapse unavailable
+              </p>
+              <h1 className="mt-2 text-xl font-black">{projectTitle}</h1>
+              <p className="mt-2 text-sm text-zinc-300">{error}</p>
+            </div>
+          </div>
+          <div className="mt-5 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setReloadKey((currentKey) => currentKey + 1)}
+              className="inline-flex items-center gap-2 bg-[#BD0F32] px-3 py-2 text-xs font-black text-white hover:bg-[#d71943]"
+            >
+              <RefreshCw className="size-3.5" />
+              Retry
+            </button>
+            <Link
+              href={`/platform/admin/review/${projectId}`}
+              className="inline-flex items-center gap-2 px-3 py-2 text-xs font-black text-zinc-300 hover:text-white"
+            >
+              <ArrowLeft className="size-3.5" />
+              Review
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (allFrames.length === 0) {
+    return (
+      <div className="fixed inset-0 z-40 flex flex-col bg-[#181818] text-white">
+        <header className="flex shrink-0 items-center gap-3 border-b border-[#3d3d3d] bg-[#202020] px-3 py-3">
+          <Link
+            href={`/platform/admin/review/${projectId}`}
+            title="Back to project review"
+            aria-label="Back to project review"
+            className="grid size-9 place-items-center border border-[#555] text-zinc-200 hover:border-[#BD0F32] hover:bg-[#BD0F32] hover:text-white"
+          >
+            <ArrowLeft className="size-4" />
+          </Link>
+          <div className="min-w-0">
+            <p className="text-xs font-black tracking-[0.16em] text-[#BD0F32] uppercase">
+              Timelapse review
+            </p>
+            <h1 className="truncate text-sm font-black">{projectTitle}</h1>
+          </div>
+        </header>
+        <main className="grid flex-1 place-items-center p-6">
+          <div className="max-w-md border border-[#444] bg-[#242424] p-6 shadow-[4px_4px_0_#000]">
+            <Frame className="size-6 text-zinc-400" />
+            <h2 className="mt-4 text-lg font-black">No visual evidence yet</h2>
+            <p className="mt-2 text-sm leading-6 text-zinc-300">
+              Server-confirmed active time: {fmtDuration(totalActive)} across{" "}
+              {sessions.length} session{sessions.length === 1 ? "" : "s"}.
+            </p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  const currentScreen = current?.kind === "screen" ? current : null;
+  const currentFrameSessionIndex = currentSession
+    ? sessions.findIndex((session) => session.id === currentSession.id) + 1
+    : null;
+
+  return (
+    <div className="fixed inset-0 z-40 flex flex-col bg-[#181818] text-white">
+      <header className="flex shrink-0 items-center gap-3 border-b border-[#3d3d3d] bg-[#202020] px-3 py-3">
+        <Link
+          href={`/platform/admin/review/${projectId}`}
+          title="Back to project review"
+          aria-label="Back to project review"
+          className="grid size-9 shrink-0 place-items-center border border-[#555] text-zinc-200 transition hover:border-[#BD0F32] hover:bg-[#BD0F32] hover:text-white"
+        >
+          <ArrowLeft className="size-4" />
+        </Link>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <p className="shrink-0 text-[10px] font-black tracking-[0.16em] text-[#BD0F32] uppercase">
+              Timelapse review
+            </p>
+            {until ? (
+              <span className="truncate border border-[#BD0F32]/50 bg-[#BD0F32]/10 px-1.5 py-0.5 text-[10px] font-black tracking-[0.08em] text-red-100 uppercase">
+                At submission
+              </span>
+            ) : null}
+          </div>
+          <h1 className="truncate text-sm font-black text-white">
+            {projectTitle}
+          </h1>
+        </div>
+        <div className="hidden shrink-0 text-right text-xs text-zinc-400 md:block">
+          <p className="font-black text-white">
+            {fmtDuration(totalActive)} confirmed
+          </p>
           <p>
             {firstFrame && lastFrame
-              ? `${fmtDateTime(firstFrame.capturedAt)} to ${fmtDateTime(lastFrame.capturedAt)}`
+              ? `${fmtDateTime(firstFrame.capturedAt)} - ${fmtDateTime(lastFrame.capturedAt)}`
               : ""}
           </p>
         </div>
-      </div>
+      </header>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#1e1e1e]">
-        <div className="flex shrink-0 items-center gap-3 border-b border-[#333] bg-[#252525] px-3 py-2">
-          <button
-            type="button"
-            onClick={togglePlay}
-            className="rounded-lg bg-[#444] p-1.5 text-white hover:bg-[#BD0F32]"
-            aria-label={playing ? "Pause timelapse" : "Play timelapse"}
-          >
-            {playing ? (
-              <HiPause className="size-3.5" />
-            ) : (
-              <HiPlay className="size-3.5" />
-            )}
-          </button>
-
-          <div className="flex items-center gap-1">
-            {SPEEDS.map((value) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setSpeed(value)}
-                className={`rounded px-2 py-0.5 text-xs font-bold ${
-                  speed === value
-                    ? "bg-[#BD0F32] text-white"
-                    : "bg-[#333] text-[#888] hover:bg-[#444]"
-                }`}
-              >
-                {value}x
-              </button>
-            ))}
-          </div>
-
-          <div
-            className="mx-2 flex-1 cursor-pointer"
-            role="slider"
-            aria-label="Seek stitched timelapse"
-            aria-valuenow={Math.round(progress * 100)}
-            tabIndex={0}
-            onClick={(event) => {
-              const rect = event.currentTarget.getBoundingClientRect();
-              seekTo((event.clientX - rect.left) / rect.width);
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "ArrowLeft") seekToIndex(index - 1);
-              if (event.key === "ArrowRight") seekToIndex(index + 1);
-              if (event.key === "Home") seekToIndex(0);
-              if (event.key === "End") seekToIndex(frames.length - 1);
-            }}
-          >
-            <div className="relative h-3 overflow-hidden rounded-full bg-[#333]">
-              <div
-                className="h-full rounded-full bg-[#BD0F32] transition-[width] duration-150"
-                style={{ width: `${progress * 100}%` }}
-              />
-              {sessions.length > 1
-                ? sessions.slice(1).map((session) => {
-                    const boundary = frames.findIndex(
-                      (frame) => frame.sessionId === session.id,
-                    );
-                    if (boundary <= 0) return null;
-                    return (
-                      <span
-                        key={session.id}
-                        className="absolute top-0 h-full w-px bg-white/45"
-                        style={{
-                          left: `${(boundary / progressDivisor) * 100}%`,
-                        }}
-                      />
-                    );
-                  })
-                : null}
-              {frames.map((frame, frameIndex) =>
-                frame.kind === "screen" && frame.likelyInactive ? (
-                  <span
-                    key={`inactive-${frame.id}`}
-                    className="absolute top-0 h-full w-1 rounded-full bg-purple-400"
-                    title="Likely inactive: no screen pixel changes for about 5 minutes"
-                    style={{
-                      left: `${(frameIndex / progressDivisor) * 100}%`,
-                    }}
-                  />
-                ) : null,
+      <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_21rem] lg:overflow-hidden">
+        <section className="flex min-h-[38rem] min-w-0 flex-col border-b border-[#3d3d3d] lg:min-h-0 lg:border-b-0">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[#3d3d3d] bg-[#252525] px-3 py-2">
+            <div className="flex min-w-0 items-center gap-2 text-xs text-zinc-400">
+              {current ? (
+                <>
+                  <SourcePill frame={current} />
+                  <span className="truncate tabular-nums">
+                    {fmtDateTime(current.capturedAt)}
+                  </span>
+                </>
+              ) : (
+                <span className="font-black text-amber-200">
+                  No matching frames
+                </span>
               )}
             </div>
+            <fieldset className="flex border border-[#4a4a4a] bg-[#1c1c1c] p-0.5">
+              <legend className="sr-only">Evidence source</legend>
+              {(
+                [
+                  ["all", "All"],
+                  ["editor", "Editor"],
+                  ["screen", "Screen"],
+                ] as const
+              ).map(([filter, label]) => (
+                <button
+                  key={filter}
+                  type="button"
+                  onClick={() => changeSourceFilter(filter)}
+                  aria-pressed={sourceFilter === filter}
+                  className={`px-2 py-1 text-[11px] font-black transition ${
+                    sourceFilter === filter
+                      ? "bg-[#BD0F32] text-white"
+                      : "text-zinc-400 hover:bg-[#363636] hover:text-white"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </fieldset>
           </div>
 
-          <span className="text-xs tabular-nums text-[#888]">
-            {index + 1} / {frames.length}
-          </span>
-          <span className="hidden text-xs text-[#666] lg:inline">
-            {current ? fmtDateTime(current.capturedAt) : ""}
-          </span>
-          <span className="hidden rounded bg-purple-500/15 px-2 py-0.5 text-xs font-bold text-purple-200 md:inline">
-            Purple = likely inactive outside-site time
-          </span>
-          <span className="hidden text-xs text-[#777] xl:inline">
-            Pixel change threshold: diff &gt;= {OFFSITE_DIFF_THRESHOLD}
-          </span>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2 border-b border-[#333] bg-[#202020] px-3 py-1.5 text-xs text-[#777]">
-          <span className="font-bold text-[#aaa]">
-            Session{" "}
-            {currentSession
-              ? sessions.findIndex(
-                  (session) => session.id === currentSession.id,
-                ) + 1
-              : "?"}
-          </span>
-          {currentSession ? (
-            <span>{fmtDuration(currentSession.activeSeconds)} active</span>
-          ) : null}
-          {gap ? (
-            <span className="rounded bg-yellow-500/15 px-2 py-0.5 font-bold text-yellow-300">
-              Gap before this frame: {gap}
-            </span>
-          ) : null}
-          {current?.kind === "screen" ? (
-            <span
-              className={`rounded px-2 py-0.5 font-bold ${
-                current.likelyInactive
-                  ? "bg-purple-500/20 text-purple-200"
-                  : "bg-blue-500/15 text-blue-200"
-              }`}
-            >
-              Outside-site screen · diff {current.diffScore}
-              {current.pixelChanged ? " · changed" : " · no change"}
-              {current.likelyInactive ? " · likely inactive/deduct" : ""}
-            </span>
-          ) : null}
-        </div>
-
-        <div className="min-h-0 flex-1">
-          {current?.kind === "screen" ? (
-            <div className="grid h-full place-items-center bg-[#111] p-6">
-              <div className="max-w-5xl rounded-xl border border-purple-400/40 bg-black p-3">
-                {current.imageUrl ? (
-                  <img
-                    src={current.imageUrl}
-                    alt="Private outside-site screen evidence"
-                    className="max-h-[78vh] max-w-full rounded-lg object-contain"
-                  />
-                ) : (
-                  <div className="grid min-h-[320px] place-items-center rounded-lg border border-purple-400/30 bg-purple-950/30 p-8 text-center text-purple-100">
-                    <div>
-                      <p className="text-lg font-black">
-                        No new pixels changed
-                      </p>
-                      <p className="mt-2 text-sm font-bold text-purple-200/80">
-                        Metadata-only marker. The last readable screen frame is
-                        reused for context, and this point helps estimate idle
-                        deductions without uploading duplicate screenshots.
-                      </p>
-                    </div>
-                  </div>
-                )}
-                <p className="mt-2 text-xs font-bold text-purple-200">
-                  Private screen evidence. Never public. Used only to verify
-                  outside-site work and possible idle deductions.
+          <div className="relative min-h-[360px] flex-1 overflow-hidden bg-[#101010]">
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-wrap items-start justify-between gap-2 p-3">
+              <div className="border border-white/15 bg-black/75 px-2.5 py-2 backdrop-blur-sm">
+                <p className="text-[10px] font-black tracking-[0.12em] text-zinc-400 uppercase">
+                  Frame {currentIndex + 1} of {visibleFrames.length}
+                </p>
+                <p className="mt-0.5 text-xs font-black text-white">
+                  {current ? fmtTime(current.capturedAt) : ""}
                 </p>
               </div>
+              {currentScreen ? (
+                <div
+                  className={`border px-2.5 py-2 text-right text-[10px] font-black tracking-[0.08em] uppercase backdrop-blur-sm ${
+                    currentScreen.likelyInactive
+                      ? "border-amber-300/50 bg-amber-950/80 text-amber-100"
+                      : currentScreen.pixelChanged
+                        ? "border-emerald-300/50 bg-emerald-950/80 text-emerald-100"
+                        : "border-violet-300/40 bg-violet-950/80 text-violet-100"
+                  }`}
+                >
+                  {currentScreen.likelyInactive
+                    ? "Potentially inactive"
+                    : currentScreen.pixelChanged
+                      ? "Screen changed"
+                      : currentScreen.paused
+                        ? "Capture paused"
+                        : "No visual change"}
+                </div>
+              ) : null}
             </div>
-          ) : parsed ? (
-            <VelxioSnapshotViewer snapshot={parsed} />
-          ) : (
-            <div className="grid h-full place-items-center text-sm text-[#555]">
-              No snapshot data
+
+            {currentScreen ? (
+              <div className="grid h-full min-h-[360px] place-items-center p-3 sm:p-6">
+                {currentScreen.imageUrl ? (
+                  <img
+                    src={currentScreen.imageUrl}
+                    alt="Private screen evidence"
+                    className="max-h-[min(68dvh,900px)] max-w-full border border-violet-300/35 bg-black object-contain shadow-[4px_4px_0_rgba(167,139,250,0.25)]"
+                  />
+                ) : (
+                  <div className="max-w-sm border border-violet-300/30 bg-violet-950/25 p-6 text-center shadow-[4px_4px_0_rgba(167,139,250,0.2)]">
+                    <Monitor className="mx-auto size-6 text-violet-200" />
+                    <p className="mt-3 text-sm font-black text-violet-100">
+                      Screen marker only
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-violet-200/75">
+                      No new image was stored for this capture.
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : current?.kind === "editor" ? (
+              <VelxioSnapshotViewer snapshot={current.parsed} />
+            ) : (
+              <div className="grid h-full min-h-[360px] place-items-center p-6 text-center">
+                <div className="max-w-xs border border-[#4a4a4a] bg-[#202020] p-5">
+                  <Frame className="mx-auto size-5 text-zinc-400" />
+                  <p className="mt-3 text-sm font-black text-white">
+                    No {sourceFilter} frames
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <footer className="shrink-0 border-t border-[#3d3d3d] bg-[#222] px-3 py-3">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => selectIndex(0)}
+                title="First frame"
+                aria-label="First frame"
+                className="grid size-8 place-items-center border border-[#4b4b4b] text-zinc-300 transition hover:border-white hover:bg-[#383838] hover:text-white disabled:opacity-35"
+                disabled={currentIndex === 0}
+              >
+                <RotateCcw className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => selectIndex(currentIndex - 1)}
+                title="Previous frame"
+                aria-label="Previous frame"
+                className="grid size-8 place-items-center border border-[#4b4b4b] text-zinc-300 transition hover:border-white hover:bg-[#383838] hover:text-white disabled:opacity-35"
+                disabled={currentIndex === 0}
+              >
+                <ChevronLeft className="size-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setPlaying((value) => !value)}
+                title={playing ? "Pause replay" : "Play replay"}
+                aria-label={playing ? "Pause replay" : "Play replay"}
+                className="grid size-9 place-items-center bg-[#BD0F32] text-white transition hover:bg-[#d71943] disabled:cursor-not-allowed disabled:opacity-35"
+                disabled={!current}
+              >
+                {playing ? (
+                  <Pause className="size-4" />
+                ) : (
+                  <Play className="size-4" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => selectIndex(currentIndex + 1)}
+                title="Next frame"
+                aria-label="Next frame"
+                className="grid size-8 place-items-center border border-[#4b4b4b] text-zinc-300 transition hover:border-white hover:bg-[#383838] hover:text-white disabled:opacity-35"
+                disabled={currentIndex >= visibleFrames.length - 1}
+              >
+                <ChevronRight className="size-4" />
+              </button>
+
+              <fieldset className="ml-1 flex border border-[#4b4b4b] bg-[#191919] p-0.5">
+                <legend className="sr-only">Replay speed</legend>
+                {SPEEDS.map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setSpeed(value)}
+                    aria-pressed={speed === value}
+                    className={`min-w-8 px-1.5 py-1 text-[11px] font-black transition ${
+                      speed === value
+                        ? "bg-[#BD0F32] text-white"
+                        : "text-zinc-400 hover:bg-[#363636] hover:text-white"
+                    }`}
+                  >
+                    {value}x
+                  </button>
+                ))}
+              </fieldset>
+
+              <span className="ml-auto text-right text-[11px] tabular-nums text-zinc-400">
+                {current ? fmtDateTime(current.capturedAt) : ""}
+              </span>
             </div>
-          )}
-        </div>
+
+            <div className="relative mt-3 pt-2">
+              <input
+                type="range"
+                min={0}
+                max={Math.max(0, visibleFrames.length - 1)}
+                value={currentIndex}
+                onChange={(event) =>
+                  selectIndex(Number(event.currentTarget.value))
+                }
+                aria-label="Seek timelapse"
+                className="relative z-10 block h-3 w-full cursor-pointer accent-[#BD0F32]"
+              />
+              <div className="pointer-events-none absolute inset-x-1 top-2.5 h-1 bg-[#343434]">
+                <div
+                  className="h-full bg-[#BD0F32]"
+                  style={{ width: `${progress * 100}%` }}
+                />
+                {sessions.slice(1).map((session) => {
+                  const boundary = visibleFrames.findIndex(
+                    (frame) => frame.sessionId === session.id,
+                  );
+                  if (boundary <= 0) return null;
+                  return (
+                    <span
+                      key={`session-${session.id}`}
+                      className="absolute top-[-2px] h-2 w-px bg-white/70"
+                      style={{ left: `${(boundary / progressDivisor) * 100}%` }}
+                    />
+                  );
+                })}
+                {visibleFrames.slice(1).map((frame, offset) => {
+                  const frameIndex = offset + 1;
+                  const duration = gapLabel(
+                    visibleFrames[frameIndex - 1].capturedAt,
+                    frame.capturedAt,
+                  );
+                  if (!duration) return null;
+                  return (
+                    <span
+                      key={`gap-${frameKey(frame)}`}
+                      className="absolute top-[-2px] h-2 w-1 bg-amber-300"
+                      title={`Capture gap: ${duration}`}
+                      style={{
+                        left: `${(frameIndex / progressDivisor) * 100}%`,
+                      }}
+                    />
+                  );
+                })}
+                {visibleFrames.map((frame, frameIndex) =>
+                  frame.kind === "screen" && frame.likelyInactive ? (
+                    <span
+                      key={`inactive-${frame.id}`}
+                      className="absolute top-[-2px] h-2 w-1 bg-violet-300"
+                      title="Possible idle period"
+                      style={{
+                        left: `${(frameIndex / progressDivisor) * 100}%`,
+                      }}
+                    />
+                  ) : null,
+                )}
+              </div>
+            </div>
+
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-black tracking-[0.06em] text-zinc-500 uppercase">
+              <span>{visibleFrames.length} visible frames</span>
+              <span className="text-amber-300">Amber: capture gap</span>
+              <span className="text-violet-300">Violet: idle signal</span>
+              {gapBeforeCurrent ? (
+                <span className="text-amber-200">
+                  Gap before this frame: {gapBeforeCurrent}
+                </span>
+              ) : null}
+            </div>
+          </footer>
+        </section>
+
+        <aside className="min-h-0 border-[#3d3d3d] bg-[#202020] lg:overflow-y-auto lg:border-l">
+          <section className="border-b border-[#3d3d3d] p-4">
+            <div className="flex items-center gap-2 text-[10px] font-black tracking-[0.14em] text-zinc-500 uppercase">
+              <Clock3 className="size-3.5" />
+              Confirmed time
+            </div>
+            <p className="mt-2 text-2xl font-black tabular-nums text-white">
+              {fmtDuration(totalActive)}
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-px border border-[#414141] bg-[#414141] text-xs">
+              <div className="bg-[#252525] px-2.5 py-2">
+                <p className="text-[10px] font-black tracking-[0.08em] text-zinc-500 uppercase">
+                  Sessions
+                </p>
+                <p className="mt-1 font-black text-white">{sessions.length}</p>
+              </div>
+              <div className="bg-[#252525] px-2.5 py-2">
+                <p className="text-[10px] font-black tracking-[0.08em] text-zinc-500 uppercase">
+                  Captures
+                </p>
+                <p className="mt-1 font-black text-white">{allFrames.length}</p>
+              </div>
+            </div>
+            {truncated ? (
+              <p className="mt-3 border-l-2 border-amber-300 pl-2 text-xs leading-5 text-amber-100">
+                Showing the most recent 600 captures from each source.
+              </p>
+            ) : null}
+          </section>
+
+          <section className="border-b border-[#3d3d3d] p-4">
+            <div className="flex items-center gap-2 text-[10px] font-black tracking-[0.14em] text-zinc-500 uppercase">
+              <CircleAlert className="size-3.5" />
+              Review signals
+            </div>
+            <dl className="mt-3 space-y-2 text-xs">
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-zinc-400">Capture gaps</dt>
+                <dd
+                  className={
+                    gapEvents.length > 0
+                      ? "font-black text-amber-200"
+                      : "font-black text-emerald-300"
+                  }
+                >
+                  {gapEvents.length}
+                </dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-zinc-400">Idle signals</dt>
+                <dd
+                  className={
+                    inactiveFrameCount > 0
+                      ? "font-black text-violet-200"
+                      : "font-black text-emerald-300"
+                  }
+                >
+                  {inactiveFrameCount}
+                </dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-zinc-400">Editor captures</dt>
+                <dd className="font-black text-sky-200">{editorFrameCount}</dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-zinc-400">Screen images</dt>
+                <dd className="font-black text-violet-200">
+                  {readableScreenFrameCount} / {screenFrameCount}
+                </dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-zinc-400">Changed screens</dt>
+                <dd className="font-black text-violet-200">
+                  {changedScreenFrameCount}
+                </dd>
+              </div>
+            </dl>
+            {inactiveFrameCount > 0 ? (
+              <p className="mt-3 border-l-2 border-violet-300 pl-2 text-xs leading-5 text-violet-100">
+                {fmtDuration(estimatedInactiveSeconds)} of screen markers may
+                need review.
+              </p>
+            ) : null}
+          </section>
+
+          <section className="border-b border-[#3d3d3d] p-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[10px] font-black tracking-[0.14em] text-zinc-500 uppercase">
+                Current capture
+              </p>
+              {current ? <SourcePill frame={current} /> : null}
+            </div>
+            <dl className="mt-3 space-y-2 text-xs">
+              <div className="flex justify-between gap-3">
+                <dt className="text-zinc-400">Captured</dt>
+                <dd className="text-right font-black text-white">
+                  {current ? fmtDateTime(current.capturedAt) : "-"}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-zinc-400">Session</dt>
+                <dd className="text-right font-black text-white">
+                  {currentFrameSessionIndex
+                    ? `${currentFrameSessionIndex} of ${sessions.length}`
+                    : "Not linked"}
+                </dd>
+              </div>
+              {currentSession ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-zinc-400">Session active</dt>
+                  <dd className="text-right font-black text-white">
+                    {fmtDuration(currentSession.activeSeconds)}
+                  </dd>
+                </div>
+              ) : null}
+              {currentScreen ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-zinc-400">Screen state</dt>
+                  <dd className="text-right font-black text-white">
+                    {currentScreen.paused
+                      ? "Paused"
+                      : currentScreen.pixelChanged
+                        ? "Changed"
+                        : "Unchanged"}
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          </section>
+
+          {gapEvents.length > 0 ? (
+            <section className="border-b border-[#3d3d3d] p-4">
+              <p className="text-[10px] font-black tracking-[0.14em] text-zinc-500 uppercase">
+                Capture gaps
+              </p>
+              <div className="mt-2 divide-y divide-[#363636] border-y border-[#363636]">
+                {gapEvents.slice(-8).map((event) => (
+                  <button
+                    key={`${frameKey(event.previous)}-${frameKey(event.frame)}`}
+                    type="button"
+                    onClick={() => jumpToGap(event)}
+                    className="flex w-full items-center justify-between gap-3 px-0 py-2 text-left text-xs transition hover:text-amber-100"
+                  >
+                    <span className="font-black text-amber-200">
+                      {event.duration}
+                    </span>
+                    <span className="truncate text-zinc-400">
+                      {fmtDateTime(event.frame.capturedAt)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          <section className="p-4">
+            <p className="text-[10px] font-black tracking-[0.14em] text-zinc-500 uppercase">
+              Sessions
+            </p>
+            <div className="mt-2 divide-y divide-[#363636] border-y border-[#363636]">
+              {sessionSummaries.map((session, index) => {
+                const selected = currentSession?.id === session.id;
+                const hasCapture = session.captureCount > 0;
+                return (
+                  <button
+                    key={session.id}
+                    type="button"
+                    disabled={!hasCapture}
+                    onClick={() => jumpToSession(session.id)}
+                    className={`w-full px-0 py-2.5 text-left transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                      selected
+                        ? "text-white"
+                        : "text-zinc-300 hover:bg-[#292929] hover:text-white"
+                    }`}
+                    title={
+                      hasCapture
+                        ? `Jump to session ${index + 1}`
+                        : "No captured evidence in this session"
+                    }
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-black">Session {index + 1}</span>
+                      <span className="font-black tabular-nums text-white">
+                        {fmtDuration(session.activeSeconds)}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between gap-3 text-[10px] text-zinc-500">
+                      <span>{fmtDateTime(session.startedAt)}</span>
+                      <span>
+                        {session.captureCount} captures
+                        {session.screenCaptureCount > 0
+                          ? ` · ${session.screenCaptureCount} screen`
+                          : ""}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        </aside>
       </div>
     </div>
   );

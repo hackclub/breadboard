@@ -43,6 +43,7 @@ import { Markdown } from "@/components/shared/markdown";
 import { Button, buttonClass } from "@/components/ui/button";
 import { Surface } from "@/components/ui/card";
 import { Input, inputClass, Label } from "@/components/ui/input";
+import { setActivityStatusListener } from "@/lib/editor/activityTracker";
 import {
   BREAD_PER_HOUR,
   estimateBreadFromSeconds,
@@ -101,20 +102,20 @@ export type ExternalTrackingWorkspaceProps = {
   kitType: "arduino" | "esp32";
 };
 
-function formatHours(seconds: number) {
-  const hours = seconds / 3600;
-  return hours >= 10 ? Math.round(hours).toString() : hours.toFixed(1);
-}
-
 function formatDuration(seconds: number) {
   const total = Math.max(0, Math.floor(seconds));
   const minutes = Math.floor(total / 60);
   const secs = total % 60;
   if (minutes >= 60) {
     const hours = Math.floor(minutes / 60);
-    return `${hours}h ${minutes % 60}m`;
+    return `${hours}h ${minutes % 60}m ${secs}s`;
   }
   return `${minutes}m ${secs.toString().padStart(2, "0")}s`;
+}
+
+function formatHours(seconds: number) {
+  const hours = seconds / 3600;
+  return hours >= 10 ? Math.round(hours).toString() : hours.toFixed(1);
 }
 
 export function ExternalTrackingWorkspace({
@@ -131,7 +132,27 @@ export function ExternalTrackingWorkspace({
   // Activity tracking is owned by ScreenShareTracker (managesActivityTracking):
   // nothing accrues until the user sets up tracking, and it never auto-pauses
   // on inactivity once started.
-  const totalSeconds = trackedSeconds + recordingSeconds;
+  const [confirmedTrackedSeconds, setConfirmedTrackedSeconds] =
+    useState(trackedSeconds);
+  useEffect(() => {
+    setConfirmedTrackedSeconds(trackedSeconds);
+  }, [trackedSeconds]);
+  useEffect(
+    () =>
+      setActivityStatusListener((status) => {
+        if (
+          status.projectId === projectId &&
+          typeof status.totalTrackedSeconds === "number"
+        ) {
+          setConfirmedTrackedSeconds((current) =>
+            Math.max(current, status.totalTrackedSeconds ?? 0),
+          );
+        }
+      }),
+    [projectId],
+  );
+
+  const totalSeconds = confirmedTrackedSeconds + recordingSeconds;
   const isBuild = isBuildShip(projectType);
 
   return (
@@ -150,7 +171,7 @@ export function ExternalTrackingWorkspace({
                 {formatHours(totalSeconds)}h
               </p>
               <p className="text-xs font-semibold text-black/50">
-                {formatHours(trackedSeconds)}h screen-tracked ·{" "}
+                {formatHours(confirmedTrackedSeconds)}h screen-tracked ·{" "}
                 {formatHours(recordingSeconds)}h from recordings
               </p>
             </div>

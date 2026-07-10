@@ -7,9 +7,11 @@ import {
   recordExternalActivity,
   setActivityStatusListener,
   setActivityTrackingPaused,
+  setScreenShareTracking,
   startActivityTracking,
   stopActivityTracking,
 } from "@/lib/editor/activityTracker";
+import { TrackingHealthNotice } from "./TrackingHealthNotice";
 
 type QueuedFrame = {
   sessionId: number;
@@ -23,31 +25,32 @@ type QueuedFrame = {
 };
 
 const CAPTURE_INTERVAL_MS = 30_000;
-const INACTIVE_AFTER_MS = 5 * 60_000;
+const INACTIVE_AFTER_MS = 120_000;
 const DIFF_THRESHOLD = 1_800;
 const MAX_QUEUE = 60;
-const MAX_UPLOAD_BATCH = 20;
+const MAX_UPLOAD_BATCH = 8;
 const DIFF_WIDTH = 160;
 const EVIDENCE_WIDTH = 960;
 const JPEG_QUALITY = 0.72;
 const ANCHOR_FRAME_MS = 5 * 60_000;
+const EVIDENCE_UPLOAD_TIMEOUT_MS = 20_000;
 
 function shouldCaptureOutsideSite() {
   return document.hidden || !document.hasFocus();
 }
 
 function fmt(sec: number): string {
-  const minutes = Math.floor(sec / 60);
-  const seconds = sec % 60;
-  return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+  const total = Math.max(0, Math.floor(sec));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return hours > 0
+    ? `${hours}h ${minutes}m ${seconds}s`
+    : `${minutes}m ${seconds}s`;
 }
 
 function queueKey(projectId: number) {
   return `breadboard:screen-evidence:${projectId}`;
-}
-
-function compactFrame(frame: QueuedFrame): QueuedFrame {
-  return { ...frame, imageData: "" };
 }
 
 function loadQueue(projectId: number): QueuedFrame[] {
@@ -62,36 +65,45 @@ function loadQueue(projectId: number): QueuedFrame[] {
 }
 
 function saveQueue(projectId: number, frames: QueuedFrame[]) {
-  let next = frames.slice(-MAX_QUEUE);
-  while (next.length > 0) {
-    try {
-      localStorage.setItem(queueKey(projectId), JSON.stringify(next));
-      return;
-    } catch {
-      const imageIndex = next.findIndex((frame) => frame.imageData);
-      if (imageIndex >= 0) {
-        next = next.map((frame, index) =>
-          index === imageIndex ? compactFrame(frame) : frame,
-        );
-      } else {
-        next = next.slice(1);
-      }
-    }
+  // Evidence must never be silently compacted or dropped just because local
+  // storage is full. Callers surface a persistent warning and try a direct
+  // upload instead.
+  if (frames.length > MAX_QUEUE) return false;
+  try {
+    if (frames.length === 0) localStorage.removeItem(queueKey(projectId));
+    else localStorage.setItem(queueKey(projectId), JSON.stringify(frames));
+    return true;
+  } catch {
+    return false;
   }
-  localStorage.removeItem(queueKey(projectId));
 }
 
 async function uploadFrames(projectId: number, frames: QueuedFrame[]) {
-  const res = await fetch(
-    `/api/editor/projects/${projectId}/activity/screen-frame`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ frames }),
-    },
+  const controller = new AbortController();
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    EVIDENCE_UPLOAD_TIMEOUT_MS,
   );
-  if (!res.ok) throw new Error("Screen evidence upload failed");
+  try {
+    const res = await fetch(
+      `/api/editor/projects/${projectId}/activity/screen-frame`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ frames }),
+        signal: controller.signal,
+      },
+    );
+    const result = (await res.json().catch(() => null)) as {
+      storedCount?: number;
+    } | null;
+    if (!res.ok || result?.storedCount !== frames.length) {
+      throw new Error("Screen evidence upload failed");
+    }
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 async function flushQueue(projectId: number) {
@@ -99,7 +111,17 @@ async function flushQueue(projectId: number) {
   if (queue.length === 0) return;
   const batch = queue.slice(0, MAX_UPLOAD_BATCH);
   await uploadFrames(projectId, batch);
-  saveQueue(projectId, queue.slice(batch.length));
+  const uploaded = new Set(
+    batch.map((frame) => `${frame.sessionId}:${frame.capturedAt}`),
+  );
+  // Reload after the request. A capture may have been appended while this
+  // batch was uploading, and removing by identity preserves that new frame.
+  const remaining = loadQueue(projectId).filter(
+    (frame) => !uploaded.has(`${frame.sessionId}:${frame.capturedAt}`),
+  );
+  if (!saveQueue(projectId, remaining)) {
+    throw new Error("Screen evidence queue could not be updated");
+  }
 }
 
 function stopStream(stream: MediaStream | null) {
@@ -137,6 +159,7 @@ export function ScreenShareTracker({
   const sharing = screenCount > 0;
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState("");
+  const [evidenceError, setEvidenceError] = useState("");
   const [inactiveMs, setInactiveMs] = useState(0);
   const [outsideSite, setOutsideSite] = useState(false);
   const [queuedCount, setQueuedCount] = useState(0);
@@ -148,13 +171,14 @@ export function ScreenShareTracker({
   const [setupDismissed, setSetupDismissed] = useState(!promptOnMount);
   const [dismissCountdown, setDismissCountdown] = useState(5);
   const [warningOpen, setWarningOpen] = useState(false);
-  // Smoothly-ticking display of tracked seconds. The server only reports active
-  // time on each heartbeat (~20s), so we tick this up locally between beats and
-  // snap it to the authoritative value whenever a heartbeat arrives.
+  // The visible number is the server-confirmed project total. It deliberately
+  // does not tick optimistically: a stalled request must never make the UI
+  // claim time that was not actually saved.
   const [displaySeconds, setDisplaySeconds] = useState(0);
   const [trackingStatus, setTrackingStatus] = useState<
     "active" | "idle" | "blocked" | "error"
   >("idle");
+  const [trackingReason, setTrackingReason] = useState("");
   const screensRef = useRef<SharedScreen[]>([]);
   const nextScreenIdRef = useRef(1);
   const lastChangeRef = useRef(Date.now());
@@ -164,14 +188,10 @@ export function ScreenShareTracker({
   // Chrome/Edge). Used only to nudge multi-monitor users in the setup modal.
   const [multiDisplay, setMultiDisplay] = useState(false);
   const flushInFlightRef = useRef(false);
+  const flushRequestedRef = useRef(false);
   const suppressEndedRef = useRef(false);
   // Whether we've kicked off activity tracking yet (managesActivityTracking).
   const trackingStartedRef = useRef(false);
-  // The heartbeat reports the *current* session's active seconds, which resets
-  // to 0 whenever the server rolls to a new session (e.g. after an inactivity
-  // gap). Bank finished sessions so the displayed total never jumps backwards.
-  const bankedSecondsRef = useRef(0);
-  const sessionSecondsRef = useRef(0);
 
   const playWarningSound = useCallback(() => {
     try {
@@ -194,19 +214,49 @@ export function ScreenShareTracker({
     } catch {}
   }, []);
 
+  const flushEvidenceQueue = useCallback(async () => {
+    if (flushInFlightRef.current) {
+      flushRequestedRef.current = true;
+      return;
+    }
+    flushInFlightRef.current = true;
+    setQueuedCount(loadQueue(projectId).length);
+    try {
+      do {
+        flushRequestedRef.current = false;
+        await flushQueue(projectId);
+      } while (flushRequestedRef.current || loadQueue(projectId).length > 0);
+      setEvidenceError("");
+    } catch {
+      setEvidenceError(
+        "Screen evidence is waiting to upload. Check your connection before relying on outside-site time.",
+      );
+    } finally {
+      flushInFlightRef.current = false;
+      setQueuedCount(loadQueue(projectId).length);
+    }
+  }, [projectId]);
+
   const enqueue = useCallback(
     async (frame: QueuedFrame) => {
       const queue = loadQueue(projectId);
       queue.push(frame);
-      saveQueue(projectId, queue);
+      if (!saveQueue(projectId, queue)) {
+        try {
+          await uploadFrames(projectId, [frame]);
+          await flushEvidenceQueue();
+        } catch {
+          setEvidenceError(
+            "Screen evidence could not be queued or uploaded. Check your connection and keep this tab open before relying on outside-site time.",
+          );
+        }
+        setQueuedCount(loadQueue(projectId).length);
+        return;
+      }
       setQueuedCount(loadQueue(projectId).length);
-      if (flushInFlightRef.current) return;
-      flushInFlightRef.current = true;
-      await flushQueue(projectId).catch(() => {});
-      flushInFlightRef.current = false;
-      setQueuedCount(loadQueue(projectId).length);
+      await flushEvidenceQueue();
     },
-    [projectId],
+    [flushEvidenceQueue, projectId],
   );
 
   const captureFrame = useCallback(async () => {
@@ -264,10 +314,7 @@ export function ScreenShareTracker({
       }
 
       const pixelChanged = anyFirstFrame || anyChanged;
-      if (pixelChanged && !paused) {
-        lastChangeRef.current = Date.now();
-        await recordExternalActivity();
-      }
+      if (pixelChanged && !paused) lastChangeRef.current = Date.now();
 
       const now = Date.now();
       setInactiveMs(now - lastChangeRef.current);
@@ -326,6 +373,10 @@ export function ScreenShareTracker({
         screenHeight: compositeHeight || screens[0].video.videoHeight || 0,
         paused,
       });
+      // Evidence reaches the server before this heartbeat asks for the
+      // screen-share grace window. Otherwise a throttled background tab can
+      // lose the session just before the proof arrives.
+      if (pixelChanged && !paused) await recordExternalActivity();
     } finally {
       captureInFlightRef.current = false;
     }
@@ -354,14 +405,20 @@ export function ScreenShareTracker({
       };
       screensRef.current = [...screensRef.current, entry];
       setScreenCount(screensRef.current.length);
+      setScreenShareTracking(
+        managesActivityTracking || shouldCaptureOutsideSite(),
+      );
       lastChangeRef.current = Date.now();
       setSetupOpen(false);
       setSetupDismissed(false);
       // Begin accruing time only now that the user has set up tracking.
       if (managesActivityTracking && !trackingStartedRef.current) {
         trackingStartedRef.current = true;
-        void startActivityTracking(projectId, () => ({}), {
+        await startActivityTracking(projectId, () => ({}), {
           ignoreInactivity: true,
+          screenShare: true,
+          captureSnapshots: false,
+          externalTracking: true,
         });
       }
       stream.getVideoTracks()[0]?.addEventListener("ended", () => {
@@ -389,6 +446,7 @@ export function ScreenShareTracker({
           stopActivityTracking();
           trackingStartedRef.current = false;
         }
+        if (remaining === 0) setScreenShareTracking(false);
       });
       await captureFrame();
     } catch {
@@ -414,6 +472,7 @@ export function ScreenShareTracker({
       screensRef.current = screensRef.current.filter((item) => item.id !== id);
       const remaining = screensRef.current.length;
       setScreenCount(remaining);
+      if (remaining === 0) setScreenShareTracking(false);
       if (
         remaining === 0 &&
         managesActivityTracking &&
@@ -432,45 +491,20 @@ export function ScreenShareTracker({
 
   useEffect(() => {
     const unsubscribe = setActivityStatusListener((status) => {
+      if (status.projectId !== projectId) return;
       setTrackingStatus(status.status);
-      // A drop below the last count means the server started a fresh session;
-      // bank the finished one so the running total keeps climbing.
-      if (status.activeSeconds < sessionSecondsRef.current) {
-        bankedSecondsRef.current += sessionSecondsRef.current;
-      }
-      sessionSecondsRef.current = status.activeSeconds;
-      const total = bankedSecondsRef.current + status.activeSeconds;
-      // Never move backwards: the per-second ticker below carries the count
-      // forward between heartbeats, and this only reconciles it upward.
-      setDisplaySeconds((current) => Math.max(current, total));
+      setTrackingReason(status.reason ?? "");
+      setDisplaySeconds((current) =>
+        Math.max(current, status.totalTrackedSeconds ?? status.activeSeconds),
+      );
     });
     return () => {
       unsubscribe();
     };
-  }, []);
-
-  // Advance the counter one second at a time while actively tracking so the
-  // time climbs smoothly instead of jumping each heartbeat.
-  useEffect(() => {
-    if (trackingStatus !== "active" || paused) return;
-    const id = window.setInterval(() => {
-      setDisplaySeconds((value) => value + 1);
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [trackingStatus, paused]);
+  }, [projectId]);
 
   useEffect(() => {
-    const retry = () => {
-      if (flushInFlightRef.current) return;
-      flushInFlightRef.current = true;
-      setQueuedCount(loadQueue(projectId).length);
-      void flushQueue(projectId)
-        .catch(() => {})
-        .finally(() => {
-          flushInFlightRef.current = false;
-          setQueuedCount(loadQueue(projectId).length);
-        });
-    };
+    const retry = () => void flushEvidenceQueue();
     retry();
     const retryId = setInterval(retry, 60_000);
     const onOnline = retry;
@@ -490,10 +524,6 @@ export function ScreenShareTracker({
         body,
         keepalive: true,
       }).catch(() => {});
-      navigator.sendBeacon?.(
-        `/api/editor/projects/${projectId}/activity/screen-frame`,
-        new Blob([body], { type: "application/json" }),
-      );
     };
     window.addEventListener("online", onOnline);
     window.addEventListener("beforeunload", onBeforeUnload);
@@ -504,7 +534,7 @@ export function ScreenShareTracker({
       window.removeEventListener("pagehide", onPageHide);
       clearInterval(retryId);
     };
-  }, [projectId]);
+  }, [flushEvidenceQueue, projectId]);
 
   useEffect(() => {
     if (!sharing) return;
@@ -516,7 +546,13 @@ export function ScreenShareTracker({
     const updateOutsideSite = () => {
       const nextOutsideSite = shouldCaptureOutsideSite();
       setOutsideSite(nextOutsideSite);
+      setScreenShareTracking(
+        sharing && (managesActivityTracking || nextOutsideSite),
+      );
       if (nextOutsideSite) void captureFrame();
+      else if (sharing && !managesActivityTracking) {
+        void recordExternalActivity();
+      }
     };
     updateOutsideSite();
     window.addEventListener("blur", updateOutsideSite);
@@ -527,7 +563,7 @@ export function ScreenShareTracker({
       window.removeEventListener("focus", updateOutsideSite);
       document.removeEventListener("visibilitychange", updateOutsideSite);
     };
-  }, [captureFrame]);
+  }, [captureFrame, managesActivityTracking, sharing]);
 
   useEffect(
     () => () => {
@@ -535,6 +571,7 @@ export function ScreenShareTracker({
       suppressEndedRef.current = true;
       for (const entry of screensRef.current) stopStream(entry.stream);
       screensRef.current = [];
+      setScreenShareTracking(false);
       setActivityTrackingPaused(false);
       if (managesActivityTracking) stopActivityTracking();
     },
@@ -566,15 +603,17 @@ export function ScreenShareTracker({
   }, [sharing, showSetupModal]);
 
   useEffect(() => {
-    if (!error) return;
+    if (!error && !evidenceError) return;
     setWarningOpen(true);
-  }, [error]);
+  }, [error, evidenceError]);
   const pillTone = paused
     ? "bg-purple-700 text-white hover:bg-purple-600"
-    : error || trackingStatus === "error"
+    : error || evidenceError || trackingStatus === "error"
       ? "bg-red-900 text-red-100 hover:bg-red-800"
       : trackingStatus === "blocked"
-        ? "bg-yellow-900 text-yellow-100 hover:bg-yellow-800"
+        ? trackingReason.toLowerCase().includes("journal")
+          ? "bg-yellow-900 text-yellow-100 hover:bg-yellow-800"
+          : "bg-red-900 text-red-100 hover:bg-red-800"
         : sharing
           ? outsideSite
             ? "bg-green-700 text-white hover:bg-green-600"
@@ -582,20 +621,28 @@ export function ScreenShareTracker({
           : "bg-[#BD0F32] text-white hover:bg-[#d71943]";
   const pillLabel = paused
     ? "Paused · Resume"
-    : error
+    : error || evidenceError
       ? "Tracking issue"
       : trackingStatus === "blocked"
-        ? "Journal needed"
+        ? trackingReason.toLowerCase().includes("journal")
+          ? "Journal needed"
+          : "Evidence needed"
         : sharing
           ? "Pause"
           : "Set up tracking";
 
   return (
     <>
+      <TrackingHealthNotice projectId={projectId} />
       <button
         type="button"
         onClick={() => {
-          if (!sharing || error) {
+          if (
+            !sharing ||
+            error ||
+            evidenceError ||
+            trackingStatus === "blocked"
+          ) {
             setSetupOpen(true);
             return;
           }
@@ -606,19 +653,25 @@ export function ScreenShareTracker({
           paused
             ? "Paused. Click to resume time tracking."
             : sharing
-              ? "Tracking. Click to pause."
+              ? trackingStatus === "blocked"
+                ? trackingReason ||
+                  "Screen evidence is needed before time can save."
+                : "Server-confirmed screen-share time. Click to pause."
               : "Click to set up whole-screen tracking."
         }
       >
         {paused ? (
           <Play className="size-3" />
-        ) : sharing && !error && trackingStatus !== "blocked" ? (
+        ) : sharing &&
+          !error &&
+          !evidenceError &&
+          trackingStatus !== "blocked" ? (
           <Pause className="size-3" />
         ) : (
           <MonitorUp className="size-3" />
         )}
         <span>{pillLabel}</span>
-        <span className="text-white/75">{fmt(displaySeconds)}</span>
+        <span className="text-white/75">{fmt(displaySeconds)} total</span>
         {queuedCount > 0 ? <span>· {queuedCount} queued</span> : null}
       </button>
 
@@ -704,7 +757,9 @@ export function ScreenShareTracker({
         </div>
       ) : null}
 
-      {warningOpen && (error || !sharing) && !paused ? (
+      {warningOpen &&
+      (error || evidenceError || trackingStatus === "blocked" || !sharing) &&
+      !paused ? (
         <div className="fixed top-14 right-4 z-[60] w-[360px] max-w-[calc(100vw-2rem)] rounded-2xl border border-[#333] bg-[#181818] p-4 text-[#ddd] shadow-lg motion-safe:animate-[slideInFromRight_220ms_ease-out]">
           <div className="flex items-start gap-3">
             <MonitorUp className="mt-0.5 size-5 shrink-0 text-[#BD0F32]" />
@@ -712,6 +767,8 @@ export function ScreenShareTracker({
               <p className="text-sm font-black">Tracking needs attention</p>
               <p className="mt-1 text-xs font-semibold leading-relaxed text-[#aaa]">
                 {error ||
+                  evidenceError ||
+                  trackingReason ||
                   "Screen sharing is off. Outside-site work cannot be verified until you share your whole screen again."}
               </p>
               <button
@@ -769,13 +826,13 @@ export function ScreenShareTracker({
             </div>
             {likelyInactive ? (
               <p className="mt-4 rounded-lg border border-purple-300 bg-purple-50 p-3 text-sm font-black text-purple-950">
-                No screen changes for about {Math.round(inactiveMs / 60_000)}m.
-                This may be marked inactive in review.
+                No screen changes for {fmt(Math.floor(inactiveMs / 1000))}. New
+                outside-site time pauses until a changed screen frame is saved.
               </p>
             ) : null}
-            {error ? (
+            {error || evidenceError || trackingStatus === "blocked" ? (
               <p className="mt-4 rounded-lg border border-[#BD0F32] bg-red-50 p-3 text-sm font-bold text-[#BD0F32]">
-                {error}
+                {error || evidenceError || trackingReason}
               </p>
             ) : null}
             <div className="mt-6 flex flex-col gap-2 sm:flex-row">

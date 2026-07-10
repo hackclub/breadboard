@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BREAD_PER_HOUR,
   estimateBreadFromSeconds,
@@ -10,41 +10,44 @@ import {
 import { setActivityStatusListener } from "@/lib/editor/activityTracker";
 
 export function fmtDuration(totalSeconds: number): string {
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  if (hours > 0) return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
-  return `${minutes}m`;
+  const seconds = Math.max(0, Math.floor(totalSeconds));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m ${remainder}s`;
+  return `${minutes}m ${remainder}s`;
 }
 
-// Live total tracked seconds for the project: the server-provided baseline
-// plus growth observed through heartbeats since mount. Heartbeats report the
-// CURRENT session's seconds (which reset when the server rolls sessions), so
-// only the positive deltas are folded in; adding the raw value would
-// double-count time already inside the baseline.
-export function useLiveTrackedSeconds(initialTotalSeconds: number): number {
-  const [extraSeconds, setExtraSeconds] = useState(0);
-  const lastSessionSeconds = useRef<number | null>(null);
+// The server is the only authority for the live project total. The UI does not
+// fill in time between heartbeats because a stalled request must not look saved.
+export function useLiveTrackedSeconds(
+  initialTotalSeconds: number,
+  projectId?: number,
+): number {
+  const [totalSeconds, setTotalSeconds] = useState(initialTotalSeconds);
+
+  useEffect(() => {
+    setTotalSeconds(initialTotalSeconds);
+  }, [initialTotalSeconds]);
 
   useEffect(
     () =>
       setActivityStatusListener((status) => {
-        const previous = lastSessionSeconds.current;
-        if (previous !== null && status.activeSeconds > previous) {
-          setExtraSeconds((total) => total + (status.activeSeconds - previous));
+        if (
+          typeof status.totalTrackedSeconds === "number" &&
+          (!projectId || status.projectId === projectId)
+        ) {
+          setTotalSeconds((current) =>
+            Math.max(current, status.totalTrackedSeconds ?? 0),
+          );
         }
-        lastSessionSeconds.current = status.activeSeconds;
       }),
-    [],
+    [projectId],
   );
 
-  return initialTotalSeconds + extraSeconds;
+  return totalSeconds;
 }
 
-// Shows the bread this project is on track to earn, live. The server passes
-// the total tracked so far; heartbeats only report the current session's
-// seconds, so we fold in the growth since mount instead of the raw value
-// (which would double-count time already included in the server total).
-//
 // The card that walks through the calculation with the user's own numbers.
 // Shared by both the tall badge and the minimized pill; anchored to the
 // bottom-right of whichever trigger is hovered.
@@ -100,11 +103,13 @@ function BreadEstimateCard({
 // total-time readout. Opens the calculation card on hover.
 export function BreadEstimatePill({
   initialTotalSeconds,
+  projectId,
 }: {
   initialTotalSeconds: number;
+  projectId?: number;
 }) {
   const [hovered, setHovered] = useState(false);
-  const totalSeconds = useLiveTrackedSeconds(initialTotalSeconds);
+  const totalSeconds = useLiveTrackedSeconds(initialTotalSeconds, projectId);
   const estimate = estimateBreadFromSeconds(totalSeconds);
 
   return (

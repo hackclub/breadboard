@@ -87,11 +87,45 @@ type Timelapse = {
   recordedAt: string | null;
 };
 
+type TrackingSummary = {
+  trackedSeconds: number;
+  recordingSeconds: number;
+  measuredSeconds: number;
+  journaledSeconds: number;
+  sessionCount: number;
+  lastTrackedAt: string | null;
+  lastScreenEvidenceAt: string | null;
+};
+
 function formatTimelapseDuration(seconds: number) {
   const total = Math.max(0, Math.floor(seconds));
   const minutes = Math.floor(total / 60);
-  if (minutes >= 60) return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-  return `${minutes}m ${(total % 60).toString().padStart(2, "0")}s`;
+  const remainder = total % 60;
+  if (minutes >= 60) {
+    return `${Math.floor(minutes / 60)}h ${minutes % 60}m ${remainder}s`;
+  }
+  return `${minutes}m ${remainder.toString().padStart(2, "0")}s`;
+}
+
+function formatExactDuration(seconds: number) {
+  const total = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remainder = total % 60;
+  if (hours > 0) return `${hours}h ${minutes}m ${remainder}s`;
+  return `${minutes}m ${remainder}s`;
+}
+
+function formatEvidenceTime(value: string | null) {
+  if (!value) return "None saved";
+  return new Date(value).toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 const verdictOptions = [
@@ -281,11 +315,13 @@ export function ReviewWorkspace({
   project: initial,
   journals,
   timelapses,
+  tracking,
   breadPerHour,
 }: {
   project: ReviewProject;
   journals: Journal[];
   timelapses: Timelapse[];
+  tracking: TrackingSummary;
   breadPerHour: number;
 }) {
   const [verdict, setVerdict] = useState<"approve" | "changes" | "reject">(
@@ -411,6 +447,13 @@ export function ReviewWorkspace({
                 label="Screenshot"
                 icon={HiPhoto}
               />
+              <EvidenceButton
+                href={`/platform/admin/projects/${initial.id}/timelapse?until=${encodeURIComponent(
+                  initial.shippedAt?.toISOString() ?? "",
+                )}`}
+                label="Timelapse"
+                icon={HiFilm}
+              />
               {!isManual ? (
                 <>
                   <EvidenceButton
@@ -426,13 +469,6 @@ export function ReviewWorkspace({
                     href={`/platform/admin/projects/${initial.id}/versions`}
                     label="Versions"
                     icon={HiClock}
-                  />
-                  <EvidenceButton
-                    href={`/platform/admin/projects/${initial.id}/timelapse?until=${encodeURIComponent(
-                      initial.shippedAt?.toISOString() ?? "",
-                    )}`}
-                    label="Timelapse"
-                    icon={HiFilm}
                   />
                 </>
               ) : null}
@@ -452,12 +488,14 @@ export function ReviewWorkspace({
               Submission details
             </h3>
             <p className="mt-1 text-xs font-semibold text-black/40">
-              Submitted via external tool — all info below is user-provided.
+              Submitted via an external tool. Repository and project details are
+              user-provided; tracked time and screen evidence are shown in the
+              time evidence card.
             </p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <DetailRow label="Git repository" value={code} link />
               <DetailRow
-                label="Hours declared"
+                label="Hours measured"
                 value={`${initial.hoursSpent}h`}
               />
               <DetailRow label="Email" value={initial.email} />
@@ -653,7 +691,7 @@ export function ReviewWorkspace({
               <span>
                 Hours
                 {initial.submissionSource === "manual"
-                  ? " declared"
+                  ? " measured"
                   : " tracked"}
               </span>
               <span className="font-black text-white">
@@ -688,6 +726,63 @@ export function ReviewWorkspace({
           </div>
         </section>
 
+        <section className="rounded-[16px] border border-black bg-white p-4 shadow-[4px_4px_0_#000]">
+          <div className="flex items-center gap-2 text-sm font-black text-black">
+            <HiClock className="size-5 text-[#BD0F32]" />
+            Time evidence
+          </div>
+          <p className="mt-1 text-xs font-semibold text-black/50">
+            Server-calculated activity and separately attached recordings.
+          </p>
+          <p className="mt-1 text-xs font-semibold text-black/40">
+            These are the sources used for the submitted measured-time total.
+          </p>
+          <div className="mt-3 space-y-2 text-sm text-black/70">
+            <div className="flex justify-between gap-3">
+              <span>Active in Breadboard</span>
+              <span className="font-black text-black">
+                {formatExactDuration(tracking.trackedSeconds)}
+              </span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span>Recorded video time</span>
+              <span className="font-black text-black">
+                {formatExactDuration(tracking.recordingSeconds)}
+              </span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span>Measured total</span>
+              <span className="font-black text-[#BD0F32]">
+                {formatExactDuration(tracking.measuredSeconds)}
+              </span>
+            </div>
+            <div className="flex justify-between gap-3 border-t border-black/10 pt-2 text-xs">
+              <span>Activity sessions</span>
+              <span className="font-black text-black">
+                {tracking.sessionCount}
+              </span>
+            </div>
+            <div className="flex justify-between gap-3 text-xs">
+              <span>Journals cover</span>
+              <span className="font-black text-black">
+                {formatExactDuration(tracking.journaledSeconds)}
+              </span>
+            </div>
+            <div className="border-t border-black/10 pt-2 text-xs">
+              <p className="font-black text-black/45">Last heartbeat</p>
+              <p className="mt-0.5 font-semibold text-black">
+                {formatEvidenceTime(tracking.lastTrackedAt)}
+              </p>
+            </div>
+            <div className="text-xs">
+              <p className="font-black text-black/45">Latest screen proof</p>
+              <p className="mt-0.5 font-semibold text-black">
+                {formatEvidenceTime(tracking.lastScreenEvidenceAt)}
+              </p>
+            </div>
+          </div>
+        </section>
+
         {initial.submissionSource === "manual" ? (
           <section className="rounded-[16px] border border-amber-200 bg-amber-50 p-4 shadow-[2px_2px_0_#000]/10">
             <div className="flex items-start gap-2">
@@ -698,9 +793,8 @@ export function ReviewWorkspace({
                 </h3>
                 <p className="mt-1.5 text-xs font-semibold text-amber-700/80">
                   This project was submitted with an external tool (KiCad,
-                  Eagle, etc.). Hours are user-declared and not tracked via the
-                  editor. Verify the git repo, schematic, and README manually
-                  before approving.
+                  Eagle, etc.). Verify the git repo, schematic, README, and
+                  server-tracked screen evidence before approving.
                 </p>
               </div>
             </div>
@@ -717,7 +811,7 @@ export function ReviewWorkspace({
               >
                 <p className="font-black text-black/45">
                   {new Date(journal.createdAt).toLocaleString()} ·{" "}
-                  {Math.round(journal.activeSecondsCovered / 60)}m
+                  {formatExactDuration(journal.activeSecondsCovered)}
                 </p>
                 <Markdown className="mt-1">{journal.content}</Markdown>
               </div>
@@ -808,7 +902,7 @@ export function ReviewWorkspace({
             </p>
             <p className="text-[10px] font-bold text-black/35">
               {isManual
-                ? "User-declared hours. This value will be the default for demo review."
+                ? "Measured hours. This value will be the default for demo review."
                 : "Server-tracked hours. This value will be the default for demo review."}
             </p>
           </div>

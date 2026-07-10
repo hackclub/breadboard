@@ -6,6 +6,7 @@ import { getSession, isAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import {
   editorActivitySessions,
+  editorScreenEvidenceFrames,
   projects,
   projectTimelapses,
   user,
@@ -91,6 +92,18 @@ export default async function AdminInProgressPage() {
     .groupBy(projectTimelapses.projectId)
     .as("media");
 
+  const screenEvidence = db
+    .select({
+      projectId: editorScreenEvidenceFrames.projectId,
+      lastScreenEvidenceAt:
+        sql<Date | null>`max(${editorScreenEvidenceFrames.receivedAt}) filter (where ${editorScreenEvidenceFrames.imageKey} <> '' and ${editorScreenEvidenceFrames.pixelChanged} = true)`.as(
+          "last_screen_evidence_at",
+        ),
+    })
+    .from(editorScreenEvidenceFrames)
+    .groupBy(editorScreenEvidenceFrames.projectId)
+    .as("screen_evidence");
+
   const rows = await db
     .select({
       id: projects.id,
@@ -102,6 +115,7 @@ export default async function AdminInProgressPage() {
       lastRecordingAt: activity.lastRecordingAt,
       lastYoutubeAt: media.lastYoutubeAt,
       lastLapseAt: media.lastLapseAt,
+      lastScreenEvidenceAt: screenEvidence.lastScreenEvidenceAt,
       createdAt: projects.createdAt,
       ownerName: user.name,
       ownerEmail: user.email,
@@ -111,6 +125,7 @@ export default async function AdminInProgressPage() {
     .innerJoin(user, eq(projects.userId, user.id))
     .leftJoin(activity, eq(activity.projectId, projects.id))
     .leftJoin(media, eq(media.projectId, projects.id))
+    .leftJoin(screenEvidence, eq(screenEvidence.projectId, projects.id))
     .where(
       and(
         eq(projects.archived, false),
@@ -133,6 +148,7 @@ export default async function AdminInProgressPage() {
     const lastRecording = toIso(row.lastRecordingAt);
     const lastYoutube = toIso(row.lastYoutubeAt);
     const lastLapse = toIso(row.lastLapseAt);
+    const lastScreenEvidence = toIso(row.lastScreenEvidenceAt);
     return {
       id: row.id,
       title: row.title,
@@ -143,6 +159,7 @@ export default async function AdminInProgressPage() {
       lastRecordingAt: lastRecording,
       lastYoutubeAt: lastYoutube,
       lastLapseAt: lastLapse,
+      lastScreenEvidenceAt: lastScreenEvidence,
       lastActivityAt: latest(lastRecording, lastYoutube, lastLapse),
       createdAt: row.createdAt.toISOString(),
       ownerName: row.ownerName,

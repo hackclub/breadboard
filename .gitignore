@@ -77,5 +77,6 @@ yarn-error.log*
 next-env.d.ts
 
 # Personal Claude Code overrides
-.claude/settings.local.json
+.claude/
+.agents/
 **/SKILL.md

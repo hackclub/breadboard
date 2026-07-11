@@ -356,7 +356,17 @@ export function ReviewWorkspace({
   // kit, exactly like an editor design. Only build ships earn gold.
   const isBuild = isBuildShip(initial);
   const screenshot = safeUrl(initial.screenshotUrl);
-  const playable = safeUrl(initial.playableUrl);
+  // Live playable: the interactive sim rendered on the server from editorData,
+  // available from the materials stage on. Derived from the project id rather
+  // than the submission's playableUrl (only written on demo submission).
+  // External-tool submissions have no editorData (would 404 on /share), so use
+  // their provided URL.
+  const playable = isManual
+    ? safeUrl(initial.playableUrl)
+    : `/share/${initial.id}`;
+  // Durable static share page (GitHub Pages), written on demo submission. Shown
+  // alongside the live link for on-platform projects; null (greyed) until set.
+  const staticPlayable = isManual ? null : safeUrl(initial.playableUrl);
   const demoVideo = safeUrl(initial.demoVideoUrl);
   const code = safeUrl(initial.codeUrl);
   const slackProfile = initial.userSlackId
@@ -449,6 +459,11 @@ export function ReviewWorkspace({
               <EvidenceButton
                 href={playable}
                 label="Playable demo"
+                icon={HiPlay}
+              />
+              <EvidenceButton
+                href={staticPlayable}
+                label="Static demo"
                 icon={HiPlay}
               />
               <EvidenceButton

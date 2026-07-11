@@ -17,8 +17,8 @@ const topLevelItems: DocLink[] = [
 ];
 
 const guideItems: DocLink[] = [
-  { label: "Breadboard Basics", href: "/guides", sub: true },
   { label: "LED Workshop", href: "/workshop", sub: true },
+  { label: "Breadboard Basics", href: "/guides", sub: true },
   { label: "Firmware Guide", href: "/guides/firmware", sub: true },
 ];
 

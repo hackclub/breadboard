@@ -8,7 +8,7 @@ import { getSession } from "@/lib/auth/guards";
 const navLinks = [
   { label: "Get Started", href: "/get-started" },
   { label: "Gallery", href: "/gallery" },
-  { label: "Guides", href: "/guides" },
+  { label: "Guides", href: "/workshop" },
   { label: "FAQ", href: "/faq" },
   { label: "Platform", href: "/platform" },
 ];

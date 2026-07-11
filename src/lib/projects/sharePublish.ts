@@ -177,6 +177,59 @@ export function staticPlayUrl(opts: {
   return `https://${c.owner.toLowerCase()}.github.io/${c.repo}/p/${opts.projectId}/`;
 }
 
+// Board kinds whose firmware runs entirely in-browser (avr8js / rp2040js), so a
+// static page can execute them offline. ESP32/STM32/Pi run via the QEMU backend
+// and can't, so they're left render-only.
+const OFFLINE_RUNNABLE_KIND =
+  /^(arduino-(uno|nano|mega)|attiny85|raspberry-pi-pico|pi-pico-w)/;
+
+/**
+ * Make a snapshot runnable offline.
+ *
+ * captureState stores the last compiled firmware in `simulator.compiledHex` but
+ * not per-board, while the viewer's run path only skips compilation when the
+ * active board carries `compiledProgram`. Without this, a static page's Run
+ * button tries to compile (which needs the backend it doesn't have). So attach
+ * the compiled hex to the active in-browser-runnable board and mark the code as
+ * already compiled. No hex (project never compiled) → left render-only.
+ *
+ * Exported so the backfill script and tests share the exact transform.
+ */
+export function embedFirmwareForOfflineRun(snapshot: unknown): unknown {
+  const snap = snapshot as {
+    editor?: { codeChangedSinceLastCompile?: boolean };
+    simulator?: {
+      compiledHex?: string | null;
+      activeBoardId?: string | null;
+      boards?: Array<{
+        id?: string;
+        boardKind?: string;
+        compiledProgram?: string | null;
+      }>;
+    };
+  } | null;
+  const sim = snap?.simulator;
+  const hex = sim?.compiledHex;
+  if (!snap || !sim || !hex || !Array.isArray(sim.boards)) return snapshot;
+
+  let embedded = false;
+  sim.boards = sim.boards.map((board) => {
+    const isActive = board?.id === sim.activeBoardId;
+    if (
+      isActive &&
+      typeof board?.boardKind === "string" &&
+      OFFLINE_RUNNABLE_KIND.test(board.boardKind) &&
+      !board.compiledProgram
+    ) {
+      embedded = true;
+      return { ...board, compiledProgram: hex };
+    }
+    return board;
+  });
+  if (embedded && snap.editor) snap.editor.codeChangedSinceLastCompile = false;
+  return snapshot;
+}
+
 export async function publishStaticShare(opts: {
   projectId: number;
   title: string;
@@ -197,7 +250,9 @@ export async function publishStaticShare(opts: {
       "Project snapshot is not valid JSON; cannot publish share.",
     );
   }
-  const snapshotJson = JSON.stringify(snapshot);
+  // Embed compiled firmware so the static page runs offline instead of trying
+  // to compile against a backend it can't reach.
+  const snapshotJson = JSON.stringify(embedFirmwareForOfflineRun(snapshot));
   const html = renderStub({
     title: opts.title,
     description: opts.description,

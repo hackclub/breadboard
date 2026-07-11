@@ -138,8 +138,13 @@ async function putFile(opts: {
 }
 
 /**
- * Enable GitHub Pages for the repo, serving the default branch root. Idempotent:
- * a 409/422 means Pages is already on, which is left as-is.
+ * Enable GitHub Pages for the repo, serving the default branch root.
+ *
+ * A 409 means Pages is already on (fine). A 422 right after the repo's first
+ * commit means "not ready yet" and is transient, so retry a few times rather
+ * than swallowing it (swallowing left Pages disabled and the page 404'd). Only
+ * give up (and throw, so the caller falls back to the dynamic link) if it keeps
+ * failing.
  */
 async function ensurePagesEnabled(
   token: string,
@@ -147,14 +152,24 @@ async function ensurePagesEnabled(
   repo: string,
   branch: string,
 ) {
-  try {
-    await github(token, `/repos/${owner}/${repo}/pages`, {
-      method: "POST",
-      body: JSON.stringify({ source: { branch, path: "/" } }),
-    });
-  } catch (err) {
-    const status = (err as GitHubError).status;
-    if (status !== 409 && status !== 422) throw err;
+  const maxAttempts = 4;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      await github(token, `/repos/${owner}/${repo}/pages`, {
+        method: "POST",
+        body: JSON.stringify({ source: { branch, path: "/" } }),
+      });
+      return;
+    } catch (err) {
+      const status = (err as GitHubError).status;
+      if (status === 409) return; // already enabled
+      if (status === 422 && attempt < maxAttempts - 1) {
+        // Freshly-created repo not ready yet; back off and retry.
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
   }
 }
 

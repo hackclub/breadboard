@@ -1,7 +1,9 @@
 import { and, eq, notInArray, sql } from "drizzle-orm";
 import { LoginButton } from "@/components/shared/auth-buttons";
+import { AdminDauChart } from "@/components/platform/admin-dau-chart";
 import { AdminInProgressTable } from "@/components/platform/admin-in-progress-table";
 import { AccessCard } from "@/components/ui/access-card";
+import { loadDauMetrics } from "@/lib/admin/dau";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import {
@@ -104,6 +106,8 @@ export default async function AdminInProgressPage() {
     .groupBy(editorScreenEvidenceFrames.projectId)
     .as("screen_evidence");
 
+  const dauMetricsPromise = loadDauMetrics();
+
   const rows = await db
     .select({
       id: projects.id,
@@ -168,8 +172,11 @@ export default async function AdminInProgressPage() {
     };
   });
 
+  const dauMetrics = await dauMetricsPromise;
+
   return (
-    <main className="max-w-7xl">
+    <main className="max-w-7xl space-y-6">
+      <AdminDauChart metrics={dauMetrics} />
       <AdminInProgressTable projects={projectsData} />
     </main>
   );

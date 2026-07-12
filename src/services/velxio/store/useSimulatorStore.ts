@@ -1548,16 +1548,25 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         if (b.languageMode && b.languageMode !== "arduino")
           patch.languageMode = b.languageMode;
         if (b.name && b.name.trim()) patch.name = b.name;
-        // Preserve pre-compiled firmware (e.g. embedded into a published static
-        // share) so it can run offline without recompiling. Normal .vlx exports
-        // don't carry this, so this is a no-op for regular project loads.
-        if (b.compiledProgram) patch.compiledProgram = b.compiledProgram;
         if (Object.keys(patch).length > 0) {
           set((s) => ({
             boards: s.boards.map((bb) =>
               bb.id === b.id ? { ...bb, ...patch } : bb,
             ),
           }));
+        }
+        // Preserve pre-compiled firmware (e.g. embedded into a published static
+        // share) so it runs offline without recompiling. markCompiled() below
+        // tells Run to skip compilation, so we must actually load the hex into
+        // the board's simulator now — compileBoardProgram does sim.loadHex()
+        // exactly like a real compile. Without this the MCU boots with no
+        // program and digitalWrite/I2C/Serial all do nothing (LEDs dark, LCD
+        // blank), even though the SPICE/electrical side still resolves — so
+        // purely analog demos looked fine while anything firmware-driven was
+        // dead. Normal .vlx exports carry no compiledProgram, so this is a
+        // no-op for regular project loads.
+        if (b.compiledProgram) {
+          get().compileBoardProgram(b.id, b.compiledProgram);
         }
       });
 

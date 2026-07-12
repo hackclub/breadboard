@@ -23,7 +23,7 @@ import {
   countKitBoards,
   countKitComponents,
   isAnyKitBoard,
-  isIgnoreStockComponent,
+  isAnyKitComponent,
   isKitBoard,
   kitBoardLimit,
   kitComponentLimit,
@@ -41,20 +41,9 @@ import "@/components/velxio/components/velxio-components/Stm32BluePillElement"; 
 import "@wokwi/elements";
 import "../velxio-elements";
 import "@/components/velxio/components/velxio-components/KitElements";
-// Analog/electrical parts surfaced through ignore stock live in these element
-// files (imported by the editor for the canvas). The picker instantiates each
-// tag to draw its card preview, so it needs the same registrations or the
-// cards would render blank.
-import "@/components/velxio/components/velxio-components/DiodeElements";
-import "@/components/velxio/components/velxio-components/TransistorElements";
-import "@/components/velxio/components/velxio-components/OpAmpElements";
-import "@/components/velxio/components/velxio-components/PowerElements";
-import "@/components/velxio/components/velxio-components/LogicICElements";
-import "@/components/velxio/components/velxio-components/LogicGateElements";
+// Both shipped kits include relays, whose custom elements need registering for
+// their picker thumbnails.
 import "@/components/velxio/components/velxio-components/RelayElements";
-import "@/components/velxio/components/velxio-components/MotorDriverElements";
-import "@/components/velxio/components/velxio-components/Bmp280Element";
-import "@/components/velxio/components/velxio-components/EPaperElement";
 import "@/components/velxio/components/ComponentPickerModal.css";
 
 interface ComponentPickerModalProps {
@@ -187,14 +176,20 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
 
     return components.filter((component) =>
       ignoreStock
-        ? isIgnoreStockComponent(component.id)
+        ? isAnyKitComponent(component.id)
         : kitComponentLimit(component.id, kitType) > 0,
     );
-  }, [searchQuery, selectedCategory, registry, isLoading, kitType, ignoreStock]);
+  }, [
+    searchQuery,
+    selectedCategory,
+    registry,
+    isLoading,
+    kitType,
+    ignoreStock,
+  ]);
 
-  // Get available categories — only those with at least one part visible in
-  // the current mode, so kit mode doesn't sprout empty tabs (analog, logic, …)
-  // for the extra parts that only show under ignore stock.
+  // Get available categories — only those with at least one kit part visible
+  // in the current mode, so the picker never sprouts unrelated empty tabs.
   const categories = useMemo(() => {
     if (isLoading) return [];
     const visible = new Set(
@@ -202,7 +197,7 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
         .getAllComponents()
         .filter((c) =>
           ignoreStock
-            ? isIgnoreStockComponent(c.id)
+            ? isAnyKitComponent(c.id)
             : kitComponentLimit(c.id, kitType) > 0,
         )
         .map((c) => c.category),
@@ -264,7 +259,7 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
             </button>
             {ignoreStock ? (
               <span className="ignore-stock-note">
-                Showing all available parts. Counts are unlimited.
+                Kit A and Kit B parts are unlimited.
               </span>
             ) : null}
           </div>
@@ -327,7 +322,9 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
           <div className="components-grid">
             {ALL_BOARDS.filter(
               (kind) =>
-                (ignoreStock ? isAnyKitBoard(kind) : isKitBoard(kind, kitType)) &&
+                (ignoreStock
+                  ? isAnyKitBoard(kind)
+                  : isKitBoard(kind, kitType)) &&
                 (ignoreStock ||
                   (boardCounts[kind] ?? 0) < kitBoardLimit(kind, kitType)),
             ).map((kind) => (
@@ -358,7 +355,9 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
                 >
                   {ALL_BOARDS.filter(
                     (k) =>
-                      (ignoreStock ? isAnyKitBoard(k) : isKitBoard(k, kitType)) &&
+                      (ignoreStock
+                        ? isAnyKitBoard(k)
+                        : isKitBoard(k, kitType)) &&
                       (ignoreStock ||
                         (boardCounts[k] ?? 0) < kitBoardLimit(k, kitType)) &&
                       (!searchQuery ||
@@ -449,11 +448,14 @@ export const ComponentPickerModal: React.FC<ComponentPickerModalProps> = ({
         )}
         {showIgnoreStockWarning ? (
           <div className="plain-warning-backdrop">
-            <div className="plain-warning-modal" role="alertdialog" aria-modal="true">
+            <div
+              className="plain-warning-modal"
+              role="alertdialog"
+              aria-modal="true"
+            >
               <h3>Ignore stock?</h3>
-              <p>This lets you add as many parts as you want.</p>
-              <p>It also shows extra parts beyond your kit, so you can source your own.</p>
-              <p>Only use this if you checked that you really have the parts.</p>
+              <p>This lets you add unlimited Kit A and Kit B parts.</p>
+              <p>It does not add any parts that are not in either kit.</p>
               <div className="plain-warning-actions">
                 <button
                   type="button"
@@ -595,7 +597,12 @@ const ComponentCard: React.FC<ComponentCardProps> = ({
         thumbnailRef.current.innerHTML = "";
       }
     };
-  }, [component.tagName, component.defaultValues, component.thumbnail, usePresetSvg]);
+  }, [
+    component.tagName,
+    component.defaultValues,
+    component.thumbnail,
+    usePresetSvg,
+  ]);
 
   return (
     <button

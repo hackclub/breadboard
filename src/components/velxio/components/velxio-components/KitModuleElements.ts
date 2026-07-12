@@ -414,17 +414,24 @@ class Lcd1602I2cAdapterElement extends SvgPartElement {
 
   /** Trimpot position 0–100; the screw turns with it (~270° travel). */
   set contrast(value: number) {
-    this._contrast = Math.max(0, Math.min(100, Number(value) || 0));
+    const next = Math.max(0, Math.min(100, Number(value) || 0));
+    const changed = next !== this._contrast;
+    this._contrast = next;
     const screw = this.shadowRoot?.getElementById("trimpot-screw");
     screw?.setAttribute(
       "transform",
       `rotate(${(this._contrast - 50) * 2.7} 15 37)`,
     );
     // Property-dialog edits land here (DynamicComponent sets el.contrast);
-    // tell the running part simulation so the LCD fade follows.
-    this.dispatchEvent(
-      new CustomEvent("contrast-change", { detail: this._contrast }),
-    );
+    // tell the running part simulation so the LCD fade follows. Only fire on a
+    // real change: the running sim also writes el.contrast (to turn the screw),
+    // and re-dispatching an unchanged value ping-pongs with the sim's own
+    // contrast-change listener until the call stack overflows.
+    if (changed) {
+      this.dispatchEvent(
+        new CustomEvent("contrast-change", { detail: this._contrast }),
+      );
+    }
   }
 
   get contrast() {
@@ -433,8 +440,22 @@ class Lcd1602I2cAdapterElement extends SvgPartElement {
 
   constructor() {
     const lcdPinNames = [
-      "VSS", "VDD", "V0", "RS", "RW", "E", "D0", "D1",
-      "D2", "D3", "D4", "D5", "D6", "D7", "A", "K",
+      "VSS",
+      "VDD",
+      "V0",
+      "RS",
+      "RW",
+      "E",
+      "D0",
+      "D1",
+      "D2",
+      "D3",
+      "D4",
+      "D5",
+      "D6",
+      "D7",
+      "A",
+      "K",
     ];
     const pins = [
       { name: "GND", x: 11, y: 3, signals: [power("GND")] },

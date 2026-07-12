@@ -47,6 +47,12 @@ export async function Header({ isSticky = false }: { isSticky?: boolean }) {
             ))}
           </nav>
           <div className="flex items-center gap-3">
+            <Link
+              href="/platform/projects"
+              className="rounded border border-black bg-[#BD0F32] px-4 py-2 text-sm font-semibold text-white no-underline shadow-[3px_3px_0_#000] transition hover:-translate-y-0.5 hover:bg-black"
+            >
+              Create a project
+            </Link>
             {isLaunched ? session ? <LogoutButton /> : <LoginButton /> : null}
           </div>
         </div>

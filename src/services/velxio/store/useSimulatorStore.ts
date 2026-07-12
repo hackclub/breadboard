@@ -1548,6 +1548,10 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         if (b.languageMode && b.languageMode !== "arduino")
           patch.languageMode = b.languageMode;
         if (b.name && b.name.trim()) patch.name = b.name;
+        // Preserve pre-compiled firmware (e.g. embedded into a published static
+        // share) so it can run offline without recompiling. Normal .vlx exports
+        // don't carry this, so this is a no-op for regular project loads.
+        if (b.compiledProgram) patch.compiledProgram = b.compiledProgram;
         if (Object.keys(patch).length > 0) {
           set((s) => ({
             boards: s.boards.map((bb) =>
@@ -1560,6 +1564,13 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       // Replace editor file groups atomically. Skip groups that already exist
       // (createFileGroup is a no-op for existing ids) — overwrite their files.
       useEditorStore.getState().replaceFileGroups(payload.fileGroups);
+
+      // If the payload carried pre-compiled firmware, mark the code as already
+      // compiled so Run executes it instead of triggering a (backend) compile.
+      // This is what lets a published static share run fully offline.
+      if (payload.boards.some((b) => b.compiledProgram)) {
+        useEditorStore.getState().markCompiled();
+      }
 
       // Components and wires
       setComponents(payload.components);

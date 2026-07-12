@@ -2,6 +2,7 @@
 // operational backfill script (scripts/backfill-static-shares.ts) imports this
 // under plain Bun. It is only ever imported server-side regardless.
 import { renderStub } from "@/lib/projects/sharePlayerStub";
+import { BOARD_KIND_FQBN } from "@/lib/velxio/types/board";
 
 /**
  * Publishes a project's fully static, server-independent "play" page so the
@@ -194,54 +195,159 @@ export function staticPlayUrl(opts: {
 
 // Board kinds whose firmware runs entirely in-browser (avr8js / rp2040js), so a
 // static page can execute them offline. ESP32/STM32/Pi run via the QEMU backend
-// and can't, so they're left render-only.
-const OFFLINE_RUNNABLE_KIND =
-  /^(arduino-(uno|nano|mega)|attiny85|raspberry-pi-pico|pi-pico-w)/;
+// and can't, so they stay render-only. Exact match (a prefix test would wrongly
+// catch arduino-nano-esp32).
+const OFFLINE_RUNNABLE = new Set([
+  "arduino-uno",
+  "arduino-nano",
+  "arduino-mega",
+  "attiny85",
+  "raspberry-pi-pico",
+  "pi-pico-w",
+]);
+
+type SnapFile = { name?: string; content?: string };
+type SnapBoard = {
+  id?: string;
+  boardKind?: string;
+  compiledProgram?: string | null;
+  activeFileGroupId?: string;
+};
+type SnapshotShape = {
+  // Portable .vlx shape (what project.editorData actually is)
+  boards?: SnapBoard[];
+  fileGroups?: Record<string, SnapFile[]>;
+  activeBoardId?: string | null;
+  // Full-capture shape
+  editor?: {
+    codeChangedSinceLastCompile?: boolean;
+    fileGroups?: Record<string, SnapFile[]>;
+  };
+  simulator?: {
+    boards?: SnapBoard[];
+    activeBoardId?: string | null;
+    compiledHex?: string | null;
+  };
+};
+
+function editorBackendUrl() {
+  return (
+    process.env.EDITOR_BACKEND_URL?.trim().replace(/\/+$/, "") ||
+    "http://127.0.0.1:8001"
+  );
+}
 
 /**
- * Make a snapshot runnable offline.
- *
- * captureState stores the last compiled firmware in `simulator.compiledHex` but
- * not per-board, while the viewer's run path only skips compilation when the
- * active board carries `compiledProgram`. Without this, a static page's Run
- * button tries to compile (which needs the backend it doesn't have). So attach
- * the compiled hex to the active in-browser-runnable board and mark the code as
- * already compiled. No hex (project never compiled) → left render-only.
- *
- * Exported so the backfill script and tests share the exact transform.
+ * Compile a sketch to firmware via the editor backend, best-effort. Returns the
+ * hex, or null on any failure/timeout (leaving the share render-only). This runs
+ * ONCE at publish time on the server; the result is baked into the static page,
+ * so the page itself stays fully static/offline.
  */
-export function embedFirmwareForOfflineRun(snapshot: unknown): unknown {
-  const snap = snapshot as {
-    editor?: { codeChangedSinceLastCompile?: boolean };
-    simulator?: {
-      compiledHex?: string | null;
-      activeBoardId?: string | null;
-      boards?: Array<{
-        id?: string;
-        boardKind?: string;
-        compiledProgram?: string | null;
-      }>;
-    };
-  } | null;
-  const sim = snap?.simulator;
-  const hex = sim?.compiledHex;
-  if (!snap || !sim || !hex || !Array.isArray(sim.boards)) return snapshot;
-
-  let embedded = false;
-  sim.boards = sim.boards.map((board) => {
-    const isActive = board?.id === sim.activeBoardId;
-    if (
-      isActive &&
-      typeof board?.boardKind === "string" &&
-      OFFLINE_RUNNABLE_KIND.test(board.boardKind) &&
-      !board.compiledProgram
-    ) {
-      embedded = true;
-      return { ...board, compiledProgram: hex };
+async function compileSketch(
+  files: Array<{ name: string; content: string }>,
+  fqbn: string,
+): Promise<string | null> {
+  const backend = editorBackendUrl();
+  let jobId = "";
+  try {
+    const res = await fetch(`${backend}/api/compile/start`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        files,
+        board_fqbn: fqbn,
+        project_id: null,
+        board_options: null,
+        spiffs_files: null,
+      }),
+    });
+    if (!res.ok) return null;
+    jobId = ((await res.json()) as { job_id?: string }).job_id ?? "";
+  } catch {
+    return null;
+  }
+  if (!jobId) return null;
+  // Poll for completion (Arduino cold compiles can take a while).
+  for (let i = 0; i < 90; i++) {
+    await new Promise((r) => setTimeout(r, 1000));
+    try {
+      const res = await fetch(`${backend}/api/compile/status/${jobId}`);
+      if (!res.ok) continue;
+      const s = (await res.json()) as {
+        state?: string;
+        result?: { hex_content?: string | null };
+      };
+      if (s.state === "done") return s.result?.hex_content || null;
+      if (s.state === "error") return null;
+    } catch {
+      // transient — keep polling
     }
-    return board;
-  });
-  if (embedded && snap.editor) snap.editor.codeChangedSinceLastCompile = false;
+  }
+  return null;
+}
+
+/**
+ * Make a snapshot runnable offline by embedding compiled firmware on the active
+ * in-browser-runnable board.
+ *
+ * The viewer's Run only skips compilation when the active board carries
+ * `compiledProgram`; without it a static page would try to compile against a
+ * backend it can't reach. Handles both the portable `.vlx` shape (top-level
+ * `boards`/`fileGroups`, which is what `project.editorData` actually is) and the
+ * full-capture shape. Reuses a pre-captured hex when present, otherwise compiles
+ * the active board's sketch once at publish time. Backend-only boards
+ * (ESP32/STM32/Pi) and compile failures are left render-only.
+ *
+ * Async + exported so the route and backfill share the exact transform.
+ */
+export async function embedFirmwareForOfflineRun(
+  snapshot: unknown,
+): Promise<unknown> {
+  const snap = snapshot as SnapshotShape | null;
+  if (!snap || typeof snap !== "object") return snapshot;
+
+  const isVlx = Array.isArray(snap.boards);
+  const boards = isVlx ? snap.boards : snap.simulator?.boards;
+  const fileGroups = isVlx ? snap.fileGroups : snap.editor?.fileGroups;
+  const activeId = isVlx ? snap.activeBoardId : snap.simulator?.activeBoardId;
+  if (!Array.isArray(boards) || !fileGroups || typeof fileGroups !== "object") {
+    return snapshot;
+  }
+
+  const active = boards.find((b) => b?.id === activeId) ?? boards[0];
+  if (!active || active.compiledProgram) return snapshot;
+  const kind = active.boardKind;
+  if (typeof kind !== "string" || !OFFLINE_RUNNABLE.has(kind)) return snapshot;
+  const fqbn = BOARD_KIND_FQBN[kind as keyof typeof BOARD_KIND_FQBN];
+  if (!fqbn) return snapshot;
+
+  // Reuse a pre-captured hex if the snapshot has one (full-capture shape);
+  // otherwise compile the active board's sketch.
+  let hex: string | null =
+    !isVlx && typeof snap.simulator?.compiledHex === "string"
+      ? snap.simulator.compiledHex
+      : null;
+  if (!hex) {
+    const groupId = active.activeFileGroupId;
+    const group =
+      (groupId && fileGroups[groupId]) || Object.values(fileGroups)[0];
+    const files = Array.isArray(group)
+      ? group
+          .map((f) => ({
+            name: String(f?.name ?? ""),
+            content: String(f?.content ?? ""),
+          }))
+          .filter((f) => f.name)
+      : [];
+    if (!files.length) return snapshot;
+    hex = await compileSketch(files, fqbn);
+  }
+  if (!hex) return snapshot;
+
+  active.compiledProgram = hex;
+  // Full-capture shape reads codeChangedSinceLastCompile from the snapshot; the
+  // .vlx path is handled by loadProjectState calling markCompiled().
+  if (!isVlx && snap.editor) snap.editor.codeChangedSinceLastCompile = false;
   return snapshot;
 }
 
@@ -267,7 +373,9 @@ export async function publishStaticShare(opts: {
   }
   // Embed compiled firmware so the static page runs offline instead of trying
   // to compile against a backend it can't reach.
-  const snapshotJson = JSON.stringify(embedFirmwareForOfflineRun(snapshot));
+  const snapshotJson = JSON.stringify(
+    await embedFirmwareForOfflineRun(snapshot),
+  );
   const html = renderStub({
     title: opts.title,
     description: opts.description,

@@ -4,6 +4,8 @@ toolchain or QEMU involvement — so they run anywhere pytest does.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from app.services.espidf_compiler import ESPIDFCompiler
@@ -240,3 +242,57 @@ def test_find_filesystem_partition_prefers_spiffs(compiler: ESPIDFCompiler) -> N
     assert fs is not None
     assert fs['name'] == 'spiffs'
     assert fs['offset'] == 0x290000
+
+
+# ── Generated Arduino library components ─────────────────────────────────
+
+
+def test_arduino_main_component_demotes_legacy_warnings() -> None:
+    from app.services.espidf_compiler import _TEMPLATE_DIR
+
+    cmake = (_TEMPLATE_DIR / 'main' / 'CMakeLists.txt').read_text(encoding='utf-8')
+    for warning in ('address', 'type-limits', 'parentheses'):
+        assert f'-Wno-error={warning}' in cmake
+
+
+def test_merged_arduino_library_component_demotes_legacy_warnings(
+    compiler: ESPIDFCompiler, tmp_path: Path,
+) -> None:
+    libraries = tmp_path / 'libraries'
+    source = libraries / 'Legacy OLED' / 'src'
+    source.mkdir(parents=True)
+    (source / 'LegacyOLED.h').write_text('#pragma once\n', encoding='utf-8')
+    (source / 'LegacyOLED.cpp').write_text('#include "LegacyOLED.h"\n', encoding='utf-8')
+
+    user_libs = tmp_path / 'user_libs'
+    user_libs.mkdir()
+    components, header_components = compiler._resolve_library_components(
+        ['LegacyOLED.h'], libraries, None, 'arduino-esp32', user_libs,
+    )
+
+    cmake = (user_libs / 'user_libs_all' / 'CMakeLists.txt').read_text(
+        encoding='utf-8',
+    )
+    assert components == ['user_libs_all']
+    assert header_components == {'LegacyOLED.h': 'user_libs_all'}
+    for warning in ('address', 'type-limits', 'parentheses'):
+        assert f'-Wno-error={warning}' in cmake
+
+
+def test_individual_arduino_library_component_demotes_legacy_warnings(
+    compiler: ESPIDFCompiler, tmp_path: Path,
+) -> None:
+    source = tmp_path / 'Legacy OLED' / 'src'
+    source.mkdir(parents=True)
+    (source / 'LegacyOLED.h').write_text('#pragma once\n', encoding='utf-8')
+    (source / 'LegacyOLED.cpp').write_text('#include "LegacyOLED.h"\n', encoding='utf-8')
+
+    component_name = compiler._create_idf_component(
+        'LegacyOLED.h', source, tmp_path / 'user_libs', 'arduino-esp32',
+    )
+
+    cmake = (tmp_path / 'user_libs' / component_name / 'CMakeLists.txt').read_text(
+        encoding='utf-8',
+    )
+    for warning in ('address', 'type-limits', 'parentheses'):
+        assert f'-Wno-error={warning}' in cmake

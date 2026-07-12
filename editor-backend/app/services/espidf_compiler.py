@@ -59,6 +59,24 @@ _USE_PERSISTENT_DIR = (
     not in ('0', 'false', 'False', '')
 )
 
+# ESP-IDF enables several warning groups as errors. That is appropriate for
+# ESP-IDF itself, but many otherwise-supported Arduino libraries use older
+# idioms which Arduino CLI accepts as warnings. Keep the diagnostic visible
+# while preventing it from rejecting a user's dependency.
+_ARDUINO_LIBRARY_WARNING_OPTIONS = (
+    'target_compile_options(${COMPONENT_LIB} PRIVATE\n'
+    '    -Wno-error=address\n'
+    '    -Wno-error=comment\n'
+    '    -Wno-error=parentheses\n'
+    '    -Wno-error=sign-compare\n'
+    '    -Wno-error=type-limits\n'
+    '    -Wno-error=narrowing\n'
+    '    -Wno-error=write-strings\n'
+    '    -Wno-error=missing-field-initializers\n'
+    '    -Wno-error=reorder\n'
+    ')\n'
+)
+
 
 def _idf_version_signature() -> str:
     """Snapshot of the ESP-IDF + arduino-esp32 toolchain version. Used to
@@ -1046,6 +1064,9 @@ class ESPIDFCompiler:
             f'    {include_dirs_line}\n'
             f'    REQUIRES {arduino_comp_name}\n'
             ')\n'
+            '# Keep Arduino-library diagnostics visible without promoting their\n'
+            '# legacy warning patterns to hard build failures under ESP-IDF.\n'
+            + _ARDUINO_LIBRARY_WARNING_OPTIONS
         )
         (comp_dir / 'CMakeLists.txt').write_text(cmake_content, encoding='utf-8')
         logger.info(
@@ -1228,6 +1249,9 @@ class ESPIDFCompiler:
             f'    {include_dirs_line}\n'
             f'    REQUIRES {arduino_comp_name}\n'
             f')\n'
+            '# Keep Arduino-library diagnostics visible without promoting their\n'
+            '# legacy warning patterns to hard build failures under ESP-IDF.\n'
+            + _ARDUINO_LIBRARY_WARNING_OPTIONS
         )
         (comp_dir / 'CMakeLists.txt').write_text(cmake_content, encoding='utf-8')
 

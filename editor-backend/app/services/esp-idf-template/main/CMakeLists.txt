@@ -75,9 +75,11 @@ if(DEFINED ENV{ARDUINO_ESP32_PATH})
     # gives users the same "it just compiles" experience they expect from
     # the Arduino IDE without disabling -Wall entirely.
     target_compile_options(${COMPONENT_LIB} PRIVATE
+        -Wno-error=address
         -Wno-error=comment
         -Wno-error=parentheses
         -Wno-error=sign-compare
+        -Wno-error=type-limits
         -Wno-error=narrowing
         -Wno-error=write-strings
         -Wno-error=missing-field-initializers

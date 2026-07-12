@@ -9,6 +9,11 @@ const HEARTBEAT_STALE_MS = 70_000;
 const HEALTH_CHECK_INTERVAL_MS = 5_000;
 const HEARTBEAT_REQUEST_TIMEOUT_MS = 15_000;
 const SNAPSHOT_REQUEST_TIMEOUT_MS = 15_000;
+// Auto-retry backoff for transient heartbeat failures. A single blip should
+// never alarm the user — we retry quietly, and only the health check surfaces
+// an error once nothing has saved for HEARTBEAT_STALE_MS.
+const HEARTBEAT_RETRY_BASE_MS = 3_000;
+const HEARTBEAT_RETRY_MAX_MS = 15_000;
 
 function formatDuration(seconds: number) {
   const total = Math.max(0, Math.floor(seconds));
@@ -46,6 +51,11 @@ let trackingGeneration = 0;
 let heartbeatInFlightGeneration: number | null = null;
 let snapshotInFlightGeneration: number | null = null;
 let heartbeatStaleReported = false;
+// Count of consecutive failed heartbeats and the pending auto-retry timer.
+// Failures are handled silently with backoff; the user is only told once the
+// staleness threshold is crossed (health check), i.e. the app can't recover.
+let heartbeatFailureStreak = 0;
+let heartbeatRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let trackingStartedAt = 0;
 let hasConfirmedHeartbeat = false;
 let screenShareTracking = false;
@@ -217,6 +227,8 @@ export async function startActivityTracking(
   hasConfirmedHeartbeat = false;
   heartbeatWarning = "";
   snapshotWarning = "";
+  heartbeatFailureStreak = 0;
+  clearHeartbeatRetry();
   lastSnapshotValidatedAt = 0;
   lastSnapshotEligibleAt = 0;
   const generation = ++trackingGeneration;
@@ -272,7 +284,7 @@ export async function startActivityTracking(
     ) {
       heartbeatStaleReported = true;
       emitError(
-        "Time tracking has not saved for over a minute. Check your connection and retry before continuing.",
+        "Time tracking has not saved for over a minute despite automatic retries. Check your internet connection — time will resume saving on its own once you are back online.",
       );
     }
     if (snapshotsEnabled && active) {
@@ -306,6 +318,8 @@ export async function startActivityTracking(
   document.addEventListener("scroll", markRealActivity, { passive: true });
   document.addEventListener("wheel", markRealActivity, { passive: true });
   onlineHandler = () => {
+    // Connection returned — cancel any backoff and retry immediately.
+    clearHeartbeatRetry();
     if (!paused && (ignoreInactivity || checkRecentActivity())) {
       void runHeartbeat(generation);
     }
@@ -392,6 +406,31 @@ function sendFinalHeartbeat() {
   }).catch(() => {});
 }
 
+function clearHeartbeatRetry() {
+  if (heartbeatRetryTimer) {
+    clearTimeout(heartbeatRetryTimer);
+    heartbeatRetryTimer = null;
+  }
+}
+
+// Queue a quiet retry after a failed heartbeat. Backoff grows with the failure
+// streak but is capped so recovery stays snappy once the network returns. Only
+// one retry is ever pending; the periodic heartbeat still runs independently.
+function scheduleHeartbeatRetry(generation: number) {
+  if (heartbeatRetryTimer || generation !== trackingGeneration) return;
+  const delay = Math.min(
+    HEARTBEAT_RETRY_MAX_MS,
+    HEARTBEAT_RETRY_BASE_MS * heartbeatFailureStreak,
+  );
+  heartbeatRetryTimer = setTimeout(() => {
+    heartbeatRetryTimer = null;
+    if (generation !== trackingGeneration) return;
+    if (!paused && (ignoreInactivity || checkRecentActivity())) {
+      void runHeartbeat(generation);
+    }
+  }, delay);
+}
+
 // All activity sources (editor input, screen-change capture, and the periodic
 // timer) share one request at a time. The optimistic server update relies on a
 // single latest timestamp, so concurrent heartbeats can otherwise return stale
@@ -412,9 +451,17 @@ async function runHeartbeat(generation = trackingGeneration) {
       return null;
     }
     if (!result) {
-      emitError("Time tracking heartbeat failed.");
+      // Transient failure (network blip, timeout, 5xx). Don't alarm the user
+      // for a single miss — keep the last good "active" state on screen and
+      // retry quietly with backoff. The health check is the single source of
+      // truth for surfacing an error, and only once nothing has saved for
+      // HEARTBEAT_STALE_MS (i.e. the app genuinely can't recover on its own).
+      heartbeatFailureStreak += 1;
+      scheduleHeartbeatRetry(generation);
       return null;
     }
+    heartbeatFailureStreak = 0;
+    clearHeartbeatRetry();
     if (!("sessionId" in result)) {
       lastValidatedAt = Date.now();
       heartbeatStaleReported = false;
@@ -514,6 +561,8 @@ export function stopActivityTracking() {
   trackingGeneration += 1;
   heartbeatInFlightGeneration = null;
   snapshotInFlightGeneration = null;
+  clearHeartbeatRetry();
+  heartbeatFailureStreak = 0;
   if (heartbeatTimer) {
     clearInterval(heartbeatTimer);
     heartbeatTimer = null;

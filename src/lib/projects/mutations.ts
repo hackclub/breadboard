@@ -8,6 +8,11 @@ import {
   projectSubmissions,
   projects,
 } from "@/lib/db/schema";
+import { after } from "next/server";
+import {
+  refreshGitHubReadme,
+  resolvePublicOrigin,
+} from "@/lib/projects/githubReadme";
 import { clean } from "@/lib/utils";
 import type {
   CustomShipInput,
@@ -158,19 +163,42 @@ export async function updateProjectBasicsForUser(
   owner: ProjectOwner,
   input: UpdateProjectBasicsInput,
 ) {
-  await assertProjectOwned(owner.userId, input.projectId);
+  const [existing] = await db
+    .select({ codeUrl: projects.codeUrl })
+    .from(projects)
+    .where(
+      and(eq(projects.id, input.projectId), eq(projects.userId, owner.userId)),
+    )
+    .limit(1);
+  if (!existing) throw new Error("Project not found");
+
+  const title = clean(input.title) || "Untitled project";
+  const description = clean(input.description);
+  const screenshotUrl = clean(input.screenshotUrl);
 
   await db
     .update(projects)
     .set({
-      title: clean(input.title) || "Untitled project",
-      description: clean(input.description),
-      screenshotUrl: clean(input.screenshotUrl),
+      title,
+      description,
+      screenshotUrl,
       updatedAt: new Date(),
     })
     .where(
       and(eq(projects.id, input.projectId), eq(projects.userId, owner.userId)),
     );
+
+  // The published GitHub README mirrors these fields, so re-sync it on every
+  // save, not just when a field changed: the repo can be stale even when the
+  // stored values are not (e.g. published before any screenshot existed).
+  // putFile skips the write when the repo already matches, and
+  // refreshGitHubReadme never throws. Scheduled with after() so the save
+  // doesn't wait on GitHub round-trips; the origin has to be resolved here
+  // because headers() is gone once the response is sent.
+  if (existing.codeUrl) {
+    const origin = await resolvePublicOrigin();
+    after(() => refreshGitHubReadme(input.projectId, owner.userId, origin));
+  }
 }
 
 export async function shipProjectForUser(

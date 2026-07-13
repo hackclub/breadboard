@@ -15,25 +15,25 @@ import {
   hasAllowedContentLength,
 } from "@/lib/editor/security";
 import { toPublicProjectData } from "@/lib/editor/public-project";
-import { GITHUB_PUBLISH_PROVIDER_ID } from "@/lib/github/oauth";
 import {
-  type BomItem,
-  bomToMarkdown,
-  normalizeBomItems,
-  parseStoredBom,
-  serializeBom,
-} from "@/lib/projects/bom";
+  GITHUB_HEADERS,
+  type GitHubError,
+  type GitHubRepo,
+  type GitHubUser,
+  github,
+  parseGitHubRepoUrl,
+  putFile,
+} from "@/lib/github/contents";
+import { GITHUB_PUBLISH_PROVIDER_ID } from "@/lib/github/oauth";
+import { normalizeBomItems, parseStoredBom, serializeBom } from "@/lib/projects/bom";
+import {
+  buildBom,
+  buildJournalsMarkdown,
+  buildReadme,
+  projectReadmeHours,
+  syncScreenshotToRepo,
+} from "@/lib/projects/githubReadme";
 import { publishStaticShare, staticPlayUrl } from "@/lib/projects/sharePublish";
-
-type GitHubUser = { login: string };
-type GitHubRepo = { html_url: string; full_name: string };
-type GitHubContent = { sha?: string };
-type GitHubError = Error & { status?: number };
-
-const GITHUB_HEADERS = {
-  Accept: "application/vnd.github+json",
-  "X-GitHub-Api-Version": "2022-11-28",
-};
 
 function error(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -87,96 +87,6 @@ function optionalPublicUrl(value: unknown, origin: string) {
   if (!trimmed) return "";
   if (trimmed.startsWith("/demo/")) return `${origin}${trimmed}`;
   return optionalUrl(trimmed);
-}
-
-function encodeBase64(content: string) {
-  return Buffer.from(content, "utf8").toString("base64");
-}
-
-function encodeGitHubPath(path: string) {
-  return path.split("/").map(encodeURIComponent).join("/");
-}
-
-async function github<T>(token: string, path: string, init: RequestInit = {}) {
-  const res = await fetch(`https://api.github.com${path}`, {
-    ...init,
-    headers: {
-      ...GITHUB_HEADERS,
-      Authorization: `Bearer ${token}`,
-      ...(init.headers ?? {}),
-    },
-  });
-
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as {
-      message?: string;
-      errors?: Array<{ message?: string; field?: string; code?: string }>;
-    } | null;
-    const details = body?.errors
-      ?.map((item) => item.message ?? item.field ?? item.code)
-      .filter(Boolean)
-      .join("; ");
-    const err = new Error(
-      [body?.message ?? `GitHub request failed: ${res.status}`, details]
-        .filter(Boolean)
-        .join(" "),
-    ) as GitHubError;
-    err.status = res.status;
-    throw err;
-  }
-
-  return (await res.json()) as T;
-}
-
-async function maybeGetContentSha(
-  token: string,
-  owner: string,
-  repo: string,
-  path: string,
-) {
-  const res = await fetch(
-    `https://api.github.com/repos/${owner}/${repo}/contents/${encodeGitHubPath(path)}`,
-    {
-      headers: {
-        ...GITHUB_HEADERS,
-        Authorization: `Bearer ${token}`,
-      },
-    },
-  );
-  if (res.status === 404) return undefined;
-  if (!res.ok) throw new Error(`Could not check ${path}`);
-  const content = (await res.json()) as GitHubContent;
-  return content.sha;
-}
-
-async function putFile({
-  token,
-  owner,
-  repo,
-  path,
-  content,
-  message,
-}: {
-  token: string;
-  owner: string;
-  repo: string;
-  path: string;
-  content: string;
-  message: string;
-}) {
-  const sha = await maybeGetContentSha(token, owner, repo, path);
-  await github(
-    token,
-    `/repos/${owner}/${repo}/contents/${encodeGitHubPath(path)}`,
-    {
-      method: "PUT",
-      body: JSON.stringify({
-        message,
-        content: encodeBase64(content),
-        ...(sha ? { sha } : {}),
-      }),
-    },
-  );
 }
 
 async function createUniqueRepo({
@@ -235,18 +145,6 @@ async function getRepoIfExists(token: string, owner: string, repo: string) {
   return (await res.json()) as GitHubRepo;
 }
 
-function parseGitHubRepoUrl(value: string) {
-  try {
-    const url = new URL(value);
-    if (url.hostname !== "github.com") return null;
-    const [owner, repo] = url.pathname.split("/").filter(Boolean);
-    if (!owner || !repo) return null;
-    return { owner, repo: repo.replace(/\.git$/, "") };
-  } catch {
-    return null;
-  }
-}
-
 function flattenFiles(
   fileGroups: unknown,
 ): Array<{ name: string; content: string }> {
@@ -267,132 +165,6 @@ function flattenFiles(
     }
   }
   return files;
-}
-
-function bomFromEditorData(
-  editorData: Record<string, unknown> | null,
-): BomItem[] {
-  const components = Array.isArray(editorData?.components)
-    ? editorData.components
-    : [];
-  const counts = new Map<string, number>();
-  for (const component of components) {
-    if (!component || typeof component !== "object") continue;
-    const metadataId = (component as Record<string, unknown>).metadataId;
-    if (typeof metadataId !== "string") continue;
-    counts.set(metadataId, (counts.get(metadataId) ?? 0) + 1);
-  }
-  return Array.from(counts.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([name, quantity]) => ({ name, quantity }));
-}
-
-function buildBom(
-  customBom: BomItem[],
-  editorData: Record<string, unknown> | null,
-) {
-  const items = customBom.length ? customBom : bomFromEditorData(editorData);
-  if (!items.length) return "- Kit parts are listed in the editor schematic.\n";
-  return bomToMarkdown(items);
-}
-
-function buildReadme({
-  title,
-  description,
-  howToUse,
-  demoUrl,
-  simulateUrl,
-  videoUrl,
-  screenshotUrl,
-  bom,
-  hours,
-}: {
-  title: string;
-  description: string;
-  howToUse: string;
-  /** Durable static play page (render-only schematic + code view). */
-  demoUrl: string;
-  /** Dynamic /share link where the project actually runs in the simulator. */
-  simulateUrl: string;
-  videoUrl: string;
-  screenshotUrl: string;
-  bom: string;
-  hours: number;
-}) {
-  const desc = description || title;
-  const section = (heading: string, body: string) =>
-    body.trim() ? `## ${heading}\n\n${body.trim()}\n` : "";
-
-  return [
-    `# ${title}`,
-    "",
-    screenshotUrl ? `![${title}](${screenshotUrl})` : "",
-    `\n> Built in [Breadboard](https://breadboard.hackclub.com), a Hack Club program. This project took ~${hours} hours of work.`,
-    "",
-    section("What It Does", desc),
-    section(
-      "How It Works",
-      "The circuit is captured in `breadboard-project.json`, and the firmware that runs it is in the `firmware/` folder.",
-    ),
-    section("How To Use It", howToUse),
-    section(
-      "Demo",
-      [
-        simulateUrl
-          ? `- **Simulate it live:** [${simulateUrl}](${simulateUrl}), runs the firmware in the Breadboard simulator`
-          : "",
-        demoUrl ? `- **View the design:** [${demoUrl}](${demoUrl})` : "",
-        videoUrl ? `- **Video:** ${videoUrl}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    ),
-    section(
-      "Schematic",
-      `The editor snapshot is in \`breadboard-project.json\`.`,
-    ),
-    section("Bill of Materials", bom),
-    section("Firmware", "Firmware files are in the `firmware/` folder."),
-    section(
-      "Build Journal",
-      "Build journal entries are kept in [`journals.md`](journals.md).",
-    ),
-    "---",
-    "",
-    `*Made in [Breadboard](https://breadboard.hackclub.com) — ${hours}h of work*`,
-    "",
-    '<p align="center"><img src="https://cdn.hackclub.com/019efae7-6857-75a2-8bc1-2618087b4eae/a%20bred%20tanuki%20(3).png" width="64" alt="Breadboard mascot" /></p>',
-  ]
-    .join("\n\n")
-    .trim();
-}
-
-function buildJournalsMarkdown(
-  title: string,
-  journals: Array<{ content: string; createdAt: Date }>,
-) {
-  if (!journals.length) {
-    return `# ${title} Build Journal\n\nNo journal entries yet.\n`;
-  }
-
-  return [
-    `# ${title} Build Journal`,
-    "",
-    journals
-      .map(
-        (journal) =>
-          `## ${new Date(journal.createdAt).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-            hour: "numeric",
-            minute: "2-digit",
-          })}\n\n${journal.content.trim()}`,
-      )
-      .join("\n\n---\n\n"),
-  ]
-    .join("\n")
-    .trim();
 }
 
 function wordCount(value: string) {
@@ -477,12 +249,6 @@ export async function POST(
   // (staticPlayUrl), and doubles as the playableUrl fallback if the static
   // publish below fails.
   const shareFallbackUrl = `${origin}/share/${projectId}`;
-  // Stable per-project screenshot endpoint: it serves whatever screenshot the
-  // project has at view time, so the README image tracks new uploads without
-  // a re-publish.
-  const screenshotUrl = project.screenshotUrl.trim()
-    ? `${origin}/api/projects/${projectId}/screenshot`
-    : "";
   const editorData = project.editorData
     ? toPublicProjectData(
         JSON.parse(project.editorData) as Record<string, unknown>,
@@ -562,12 +328,17 @@ export async function POST(
     (sum, row) => sum + (row.seconds ?? 0),
     0,
   );
-  const hours = Math.max(
-    1,
-    Math.round(
-      (project.hoursSpent > 0 ? project.hoursSpent : totalSeconds / 3600) * 10,
-    ) / 10,
-  );
+  const hours = projectReadmeHours(project.hoursSpent, totalSeconds);
+
+  // Committed into the repo so the README image renders on GitHub no matter
+  // where the app is hosted (and keeps rendering if it goes away). Returns ""
+  // when there's no screenshot; the README then omits the image line.
+  const screenshotPath = await syncScreenshotToRepo({
+    token: githubAccount.accessToken,
+    owner: repoOwner,
+    repo: repoName,
+    screenshotUrl: project.screenshotUrl,
+  });
 
   const readme = buildReadme({
     title: project.title,
@@ -576,7 +347,7 @@ export async function POST(
     demoUrl: playUrl,
     simulateUrl: shareFallbackUrl,
     videoUrl,
-    screenshotUrl,
+    screenshotUrl: screenshotPath,
     bom: buildBom(bomItems, editorData),
     hours,
   });

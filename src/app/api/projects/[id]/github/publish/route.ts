@@ -89,18 +89,6 @@ function optionalPublicUrl(value: unknown, origin: string) {
   return optionalUrl(trimmed);
 }
 
-function absoluteScreenshotUrl(value: unknown, origin: string) {
-  if (typeof value !== "string") return "";
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  if (trimmed.startsWith("/")) return `${origin}${trimmed}`;
-  try {
-    return optionalUrl(trimmed);
-  } catch {
-    return "";
-  }
-}
-
 function encodeBase64(content: string) {
   return Buffer.from(content, "utf8").toString("base64");
 }
@@ -353,9 +341,7 @@ function buildReadme({
         simulateUrl
           ? `- **Simulate it live:** [${simulateUrl}](${simulateUrl}), runs the firmware in the Breadboard simulator`
           : "",
-        demoUrl
-          ? `- **View the design:** [${demoUrl}](${demoUrl}), a read-only schematic and code snapshot that outlives the simulator`
-          : "",
+        demoUrl ? `- **View the design:** [${demoUrl}](${demoUrl})` : "",
         videoUrl ? `- **Video:** ${videoUrl}` : "",
       ]
         .filter(Boolean)
@@ -491,7 +477,12 @@ export async function POST(
   // (staticPlayUrl), and doubles as the playableUrl fallback if the static
   // publish below fails.
   const shareFallbackUrl = `${origin}/share/${projectId}`;
-  const screenshotUrl = absoluteScreenshotUrl(project.screenshotUrl, origin);
+  // Stable per-project screenshot endpoint: it serves whatever screenshot the
+  // project has at view time, so the README image tracks new uploads without
+  // a re-publish.
+  const screenshotUrl = project.screenshotUrl.trim()
+    ? `${origin}/api/projects/${projectId}/screenshot`
+    : "";
   const editorData = project.editorData
     ? toPublicProjectData(
         JSON.parse(project.editorData) as Record<string, unknown>,

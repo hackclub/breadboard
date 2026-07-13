@@ -1,12 +1,13 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, ne } from "drizzle-orm";
 import { headers } from "next/headers";
 import { db } from "@/lib/db/db";
 import { account, editorActivitySessions, projects } from "@/lib/db/schema";
 import { toPublicProjectData } from "@/lib/editor/public-project";
 import { parseGitHubRepoUrl, putFile } from "@/lib/github/contents";
 import { GITHUB_PUBLISH_PROVIDER_ID } from "@/lib/github/oauth";
+import { runStaticShareBackfill } from "@/lib/projects/backfillShares";
 import {
   type BomItem,
   bomToMarkdown,
@@ -247,6 +248,11 @@ function readmeVideoUrl(value: string, origin: string) {
   }
 }
 
+export type ReadmeSyncResult = {
+  status: "synced" | "skipped" | "failed";
+  reason?: string;
+};
+
 /**
  * Re-push README.md to a project's published GitHub repo so it reflects the
  * project's current title, description, and screenshot. Called after edits
@@ -256,25 +262,32 @@ function readmeVideoUrl(value: string, origin: string) {
  *
  * Only touches repos our publisher created (editor projects whose codeUrl
  * points at GitHub) and never throws: a GitHub hiccup must not fail the
- * save that triggered the sync.
+ * save that triggered the sync. The returned outcome is for callers that
+ * want to report progress (the admin backfill); interactive saves ignore it.
  */
 export async function refreshGitHubReadme(
   projectId: number,
   userId: string,
   knownOrigin?: string | null,
-) {
+): Promise<ReadmeSyncResult> {
+  const skip = (reason: string): ReadmeSyncResult => ({
+    status: "skipped",
+    reason,
+  });
   try {
     const [project] = await db
       .select()
       .from(projects)
       .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
       .limit(1);
-    if (!project) return;
+    if (!project) return skip("project not found");
     // Manual/off-platform projects store a repo the maker owns and manages
     // themselves; never write into those.
-    if (project.submissionSource !== "editor") return;
+    if (project.submissionSource !== "editor") {
+      return skip("not an editor project");
+    }
     const repo = parseGitHubRepoUrl(project.codeUrl);
-    if (!repo) return;
+    if (!repo) return skip("no published GitHub repo");
 
     const [githubAccount] = await db
       .select({ accessToken: account.accessToken })
@@ -286,10 +299,12 @@ export async function refreshGitHubReadme(
         ),
       )
       .limit(1);
-    if (!githubAccount?.accessToken) return;
+    if (!githubAccount?.accessToken) {
+      return skip("owner has no connected GitHub token");
+    }
 
     const origin = knownOrigin ?? (await resolvePublicOrigin());
-    if (!origin) return;
+    if (!origin) return skip("no public origin configured");
 
     const activityTotal = await db
       .select({ seconds: editorActivitySessions.activeSeconds })
@@ -337,7 +352,94 @@ export async function refreshGitHubReadme(
       content: readme,
       message: "Update Breadboard README",
     });
-  } catch {
+    return { status: "synced" };
+  } catch (err) {
     // Best-effort sync; the next publish rewrites the README anyway.
+    return {
+      status: "failed",
+      reason: err instanceof Error ? err.message : String(err),
+    };
   }
+}
+
+export type ReadmeBackfillOutcome = {
+  id: number;
+  title: string;
+  status: "synced" | "would-sync" | "skipped" | "failed";
+  reason?: string;
+  /** Result of republishing the static play page alongside the README. */
+  share?: {
+    status: "published" | "would-publish" | "skipped" | "failed";
+    url?: string;
+    reason?: string;
+  };
+};
+
+/**
+ * Re-sync the full published artifact set for every editor project with a
+ * published GitHub repo: README, committed screenshot, and the static play
+ * page (GitHub Pages). Repos whose README/screenshot already match get no
+ * commits (putFile skips identical content), so re-running is safe; the
+ * static page is always republished since its content hash isn't compared.
+ * Triggered from the admin backfill route.
+ */
+export async function runReadmeBackfill(
+  opts: { dryRun?: boolean; limit?: number; id?: number } = {},
+): Promise<{ outcomes: ReadmeBackfillOutcome[] }> {
+  const rows = await db
+    .select({
+      id: projects.id,
+      userId: projects.userId,
+      title: projects.title,
+      codeUrl: projects.codeUrl,
+      submissionSource: projects.submissionSource,
+    })
+    .from(projects)
+    .where(
+      opts.id
+        ? eq(projects.id, opts.id)
+        : and(eq(projects.submissionSource, "editor"), ne(projects.codeUrl, "")),
+    )
+    .orderBy(asc(projects.id));
+
+  const origin = await resolvePublicOrigin();
+  const outcomes: ReadmeBackfillOutcome[] = [];
+  let processed = 0;
+  for (const project of rows) {
+    if (opts.limit && processed >= opts.limit) break;
+    const base = { id: project.id, title: project.title };
+    if (!parseGitHubRepoUrl(project.codeUrl)) {
+      outcomes.push({
+        ...base,
+        status: "skipped",
+        reason: "no published GitHub repo",
+      });
+      continue;
+    }
+    processed++;
+    if (opts.dryRun) {
+      outcomes.push({
+        ...base,
+        status: "would-sync",
+        share: { status: "would-publish" },
+      });
+      continue;
+    }
+    const result = await refreshGitHubReadme(project.id, project.userId, origin);
+    // Republish the static play page too, so a backfilled repo is current
+    // end to end. runStaticShareBackfill with an explicit id processes the
+    // project regardless of its playableUrl and updates it on success.
+    const { outcomes: shareOutcomes } = await runStaticShareBackfill({
+      id: project.id,
+    });
+    const share = shareOutcomes[0];
+    outcomes.push({
+      ...base,
+      ...result,
+      share: share
+        ? { status: share.status, url: share.url, reason: share.reason }
+        : { status: "skipped", reason: "no share outcome" },
+    });
+  }
+  return { outcomes };
 }

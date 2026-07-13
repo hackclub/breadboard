@@ -17,10 +17,21 @@ export function LoginButton({
     try {
       setError(null);
       setLoading(true);
-      await authClient.signIn.oauth2({
+      // better-auth's client resolves with { error } instead of throwing on a
+      // failed request, so on success this call redirects away and we never
+      // return here. If it does return, an error must have occurred and we have
+      // to clear the loading state ourselves, otherwise the button spins forever.
+      const { error: signInError } = await authClient.signIn.oauth2({
         providerId: "hackclub",
         callbackURL,
       });
+      if (signInError) {
+        setLoading(false);
+        setError(
+          signInError.message ??
+            "Could not start sign-in. Check that the database is reachable and Hack Club Auth credentials are configured.",
+        );
+      }
     } catch {
       setLoading(false);
       setError(

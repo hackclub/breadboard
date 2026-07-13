@@ -16,7 +16,7 @@ import {
   projects,
   userBread,
 } from "@/lib/db/schema";
-import { isBuildShip } from "@/lib/projects/project-type";
+import { isBuildShip, type ProjectType } from "@/lib/projects/project-type";
 import { recordCurrencyTransaction } from "@/lib/projects/ledger";
 import { notifyProjectStatus, notifyReviewDecision } from "@/lib/slack/tookle";
 
@@ -625,6 +625,38 @@ export async function approveProject(
   await notifyReviewDecision(id, "materials", "accepted", {
     note: reviewComment,
   });
+}
+
+// Reviewers sometimes need to reclassify a ship: a maker picks "build" but
+// actually wants a kit, or submits a finished build under "design". The type
+// drives payout currency and kit fulfillment, so it can only change before the
+// materials approval branches on it. Payout states are locked.
+export async function setProjectShipType(
+  projectId: number,
+  shipType: ProjectType,
+) {
+  await requireAdminSession();
+  const id = requirePositiveProjectId(projectId);
+  if (shipType !== "build" && shipType !== "design")
+    throw new Error("Ship type must be build or design");
+  const project = await getProjectOrThrow(id);
+  if (project.projectType === shipType) {
+    revalidateReviewViews(id);
+    return;
+  }
+  if (["done", "paid_out", "fulfilled"].includes(project.status))
+    throw new Error(
+      "This project was already paid out, so its ship type can't change.",
+    );
+  await db
+    .update(projects)
+    .set({ projectType: shipType, updatedAt: new Date() })
+    .where(eq(projects.id, id));
+  await audit("admin.review.set_ship_type", "project", String(id), {
+    from: project.projectType,
+    to: shipType,
+  });
+  revalidateReviewViews(id);
 }
 
 export async function payOutProject(projectId: number) {

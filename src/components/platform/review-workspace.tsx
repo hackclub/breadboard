@@ -24,6 +24,7 @@ import {
   approveProject,
   rejectProject,
   requestChanges,
+  setProjectShipType,
 } from "@/actions/admin/review";
 import { BreadAmount, BreadIcon } from "@/components/shared/bread-amount";
 import { Markdown } from "@/components/shared/markdown";
@@ -350,6 +351,8 @@ export function ReviewWorkspace({
   const [pending, startTransition] = useTransition();
   const [submitted, setSubmitted] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [typePending, startTypeTransition] = useTransition();
+  const [typeError, setTypeError] = useState<string | null>(null);
   const router = useRouter();
   const isManual = initial.submissionSource === "manual";
   // Currency follows projectType, not submissionSource: an off-platform
@@ -407,6 +410,26 @@ export function ReviewWorkspace({
 
   const locked = submitted || initial.status !== "pending_review";
 
+  // Ship type decides the payout currency and whether a kit ships, so once the
+  // project is paid out the server refuses the change; hide the button then.
+  const typeLocked = ["done", "paid_out", "fulfilled"].includes(
+    initial.projectStatus,
+  );
+
+  function changeShipType(next: "build" | "design") {
+    setTypeError(null);
+    startTypeTransition(async () => {
+      try {
+        await setProjectShipType(initial.id, next);
+        router.refresh();
+      } catch (error) {
+        setTypeError(
+          error instanceof Error ? error.message : "Could not change type",
+        );
+      }
+    });
+  }
+
   return (
     <article className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
       <section className="overflow-hidden rounded-[16px] border border-black bg-white shadow-[4px_4px_0_#000]">
@@ -437,7 +460,42 @@ export function ReviewWorkspace({
                     ? "Own parts"
                     : "Kit A · Arduino"}
               </span>
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border-2 py-1 pl-3 text-xs font-black uppercase ${
+                  isBuild
+                    ? "border-yellow-500 bg-yellow-50 pr-1 text-yellow-800"
+                    : "border-sky-400 bg-sky-50 pr-1 text-sky-800"
+                }`}
+              >
+                {isBuild ? "Build ship · gold" : "Design ship · kit"}
+                {!typeLocked ? (
+                  <button
+                    type="button"
+                    disabled={typePending}
+                    onClick={() =>
+                      changeShipType(isBuild ? "design" : "build")
+                    }
+                    title={
+                      isBuild
+                        ? "Reclassify as a design ship: regular bread, ships a kit"
+                        : "Reclassify as a build ship: gold bread, no kit"
+                    }
+                    className="rounded-full bg-black px-2 py-0.5 text-[10px] font-black text-white uppercase hover:bg-[#BD0F32] disabled:opacity-50"
+                  >
+                    {typePending
+                      ? "Saving…"
+                      : isBuild
+                        ? "Make design"
+                        : "Make build"}
+                  </button>
+                ) : null}
+              </span>
             </div>
+            {typeError ? (
+              <p className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-black text-red-800">
+                {typeError}
+              </p>
+            ) : null}
             <h2 className="mt-2 text-4xl font-black leading-tight text-black">
               {initial.title}
             </h2>

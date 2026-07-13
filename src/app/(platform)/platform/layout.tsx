@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { and, eq, notInArray, sql } from "drizzle-orm";
 import { PlatformSidebar } from "@/components/layout/platform-sidebar";
 import { LoginButton } from "@/components/shared/auth-buttons";
+import { Countdown } from "@/components/shared/countdown";
 import { LaunchGate } from "@/components/shared/launch-gate";
 import { pageGridClass } from "@/components/shared/styles";
 import { launched } from "@/flags";
@@ -112,6 +113,7 @@ export default async function PlatformLayout({
       <main className="min-h-screen py-10 pr-10 pl-[320px]">
         <div className="mx-auto max-w-[1320px]">{children}</div>
       </main>
+      <Countdown variant="floating" />
     </div>
   );
 }

@@ -45,14 +45,6 @@ body::before {
   z-index: 0;
 }
 
-[data-reveal],
-.faq-card,
-body:not(.docs-page) main > section {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
-}
-
 ::selection {
   background: var(--bb-red);
   color: white;

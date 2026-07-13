@@ -4,9 +4,6 @@ import { gsap } from "gsap";
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 
-const revealSelector =
-  "section:not(.docs-page section), .faq-card, [data-reveal]";
-
 function CustomCursor() {
   const cursorRef = useRef<HTMLDivElement>(null);
   const trailRef = useRef<HTMLDivElement>(null);
@@ -135,46 +132,8 @@ function useButtonRipple() {
   }, []);
 }
 
-function useScrollReveal() {
-  useEffect(() => {
-    if (window.location.pathname.startsWith("/platform")) return;
-    if (window.location.pathname.startsWith("/editor")) return;
-    const targets = Array.from(
-      document.querySelectorAll<HTMLElement>(revealSelector),
-    );
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const target = entry.target as HTMLElement;
-          if (target.dataset.revealed === "true") continue;
-          target.dataset.revealed = "true";
-          gsap.to(target, {
-            autoAlpha: 1,
-            y: 0,
-            duration: 0.65,
-            ease: "power3.out",
-            overwrite: "auto",
-          });
-          observer.unobserve(target);
-        }
-      },
-      { threshold: 0.14, rootMargin: "0px 0px -6% 0px" },
-    );
-
-    for (const target of targets) observer.observe(target);
-
-    return () => {
-      observer.disconnect();
-      gsap.killTweensOf(targets);
-    };
-  }, []);
-}
-
 export function ClientEffects() {
   useButtonRipple();
-  useScrollReveal();
 
   return <CustomCursor />;
 }

@@ -189,6 +189,7 @@ function loadModules() {
       const EditorPage = (pageMod as any).EditorPage as FC<{
         readOnly?: boolean;
         shareMode?: boolean;
+        executable?: boolean;
       }>;
       const editorStore = (editorMod as any).useEditorStore;
       const simStore = (simMod as any).useSimulatorStore;
@@ -329,15 +330,24 @@ export function VelxioSnapshotViewer({
   snapshot,
   interactive = false,
   shareMode = false,
+  executable = false,
 }: {
   snapshot: SnapshotLike;
   interactive?: boolean;
   shareMode?: boolean;
+  /**
+   * Whether the share can actually simulate (compile/run against the live
+   * backend). The dynamic /share route sets this; the static GitHub Pages
+   * player does not (render-only by design — no backend, no consistent
+   * offline execution), so all simulation controls are hidden there.
+   */
+  executable?: boolean;
 }) {
   const [ready, setReady] = useState(false);
   const editorPageRef = useRef<FC<{
     readOnly?: boolean;
     shareMode?: boolean;
+    executable?: boolean;
   }> | null>(null);
   const storesRef = useRef<any>(null);
 
@@ -392,7 +402,7 @@ export function VelxioSnapshotViewer({
           onKeyDown={(e) => e.stopPropagation()}
         />
       ) : null}
-      <EP readOnly shareMode={shareMode} />
+      <EP readOnly shareMode={shareMode} executable={executable} />
     </div>
   );
 }

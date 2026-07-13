@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { LoginButton, LogoutButton } from "@/components/shared/auth-buttons";
+import { Countdown } from "@/components/shared/countdown";
 import { linkUnderlineClass } from "@/components/shared/styles";
 import { launched } from "@/flags";
 import { getSession } from "@/lib/auth/guards";
@@ -13,7 +14,13 @@ const navLinks = [
   { label: "Platform", href: "/platform" },
 ];
 
-export async function Header({ isSticky = false }: { isSticky?: boolean }) {
+export async function Header({
+  isSticky = false,
+  showCountdown = true,
+}: {
+  isSticky?: boolean;
+  showCountdown?: boolean;
+}) {
   const [session, isLaunched] = await Promise.all([getSession(), launched()]);
   const visibleNavLinks = isLaunched
     ? navLinks
@@ -47,6 +54,7 @@ export async function Header({ isSticky = false }: { isSticky?: boolean }) {
             ))}
           </nav>
           <div className="flex items-center gap-3">
+            {showCountdown ? <Countdown className="hidden lg:flex" /> : null}
             <Link
               href="/platform/projects"
               className="rounded border border-black bg-[#BD0F32] px-4 py-2 text-sm font-semibold text-white no-underline shadow-[3px_3px_0_#000] transition hover:-translate-y-0.5 hover:bg-black"

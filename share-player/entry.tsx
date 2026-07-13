@@ -55,6 +55,9 @@ async function main() {
     );
     return;
   }
+  // No `executable`: static pages have no backend to compile against, so this
+  // is deliberately a render-only schematic + code view. The stub's banner
+  // links to the dynamic /share route for anyone who wants to run it.
   createRoot(rootEl).render(
     <VelxioSnapshotViewer snapshot={snapshot as never} interactive shareMode />,
   );

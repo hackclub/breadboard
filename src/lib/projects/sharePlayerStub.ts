@@ -50,6 +50,15 @@ export function renderStub(opts: {
   snapshot?: unknown;
   /** Or point at a snapshot JSON URL instead of inlining. */
   snapshotUrl?: string;
+  /**
+   * The dynamic, server-backed share URL where the project can actually be
+   * simulated (compile + run, all boards). Rendered as a banner link so
+   * viewers of this read-only page know where the live version lives. Omitted
+   * when the app URL isn't configured; the page works fine without it (and
+   * keeps working if the server ever goes away — that's the whole point of
+   * the static page).
+   */
+  liveUrl?: string;
 }): string {
   const base = opts.assetBase.replace(/\/+$/, "");
   const asset = (p: string) => (base ? `${base}/${p}` : `./${p}`);
@@ -93,9 +102,12 @@ export function renderStub(opts: {
      size the container explicitly with flexbox instead. */
   html, body { height: 100%; margin: 0; }
   body { display: flex; flex-direction: column; background: #1e1e1e; color: #fff; font-family: system-ui, sans-serif; }
-  #banner { flex: 0 0 auto; display: flex; flex-direction: column; gap: 2px; padding: 10px 16px; background: #111; border-bottom: 1px solid #333; }
+  #banner { flex: 0 0 auto; display: flex; align-items: center; gap: 14px; padding: 10px 16px; background: #111; border-bottom: 1px solid #333; }
+  #banner .headings { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
   #banner .tag { font-size: 11px; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; color: #ff6b86; }
-  #banner h1 { font-size: 17px; font-weight: 800; margin: 0; }
+  #banner h1 { font-size: 17px; font-weight: 800; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #banner .live-link { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border: 1px solid #ff6b86; border-radius: 999px; color: #ff9aad; font-size: 12px; font-weight: 800; text-decoration: none; white-space: nowrap; }
+  #banner .live-link:hover { background: #ff6b86; color: #111; }
   #stage { flex: 1 1 auto; min-height: 0; }
   #root { height: 100%; }
   #root > * { height: 100%; }
@@ -103,9 +115,16 @@ export function renderStub(opts: {
 </head>
 <body>
 <div id="banner">
-  <span class="tag">Read Only Demo</span>
-  <h1>${title}</h1>
-</div>
+  <div class="headings">
+    <span class="tag">Read Only Demo</span>
+    <h1>${title}</h1>
+  </div>
+${
+  opts.liveUrl
+    ? `  <a class="live-link" href="${escapeHtml(opts.liveUrl)}" target="_blank" rel="noreferrer">&#9654; Simulate it live</a>
+`
+    : ""
+}</div>
 <div id="stage"><div id="root"></div></div>
 ${assetBaseScript}
 ${snapshotScript}

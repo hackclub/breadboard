@@ -12,6 +12,7 @@ import {
 } from "react";
 import { subscribe } from "@/actions/email";
 import { BreadboardCanvas } from "@/components/shared/breadboard-canvas";
+import { Countdown } from "@/components/shared/countdown";
 import { authClient } from "@/lib/auth/client";
 import type { SignupState } from "@/types";
 
@@ -313,6 +314,9 @@ export function Hero() {
     <>
       <section className="mx-auto max-w-[1440px] px-6 pt-24 md:pt-28">
         <div className="mx-auto w-full max-w-7xl">
+          <div className="mb-6 flex justify-center">
+            <Countdown />
+          </div>
           <div onPointerDown={() => setInteracted(true)}>
             <BreadboardCanvas />
           </div>

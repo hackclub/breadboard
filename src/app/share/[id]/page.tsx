@@ -60,7 +60,14 @@ export default async function ProjectSharePage({
           </span>
         </header>
         <div className="min-h-0 flex-1">
-          <VelxioSnapshotViewer snapshot={snapshot} interactive shareMode />
+          {/* executable: unlike the static GitHub Pages share, this page has
+              the live backend behind it, so viewers can compile and run. */}
+          <VelxioSnapshotViewer
+            snapshot={snapshot}
+            interactive
+            shareMode
+            executable
+          />
         </div>
       </div>
     </main>

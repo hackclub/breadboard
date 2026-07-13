@@ -313,6 +313,7 @@ function buildReadme({
   description,
   howToUse,
   demoUrl,
+  simulateUrl,
   videoUrl,
   screenshotUrl,
   bom,
@@ -321,7 +322,10 @@ function buildReadme({
   title: string;
   description: string;
   howToUse: string;
+  /** Durable static play page (render-only schematic + code view). */
   demoUrl: string;
+  /** Dynamic /share link where the project actually runs in the simulator. */
+  simulateUrl: string;
   videoUrl: string;
   screenshotUrl: string;
   bom: string;
@@ -346,7 +350,12 @@ function buildReadme({
     section(
       "Demo",
       [
-        demoUrl ? `- **Try it:** [${demoUrl}](${demoUrl})` : "",
+        simulateUrl
+          ? `- **Simulate it live:** [${simulateUrl}](${simulateUrl}), runs the firmware in the Breadboard simulator`
+          : "",
+        demoUrl
+          ? `- **View the design:** [${demoUrl}](${demoUrl}), a read-only schematic and code snapshot that outlives the simulator`
+          : "",
         videoUrl ? `- **Video:** ${videoUrl}` : "",
       ]
         .filter(Boolean)
@@ -477,8 +486,10 @@ export async function POST(
   } catch (err) {
     return error(err instanceof Error ? err.message : "Invalid URL", 400);
   }
-  // Dynamic /share link, used only as a fallback if the static publish below
-  // fails. The durable link is the GitHub Pages URL (staticPlayUrl).
+  // Dynamic /share link: the page where the project actually runs in the
+  // simulator. Goes in the README next to the durable render-only Pages URL
+  // (staticPlayUrl), and doubles as the playableUrl fallback if the static
+  // publish below fails.
   const shareFallbackUrl = `${origin}/share/${projectId}`;
   const screenshotUrl = absoluteScreenshotUrl(project.screenshotUrl, origin);
   const editorData = project.editorData
@@ -572,6 +583,7 @@ export async function POST(
     description: project.description,
     howToUse,
     demoUrl: playUrl,
+    simulateUrl: shareFallbackUrl,
     videoUrl,
     screenshotUrl,
     bom: buildBom(bomItems, editorData),

@@ -9,7 +9,7 @@ import { pageGridClass } from "@/components/shared/styles";
 export default function Home() {
   return (
     <>
-      <Header />
+      <Header showCountdown={false} />
       <div className={`${pageGridClass} relative min-h-screen`}>
         <Hero />
         <Steps />

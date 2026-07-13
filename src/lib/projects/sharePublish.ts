@@ -371,16 +371,26 @@ export async function publishStaticShare(opts: {
       "Project snapshot is not valid JSON; cannot publish share.",
     );
   }
-  // Embed compiled firmware so the static page runs offline instead of trying
-  // to compile against a backend it can't reach.
-  const snapshotJson = JSON.stringify(
-    await embedFirmwareForOfflineRun(snapshot),
-  );
+  // Static shares are render-only: a consistent read-only schematic + code
+  // view (the player hides all simulation controls). We deliberately DON'T
+  // compile/embed firmware here — it kept publishing slow and coupled to the
+  // editor-backend, and interactive shares were inconsistent (standard
+  // sketches ran; odd libraries/sensors showed a blank circuit). The banner
+  // instead links to the dynamic /share route, which simulates everything
+  // (server-backed, QEMU boards included) for as long as the server is up.
+  // embedFirmwareForOfflineRun() is kept for if interactive shares ever return.
+  const snapshotJson = JSON.stringify(snapshot);
+  const appBase = (
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    process.env.BETTER_AUTH_URL?.trim() ||
+    ""
+  ).replace(/\/+$/, "");
   const html = renderStub({
     title: opts.title,
     description: opts.description,
     assetBase: sharePlayerBaseUrl(),
     snapshotUrl: "./snapshot.json",
+    liveUrl: appBase ? `${appBase}/share/${opts.projectId}` : undefined,
   });
 
   // Resolve where to write: one central repo (bot token) or the student's repo.

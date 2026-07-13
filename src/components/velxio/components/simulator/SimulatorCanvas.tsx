@@ -140,12 +140,17 @@ interface SimulatorCanvasProps {
   headerSlot?: HTMLElement | null;
   readOnly?: boolean;
   shareMode?: boolean;
+  /** Share views only: whether simulation can actually run (dynamic /share).
+      Render-only static shares pass false and lose the Serial/Scope toggles,
+      which would otherwise open permanently-empty instrument panels. */
+  executable?: boolean;
 }
 
 export const SimulatorCanvas = ({
   headerSlot,
   readOnly = false,
   shareMode = false,
+  executable = false,
 }: SimulatorCanvasProps = {}) => {
   const { t } = useTranslation();
   const isTouchDevice = useIsCoarsePointer();
@@ -2801,7 +2806,9 @@ export const SimulatorCanvas = ({
                   </>
                 )}
 
-                {/* Serial Monitor toggle */}
+                {/* Serial Monitor toggle. Hidden on render-only shares — with
+                    no execution the panel would only ever be empty. */}
+                {!(shareMode && !executable) && (
                 <button
                   onClick={() => {
                     toggleSerialMonitor();
@@ -2825,6 +2832,7 @@ export const SimulatorCanvas = ({
                   </svg>
                   {t("editor.canvas.serial")}
                 </button>
+                )}
 
                 {/* ESP32-CAM webcam stream toggle */}
                 {activeBoard?.boardKind === "esp32-cam" && (
@@ -2926,7 +2934,9 @@ export const SimulatorCanvas = ({
                     </span>
                   )}
 
-                {/* Oscilloscope toggle */}
+                {/* Oscilloscope toggle. Hidden on render-only shares — with
+                    no execution there is never a trace to show. */}
+                {!(shareMode && !executable) && (
                 <button
                   onClick={toggleOscilloscope}
                   className={`canvas-serial-btn${oscilloscopeOpen ? " canvas-serial-btn-active" : ""}`}
@@ -2946,6 +2956,7 @@ export const SimulatorCanvas = ({
                   </svg>
                   {t("editor.canvas.scope")}
                 </button>
+                )}
               </div>
 
               <div className="canvas-header-right">

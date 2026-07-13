@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import {
   HiArrowUpTray,
   HiClock,
@@ -494,6 +494,14 @@ function ScreenshotUploadField({
   // mounted; a fresh capture from the button below shouldn't immediately
   // trigger a second, identical render.
   const [wasAutoOnMount] = useState(() => isAutoScreenshotUrl(value));
+  // The mount-time auto refresh races a manual upload: its capture can land
+  // seconds after the maker picked their own file and silently clobber it.
+  // Track the latest value so a finished auto capture only applies while the
+  // screenshot is still the auto one.
+  const latestValue = useRef(value);
+  useEffect(() => {
+    latestValue.current = value;
+  }, [value]);
 
   const uploadScreenshot = async (file: File | null) => {
     if (!file) return;
@@ -590,7 +598,18 @@ function ScreenshotUploadField({
       </div>
 
       {autoRefresh && wasAutoOnMount ? (
-        <AutoScreenshotCapture projectId={projectId} onCaptured={onChange} />
+        <AutoScreenshotCapture
+          projectId={projectId}
+          onCaptured={(url) => {
+            if (
+              latestValue.current &&
+              !isAutoScreenshotUrl(latestValue.current)
+            ) {
+              return;
+            }
+            onChange(url);
+          }}
+        />
       ) : null}
 
       {message ? (

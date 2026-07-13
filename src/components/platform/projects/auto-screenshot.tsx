@@ -11,6 +11,7 @@ import {
   ProjectCircuitPreview,
   type CircuitSnapshot,
 } from "@/components/gallery/ProjectCircuitPreview";
+import { cn } from "@/lib/utils";
 
 /**
  * Whether a stored screenshot URL is a circuit-generated one (stable
@@ -53,11 +54,16 @@ function useCircuitScreenshot(
 ) {
   const [circuit, setCircuit] = useState<CircuitSnapshot | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
+  // Which timeline step broke when phase is "failed": 1 = rendering/capture,
+  // 2 = upload. Lets the timeline point at the exact step instead of a
+  // generic error.
+  const [failedStep, setFailedStep] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const capturedRef = useRef(false);
 
   const begin = useCallback(async () => {
     setPhase("loading");
+    setFailedStep(null);
     capturedRef.current = false;
     try {
       const snapshot = await getCircuitSnapshotForScreenshot(projectId);
@@ -76,10 +82,12 @@ function useCircuitScreenshot(
     const container = containerRef.current;
     if (!container || capturedRef.current) return;
     capturedRef.current = true;
+    let step = 1;
     try {
       const blob = await domToBlob(container, { type: "image/png" });
       if (!blob) throw new Error("Empty capture");
       setPhase("uploading");
+      step = 2;
       const { uploadUrl, publicUrl } = await createProjectScreenshotUpload(
         projectId,
         "image/png",
@@ -95,6 +103,7 @@ function useCircuitScreenshot(
       setCircuit(null);
       onCaptured(publicUrl);
     } catch {
+      setFailedStep(step);
       setPhase("failed");
       setCircuit(null);
     }
@@ -118,7 +127,91 @@ function useCircuitScreenshot(
     </div>
   ) : null;
 
-  return { phase, begin, offscreen };
+  return { phase, failedStep, begin, offscreen };
+}
+
+const TIMELINE_STEPS = [
+  "Reading the saved circuit",
+  "Drawing the schematic",
+  "Uploading the image",
+  "Save changes to publish it to your GitHub README",
+];
+
+/**
+ * Compact step-by-step progress readout under the "Upload from Circuit"
+ * button, so the maker can see what the generator is doing and what comes
+ * next. The last step isn't automated from here: the image only syncs to
+ * GitHub after the form is saved.
+ */
+function ScreenshotTimeline({
+  phase,
+  failedStep,
+}: {
+  phase: Phase;
+  failedStep: number | null;
+}) {
+  if (
+    phase === "idle" ||
+    phase === "no-circuit" ||
+    (phase === "failed" && failedStep === null)
+  ) {
+    return null;
+  }
+  const activeIndex =
+    phase === "loading"
+      ? 0
+      : phase === "capturing"
+        ? 1
+        : phase === "uploading"
+          ? 2
+          : -1;
+  const doneBefore =
+    phase === "done" ? 3 : phase === "failed" ? (failedStep ?? 0) : activeIndex;
+
+  return (
+    <ol
+      aria-live="polite"
+      className="col-span-full grid gap-1.5 rounded-xl border border-black bg-white p-3"
+    >
+      {TIMELINE_STEPS.map((label, index) => {
+        const isFailed = phase === "failed" && index === failedStep;
+        const isDone = index < doneBefore;
+        const isActive = index === activeIndex;
+        const isNextAction = phase === "done" && index === 3;
+        return (
+          <li
+            key={label}
+            className={cn(
+              "flex items-center gap-2 text-xs font-bold",
+              isFailed
+                ? "text-[#BD0F32]"
+                : isDone || isActive || isNextAction
+                  ? "text-black"
+                  : "text-black/40",
+            )}
+          >
+            <span
+              className={cn(
+                "size-2 shrink-0 rounded-full",
+                isFailed
+                  ? "bg-[#BD0F32]"
+                  : isDone
+                    ? "bg-black"
+                    : isActive
+                      ? "animate-pulse bg-[#BD0F32]"
+                      : "border border-black/30",
+              )}
+            />
+            <span>
+              {label}
+              {isFailed ? " — failed, upload one manually instead" : ""}
+              {isActive ? "…" : ""}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
 }
 
 /**
@@ -187,7 +280,7 @@ export function GenerateScreenshotButton({
   projectId: number;
   onCaptured: (publicUrl: string) => void;
 }) {
-  const { phase, begin, offscreen } = useCircuitScreenshot(
+  const { phase, failedStep, begin, offscreen } = useCircuitScreenshot(
     projectId,
     onCaptured,
   );
@@ -209,12 +302,8 @@ export function GenerateScreenshotButton({
             ? "Generating..."
             : "Upload from Circuit"}
       </button>
-      {phase === "failed" ? (
-        <p className="text-xs font-bold text-[#BD0F32]" aria-live="polite">
-          We couldn't generate a screenshot from your circuit. Upload one
-          manually instead.
-        </p>
-      ) : phase === "no-circuit" ? (
+      <ScreenshotTimeline phase={phase} failedStep={failedStep} />
+      {phase === "no-circuit" ? (
         <p className="text-xs font-bold text-black/60" aria-live="polite">
           There's no saved circuit to draw yet. Add parts in the editor first,
           or upload a screenshot manually.

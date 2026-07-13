@@ -5,7 +5,7 @@ export function storageReadUrl(value: string) {
   try {
     const url = new URL(value);
     const publicBase = process.env.NEXT_PUBLIC_S3_PUBLIC_URL;
-    const fallbackHost = "silo.deployor.dev";
+    const fallbackHost = "onsilo.dev";
     if (publicBase && value.startsWith(publicBase.replace(/\/$/, "/"))) {
       return `/api/uploads/${value.slice(publicBase.replace(/\/$/, "/").length)}`;
     }

@@ -7,7 +7,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-const endpoint = process.env.S3_ENDPOINT ?? "https://silo.deployor.dev";
+const endpoint = process.env.S3_ENDPOINT ?? "https://onsilo.dev";
 const bucket = process.env.S3_BUCKET ?? "testing-breadboard";
 const publicBaseUrl =
   process.env.S3_PUBLIC_URL ?? `${endpoint.replace(/\/$/, "")}/${bucket}`;

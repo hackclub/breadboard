@@ -30,11 +30,6 @@ let heartbeatWarning = "";
 let snapshotWarning = "";
 let lastValidatedAt = 0;
 let lastSnapshotValidatedAt = 0;
-// Last time an editor snapshot was actually possible to take (tab focused +
-// visible). While capture is legitimately suspended — the user is working in
-// another window/app — this keeps advancing so returning to a focused editor
-// doesn't instantly trip the staleness check against a pre-blur timestamp.
-let lastSnapshotEligibleAt = 0;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let snapshotTimer: ReturnType<typeof setInterval> | null = null;
 let healthTimer: ReturnType<typeof setInterval> | null = null;
@@ -218,7 +213,6 @@ export async function startActivityTracking(
   heartbeatWarning = "";
   snapshotWarning = "";
   lastSnapshotValidatedAt = 0;
-  lastSnapshotEligibleAt = 0;
   const generation = ++trackingGeneration;
   const trackedProjectId = pid;
 
@@ -275,28 +269,16 @@ export async function startActivityTracking(
         "Time tracking has not saved for over a minute. Check your connection and retry before continuing.",
       );
     }
-    if (snapshotsEnabled && active) {
-      // Capture is legitimately suspended while the editor tab is blurred or
-      // hidden (the user is working in another window/app). That is not an
-      // error, so keep the eligibility clock current — the "over a minute"
-      // window should only start counting once the user is actually back on a
-      // focused editor tab and a fresh snapshot still hasn't landed.
-      if (!canCaptureEditorSnapshot()) {
-        lastSnapshotEligibleAt = now;
-      } else if (
-        !snapshotWarning &&
-        now -
-          Math.max(
-            lastSnapshotValidatedAt,
-            lastSnapshotEligibleAt,
-            trackingStartedAt,
-          ) >
-          HEARTBEAT_STALE_MS
-      ) {
-        snapshotWarning =
-          "Timelapse capture has not saved for over a minute. Time is still server-confirmed, but visual evidence needs attention.";
-        emit();
-      }
+    if (
+      snapshotsEnabled &&
+      active &&
+      canCaptureEditorSnapshot() &&
+      !snapshotWarning &&
+      now - (lastSnapshotValidatedAt || trackingStartedAt) > HEARTBEAT_STALE_MS
+    ) {
+      snapshotWarning =
+        "Timelapse capture has not saved for over a minute. Time is still server-confirmed, but visual evidence needs attention.";
+      emit();
     }
   }, HEALTH_CHECK_INTERVAL_MS);
 
@@ -561,7 +543,6 @@ export function stopActivityTracking() {
   hasConfirmedHeartbeat = false;
   lastValidatedAt = 0;
   lastSnapshotValidatedAt = 0;
-  lastSnapshotEligibleAt = 0;
   lastActivity = 0;
   emit(stoppedProjectId);
 }

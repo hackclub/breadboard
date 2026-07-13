@@ -69,6 +69,17 @@ const DESIGN_CHECKS: CheckItem[] = [
   },
 ];
 
+// The quality-bar checks a maker can skip by declaring the ship is only for
+// bread. The honesty checks (no AI, README) always stay required.
+const BREAD_ONLY_WAIVED_IDS = new Set([
+  "cool-input",
+  "cool-output",
+  "cool-sensors",
+  "real-purpose",
+  "makes-decision",
+  "unique-firmware",
+]);
+
 const BUILD_CHECKS: CheckItem[] = [
   {
     id: "photos",
@@ -91,17 +102,28 @@ const BUILD_CHECKS: CheckItem[] = [
 export function SubmitFinalCheck({
   kind,
   onAllConfirmedChange,
+  onBreadOnlyChange,
 }: {
   kind: "design" | "build";
   onAllConfirmedChange: (allConfirmed: boolean) => void;
+  onBreadOnlyChange?: (breadOnly: boolean) => void;
 }) {
   const items = kind === "build" ? BUILD_CHECKS : DESIGN_CHECKS;
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
-  const allConfirmed = items.every((item) => checked.has(item.id));
+  const [breadOnly, setBreadOnly] = useState(false);
+  const isWaived = (id: string) =>
+    kind === "design" && breadOnly && BREAD_ONLY_WAIVED_IDS.has(id);
+  const allConfirmed = items.every(
+    (item) => isWaived(item.id) || checked.has(item.id),
+  );
 
   useEffect(() => {
     onAllConfirmedChange(allConfirmed);
   }, [allConfirmed, onAllConfirmedChange]);
+
+  useEffect(() => {
+    onBreadOnlyChange?.(breadOnly);
+  }, [breadOnly, onBreadOnlyChange]);
 
   const toggle = (id: string) => {
     setChecked((prev) => {
@@ -129,34 +151,61 @@ export function SubmitFinalCheck({
             >
               requirements
             </Link>
-            . 95% of rejections are fixable in under 5 minutes, so save
-            yourself the round trip: tick each box only if it's honestly true
-            for your project.
+            . 95% of rejections are fixable in under 5 minutes, so save yourself
+            the round trip: tick each box only if it's honestly true for your
+            project.
           </p>
         </div>
       </div>
 
+      {kind === "design" ? (
+        <button
+          type="button"
+          aria-pressed={breadOnly}
+          onClick={() => setBreadOnly((value) => !value)}
+          className={cn(
+            "w-full rounded-[12px] border-2 border-black px-4 py-2.5 text-sm font-black shadow-[2px_2px_0_#000] transition",
+            breadOnly
+              ? "bg-black text-white"
+              : "bg-white text-black hover:bg-black hover:text-white",
+          )}
+        >
+          {breadOnly
+            ? "Never mind, I'm going for the full quality bar"
+            : "I'm only shipping this for bread"}
+        </button>
+      ) : null}
+
       <div className="grid gap-2">
         {items.map((item) => {
-          const isChecked = checked.has(item.id);
+          const waived = isWaived(item.id);
+          const isChecked = !waived && checked.has(item.id);
           return (
             <label
               key={item.id}
               className={cn(
-                "flex cursor-pointer items-start gap-3 rounded-[12px] border-2 p-3 transition",
-                isChecked
-                  ? "border-[#BD0F32] bg-[#fff5f7]"
-                  : "border-black bg-white hover:bg-zinc-50",
+                "flex items-start gap-3 rounded-[12px] border-2 p-3 transition",
+                waived
+                  ? "cursor-default border-black/20 bg-zinc-100 opacity-50"
+                  : isChecked
+                    ? "cursor-pointer border-[#BD0F32] bg-[#fff5f7]"
+                    : "cursor-pointer border-black bg-white hover:bg-zinc-50",
               )}
             >
               <input
                 type="checkbox"
                 checked={isChecked}
+                disabled={waived}
                 onChange={() => toggle(item.id)}
                 className="mt-0.5 size-4 shrink-0 accent-[#BD0F32]"
               />
               <span>
-                <span className="block text-sm font-black text-black">
+                <span
+                  className={cn(
+                    "block text-sm font-black text-black",
+                    waived && "line-through",
+                  )}
+                >
                   {item.title}
                 </span>
                 <span className="mt-0.5 block text-xs font-semibold text-black/55">

@@ -637,6 +637,9 @@ export function ShipProjectModal({
   // quality bar on /requirements before the real submit button unlocks.
   const [confirming, setConfirming] = useState(false);
   const [allConfirmed, setAllConfirmed] = useState(false);
+  // Set from the final check's "I'm only shipping this for bread" toggle;
+  // submitted with the form so reviewers and fulfillment see the choice.
+  const [breadOnly, setBreadOnly] = useState(false);
 
   const isEditor = mode === "editor";
   const state = isEditor ? editorState : externalState;
@@ -738,6 +741,7 @@ export function ShipProjectModal({
           <SubmitFinalCheck
             kind={confirmKind}
             onAllConfirmedChange={setAllConfirmed}
+            onBreadOnlyChange={setBreadOnly}
           />
           <ProjectActionMessage message={state.message} />
         </div>
@@ -746,112 +750,143 @@ export function ShipProjectModal({
       {/* The form stays mounted while the final check is showing so the
           footer's submit button can still target it. */}
       <div className={confirming ? "hidden" : undefined}>
-      <div className="mb-4 grid gap-2">
-        <p className="text-xs font-black uppercase tracking-[0.14em] text-black/50">
-          How did you make this project?
-        </p>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <label
-            className={cn(
-              "flex cursor-pointer items-center gap-3 rounded-[12px] border-2 p-4 transition",
-              isEditor
-                ? "border-[#BD0F32] bg-[#fff5f7]"
-                : "border-black bg-white hover:bg-zinc-50",
-            )}
-          >
-            <input
-              type="radio"
-              name="shipMode"
-              value="editor"
-              checked={isEditor}
-              onChange={() => switchMode("editor")}
-              className="size-4 accent-[#BD0F32]"
-            />
-            <div>
-              <p className="text-sm font-black text-black">Breadboard editor</p>
-              <p className="text-xs text-black/50">
-                I built the schematic and code in the online editor.
-              </p>
-            </div>
-          </label>
-          <label
-            className={cn(
-              "flex cursor-pointer items-center gap-3 rounded-[12px] border-2 p-4 transition",
-              !isEditor
-                ? "border-[#BD0F32] bg-[#fff5f7]"
-                : "border-black bg-white hover:bg-zinc-50",
-            )}
-          >
-            <input
-              type="radio"
-              name="shipMode"
-              value="external"
-              checked={!isEditor}
-              onChange={() => switchMode("external")}
-              className="size-4 accent-[#BD0F32]"
-            />
-            <div>
-              <p className="text-sm font-black text-black">External tool</p>
-              <p className="text-xs text-black/50">
-                KiCad, Eagle, Fritzing, EasyEDA, or anything else.
-              </p>
-            </div>
-          </label>
-        </div>
-        {!isEditor && hasEditorData ? (
-          <p className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-xs font-semibold text-zinc-600">
-            <HiInformationCircle className="size-3.5 shrink-0" />
-            You have tracked editor time. Switching to External tool will not
-            count it.
+        <div className="mb-4 grid gap-2">
+          <p className="text-xs font-black uppercase tracking-[0.14em] text-black/50">
+            How did you make this project?
           </p>
-        ) : null}
-        {/* No screenshot yet: generate one. Existing auto screenshot: re-render
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label
+              className={cn(
+                "flex cursor-pointer items-center gap-3 rounded-[12px] border-2 p-4 transition",
+                isEditor
+                  ? "border-[#BD0F32] bg-[#fff5f7]"
+                  : "border-black bg-white hover:bg-zinc-50",
+              )}
+            >
+              <input
+                type="radio"
+                name="shipMode"
+                value="editor"
+                checked={isEditor}
+                onChange={() => switchMode("editor")}
+                className="size-4 accent-[#BD0F32]"
+              />
+              <div>
+                <p className="text-sm font-black text-black">
+                  Breadboard editor
+                </p>
+                <p className="text-xs text-black/50">
+                  I built the schematic and code in the online editor.
+                </p>
+              </div>
+            </label>
+            <label
+              className={cn(
+                "flex cursor-pointer items-center gap-3 rounded-[12px] border-2 p-4 transition",
+                !isEditor
+                  ? "border-[#BD0F32] bg-[#fff5f7]"
+                  : "border-black bg-white hover:bg-zinc-50",
+              )}
+            >
+              <input
+                type="radio"
+                name="shipMode"
+                value="external"
+                checked={!isEditor}
+                onChange={() => switchMode("external")}
+                className="size-4 accent-[#BD0F32]"
+              />
+              <div>
+                <p className="text-sm font-black text-black">External tool</p>
+                <p className="text-xs text-black/50">
+                  KiCad, Eagle, Fritzing, EasyEDA, or anything else.
+                </p>
+              </div>
+            </label>
+          </div>
+          {!isEditor && hasEditorData ? (
+            <p className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-xs font-semibold text-zinc-600">
+              <HiInformationCircle className="size-3.5 shrink-0" />
+              You have tracked editor time. Switching to External tool will not
+              count it.
+            </p>
+          ) : null}
+          {/* No screenshot yet: generate one. Existing auto screenshot: re-render
             it from the latest circuit so the submission matches the project as
             it stands (manual uploads are never touched). */}
-        {!hasScreenshot || isAutoScreenshotUrl(screenshotUrl) ? (
-          <AutoScreenshotCapture
-            projectId={project.id}
-            onCaptured={(url) =>
-              setScreenshotUrl((prev) =>
-                !prev || isAutoScreenshotUrl(prev) ? url : prev,
-              )
-            }
-          />
-        ) : null}
-      </div>
+          {!hasScreenshot || isAutoScreenshotUrl(screenshotUrl) ? (
+            <AutoScreenshotCapture
+              projectId={project.id}
+              onCaptured={(url) =>
+                setScreenshotUrl((prev) =>
+                  !prev || isAutoScreenshotUrl(prev) ? url : prev,
+                )
+              }
+            />
+          ) : null}
+        </div>
 
-      {isEditor ? (
-        <form id={formId} action={editorAction} className="grid gap-4">
-          <input type="hidden" name="projectId" value={project.id} />
-          <input type="hidden" name="screenshotUrl" value={screenshotUrl} />
-          {editorBlocked ? (
-            <div className="grid gap-3 rounded-xl border border-[#BD0F32]/30 bg-[#fff5f7] p-4 text-sm font-bold text-black shadow-[2px_2px_0_#BD0F32]/15">
-              <p className="flex items-center gap-2 text-[#BD0F32]">
-                <HiInformationCircle className="size-4" />
-                <span className="font-black">
-                  Finish these before submitting. Or switch to External tool.
-                </span>
-              </p>
-              <div className="mt-1 grid gap-2">
+        {isEditor ? (
+          <form id={formId} action={editorAction} className="grid gap-4">
+            <input type="hidden" name="projectId" value={project.id} />
+            <input type="hidden" name="screenshotUrl" value={screenshotUrl} />
+            <input
+              type="hidden"
+              name="breadOnly"
+              value={breadOnly ? "true" : "false"}
+            />
+            {editorBlocked ? (
+              <div className="grid gap-3 rounded-xl border border-[#BD0F32]/30 bg-[#fff5f7] p-4 text-sm font-bold text-black shadow-[2px_2px_0_#BD0F32]/15">
+                <p className="flex items-center gap-2 text-[#BD0F32]">
+                  <HiInformationCircle className="size-4" />
+                  <span className="font-black">
+                    Finish these before submitting.
+                  </span>
+                </p>
+                <div className="mt-1 grid gap-2">
+                  <SubmitRequirement
+                    done={hasTitle}
+                    label="Project name is saved"
+                  />
+                  <SubmitRequirement
+                    done={hasDescription}
+                    label="Project description is saved"
+                  />
+                  <SubmitRequirement
+                    done={hasGitHubRepo}
+                    label="GitHub repo is published from the editor"
+                  />
+                  <SubmitRequirement
+                    done={hasHowToUse}
+                    label="How-to-use instructions are published"
+                  />
+                  <SubmitRequirement
+                    done={hasScreenshot}
+                    label="Screenshot is uploaded"
+                  />
+                  <SubmitRequirement
+                    done
+                    label="Hack Club Auth address is valid"
+                  />
+                  <SubmitRequirement
+                    done={hasJournals}
+                    label="Write at least one journal entry in the editor"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="grid gap-3 rounded-xl border border-black bg-[#f4f4f4] p-4 text-sm font-bold text-black">
+                <SubmitRequirement done label="Project name is saved" />
+                <SubmitRequirement done label="Project description is saved" />
                 <SubmitRequirement
-                  done={hasTitle}
-                  label="Project name is saved"
-                />
-                <SubmitRequirement
-                  done={hasDescription}
-                  label="Project description is saved"
-                />
-                <SubmitRequirement
-                  done={hasGitHubRepo}
-                  label="GitHub repo is published from the editor"
-                />
-                <SubmitRequirement
-                  done={hasHowToUse}
+                  done
                   label="How-to-use instructions are published"
                 />
+                <SubmitRequirement done label="Screenshot is uploaded" />
+                <SubmitRequirement done label="GitHub repo is published" />
                 <SubmitRequirement
-                  done={hasScreenshot}
-                  label="Screenshot is uploaded"
+                  done
+                  label={`Demo share link: /share/${project.id}`}
                 />
                 <SubmitRequirement
                   done
@@ -862,264 +897,257 @@ export function ShipProjectModal({
                   label="Write at least one journal entry in the editor"
                 />
               </div>
-            </div>
-          ) : (
-            <div className="grid gap-3 rounded-xl border border-black bg-[#f4f4f4] p-4 text-sm font-bold text-black">
-              <SubmitRequirement done label="Project name is saved" />
-              <SubmitRequirement done label="Project description is saved" />
-              <SubmitRequirement
-                done
-                label="How-to-use instructions are published"
-              />
-              <SubmitRequirement done label="Screenshot is uploaded" />
-              <SubmitRequirement done label="GitHub repo is published" />
-              <SubmitRequirement
-                done
-                label={`Demo share link: /share/${project.id}`}
-              />
-              <SubmitRequirement done label="Hack Club Auth address is valid" />
-              <SubmitRequirement
-                done={hasJournals}
-                label="Write at least one journal entry in the editor"
-              />
-            </div>
-          )}
-          <ProjectActionMessage message={state.message} />
-        </form>
-      ) : (
-        <form id={formId} action={externalAction} className="grid gap-4">
-          <input type="hidden" name="projectId" value={project.id} />
-          <input type="hidden" name="screenshotUrl" value={screenshotUrl} />
-
-          {!hasScreenshot ? (
-            <div className="flex items-start gap-2 rounded-xl border border-[#BD0F32]/30 bg-[#fff5f7] p-3 text-sm text-[#BD0F32] shadow-[2px_2px_0_#BD0F32]/15">
-              <HiInformationCircle className="mt-0.5 size-4 shrink-0" />
-              <span className="font-black">
-                Upload a screenshot before submitting.
-              </span>
-            </div>
-          ) : null}
-
-          <FormField label="Git repository URL" id={`custom-git-${project.id}`}>
-            <Input
-              id={`custom-git-${project.id}`}
-              name="gitUrl"
-              required
-              autoFocus
-              placeholder="https://github.com/your-username/your-project"
-              className="px-4 py-3 font-mono text-sm"
+            )}
+            <ProjectActionMessage message={state.message} />
+          </form>
+        ) : (
+          <form id={formId} action={externalAction} className="grid gap-4">
+            <input type="hidden" name="projectId" value={project.id} />
+            <input type="hidden" name="screenshotUrl" value={screenshotUrl} />
+            <input
+              type="hidden"
+              name="breadOnly"
+              value={breadOnly ? "true" : "false"}
             />
-            <p className="mt-1.5 text-xs font-bold text-black/40">
-              Must be a public repo with your schematic, code, README, and bill
-              of materials. We'll check everything manually.
-            </p>
-            <div className="mt-3 flex items-start gap-1.5 rounded-lg border border-[#BD0F32]/20 bg-[#fff5f7] p-2.5 text-xs text-black/70">
-              <HiInformationCircle className="mt-0.5 size-3.5 shrink-0 text-[#BD0F32]" />
-              <div>
-                <p className="font-black">
-                  Your repo must have a{" "}
-                  <span className="text-[#BD0F32]">README.md</span> and{" "}
-                  <span className="text-[#BD0F32]">journal.md</span>.
-                </p>
-                <p className="mt-0.5">
-                  Even with external tools, you need to journal your build
-                  process. We check these files before accepting your
-                  submission.
-                </p>
+
+            {!hasScreenshot ? (
+              <div className="flex items-start gap-2 rounded-xl border border-[#BD0F32]/30 bg-[#fff5f7] p-3 text-sm text-[#BD0F32] shadow-[2px_2px_0_#BD0F32]/15">
+                <HiInformationCircle className="mt-0.5 size-4 shrink-0" />
+                <span className="font-black">
+                  Upload a screenshot before submitting.
+                </span>
               </div>
-            </div>
-          </FormField>
+            ) : null}
 
-          <ScreenshotUploadField
-            projectId={project.id}
-            value={screenshotUrl}
-            onChange={setScreenshotUrl}
-          />
-
-          <div className="grid gap-1.5">
-            <label
-              htmlFor={`custom-hours-${project.id}`}
-              className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-black/45"
+            <FormField
+              label="Git repository URL"
+              id={`custom-git-${project.id}`}
             >
-              <HiClock className="size-3.5" />
-              Hours spent
-            </label>
-            <div className="flex items-center gap-2">
               <Input
-                id={`custom-hours-${project.id}`}
-                name="hoursSpent"
-                type="number"
-                min={0}
-                max={999}
-                defaultValue={0}
+                id={`custom-git-${project.id}`}
+                name="gitUrl"
                 required
-                className="w-28 px-4 py-3 text-xl font-black"
+                autoFocus
+                placeholder="https://github.com/your-username/your-project"
+                className="px-4 py-3 font-mono text-sm"
               />
-              <span className="text-sm font-black text-black/50">hours</span>
-            </div>
-            <div className="mt-1 flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
-              <HiInformationCircle className="mt-0.5 size-3.5 shrink-0" />
-              <div>
-                <p className="font-black">
-                  We verify all hours. Be honest with your time.
-                </p>
-                <p className="mt-0.5">
-                  We recommend tracking with{" "}
-                  <span className="font-black">Hackatime</span> or{" "}
-                  <span className="font-black">Lapse</span>. Untracked hours may
-                  be adjusted during review.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <fieldset className="rounded-xl border border-black bg-white p-4 shadow-[2px_2px_0_#000]">
-            <legend className="mb-3 text-xs font-black uppercase tracking-[0.14em] text-black/45">
-              Your info
-            </legend>
-            <div className="grid gap-3">
-              <div className="grid gap-2 sm:grid-cols-2">
-                <FormField label="Email" id={`custom-email-${project.id}`}>
-                  <Input
-                    id={`custom-email-${project.id}`}
-                    name="email"
-                    type="email"
-                    defaultValue={project.email}
-                    required
-                    placeholder="you@example.com"
-                    className="px-3 py-2 text-sm"
-                  />
-                </FormField>
-                <FormField
-                  label="Birthday"
-                  id={`custom-birthday-${project.id}`}
-                >
-                  <Input
-                    id={`custom-birthday-${project.id}`}
-                    name="birthday"
-                    defaultValue={project.birthday}
-                    required
-                    placeholder="YYYY-MM-DD"
-                    className="px-3 py-2 text-sm"
-                  />
-                </FormField>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <FormField label="First name" id={`custom-first-${project.id}`}>
-                  <Input
-                    id={`custom-first-${project.id}`}
-                    name="firstName"
-                    defaultValue={project.firstName}
-                    required
-                    className="px-3 py-2 text-sm"
-                  />
-                </FormField>
-                <FormField label="Last name" id={`custom-last-${project.id}`}>
-                  <Input
-                    id={`custom-last-${project.id}`}
-                    name="lastName"
-                    defaultValue={project.lastName}
-                    required
-                    className="px-3 py-2 text-sm"
-                  />
-                </FormField>
-              </div>
-              <hr className="border-black/10" />
-              <p className="text-[10px] font-black uppercase tracking-[0.14em] text-black/35">
-                Shipping address
+              <p className="mt-1.5 text-xs font-bold text-black/40">
+                Must be a public repo with your schematic, code, README, and
+                bill of materials. We'll check everything manually.
               </p>
-              <FormField label="Address" id={`custom-addr1-${project.id}`}>
-                <Input
-                  id={`custom-addr1-${project.id}`}
-                  name="addressLine1"
-                  defaultValue={project.addressLine1}
-                  required
-                  placeholder="123 Main St"
-                  className="px-3 py-2 text-sm"
-                />
-              </FormField>
-              <FormField
-                label="Address line 2"
-                id={`custom-addr2-${project.id}`}
-              >
-                <Input
-                  id={`custom-addr2-${project.id}`}
-                  name="addressLine2"
-                  defaultValue={project.addressLine2}
-                  placeholder="Apt 4B"
-                  className="px-3 py-2 text-sm"
-                />
-              </FormField>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <FormField label="City" id={`custom-city-${project.id}`}>
-                  <Input
-                    id={`custom-city-${project.id}`}
-                    name="city"
-                    defaultValue={project.city}
-                    required
-                    className="px-3 py-2 text-sm"
-                  />
-                </FormField>
-                <FormField
-                  label="State / Province"
-                  id={`custom-region-${project.id}`}
-                >
-                  <Input
-                    id={`custom-region-${project.id}`}
-                    name="region"
-                    defaultValue={project.region}
-                    required
-                    className="px-3 py-2 text-sm"
-                  />
-                </FormField>
+              <div className="mt-3 flex items-start gap-1.5 rounded-lg border border-[#BD0F32]/20 bg-[#fff5f7] p-2.5 text-xs text-black/70">
+                <HiInformationCircle className="mt-0.5 size-3.5 shrink-0 text-[#BD0F32]" />
+                <div>
+                  <p className="font-black">
+                    Your repo must have a{" "}
+                    <span className="text-[#BD0F32]">README.md</span> and{" "}
+                    <span className="text-[#BD0F32]">journal.md</span>.
+                  </p>
+                  <p className="mt-0.5">
+                    Even with external tools, you need to journal your build
+                    process. We check these files before accepting your
+                    submission.
+                  </p>
+                </div>
               </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <FormField label="Country" id={`custom-country-${project.id}`}>
-                  <Input
-                    id={`custom-country-${project.id}`}
-                    name="country"
-                    defaultValue={project.country}
-                    required
-                    className="px-3 py-2 text-sm"
-                  />
-                </FormField>
-                <FormField
-                  label="ZIP / Postal code"
-                  id={`custom-zip-${project.id}`}
-                >
-                  <Input
-                    id={`custom-zip-${project.id}`}
-                    name="postalCode"
-                    defaultValue={project.postalCode}
-                    required
-                    className="px-3 py-2 text-sm"
-                  />
-                </FormField>
+            </FormField>
+
+            <ScreenshotUploadField
+              projectId={project.id}
+              value={screenshotUrl}
+              onChange={setScreenshotUrl}
+            />
+
+            <div className="grid gap-1.5">
+              <label
+                htmlFor={`custom-hours-${project.id}`}
+                className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-black/45"
+              >
+                <HiClock className="size-3.5" />
+                Hours spent
+              </label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id={`custom-hours-${project.id}`}
+                  name="hoursSpent"
+                  type="number"
+                  min={0}
+                  max={999}
+                  defaultValue={0}
+                  required
+                  className="w-28 px-4 py-3 text-xl font-black"
+                />
+                <span className="text-sm font-black text-black/50">hours</span>
+              </div>
+              <div className="mt-1 flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-800">
+                <HiInformationCircle className="mt-0.5 size-3.5 shrink-0" />
+                <div>
+                  <p className="font-black">
+                    We verify all hours. Be honest with your time.
+                  </p>
+                  <p className="mt-0.5">
+                    We recommend tracking with{" "}
+                    <span className="font-black">Hackatime</span> or{" "}
+                    <span className="font-black">Lapse</span>. Untracked hours
+                    may be adjusted during review.
+                  </p>
+                </div>
               </div>
             </div>
-          </fieldset>
 
-          <div className="rounded-xl border border-black/15 bg-zinc-50 p-4 text-sm text-black/60 shadow-[2px_2px_0_#000]/5">
-            <p className="font-black text-black">What happens next?</p>
-            <ol className="mt-2 ml-4 list-decimal space-y-1 text-xs font-semibold">
-              <li>
-                A reviewer checks your build: repo, photos of the finished
-                circuit, and a demo video of it working.
-              </li>
-              <li>
-                If approved, you earn gold bread for your hours. No kit ships —
-                you already built it.
-              </li>
-            </ol>
-            <p className="mt-3 flex items-center gap-1.5 font-black text-black">
-              <HiCodeBracket className="size-3.5" />
-              Reminder: Everything must be in a public git repo.
-            </p>
-          </div>
+            <fieldset className="rounded-xl border border-black bg-white p-4 shadow-[2px_2px_0_#000]">
+              <legend className="mb-3 text-xs font-black uppercase tracking-[0.14em] text-black/45">
+                Your info
+              </legend>
+              <div className="grid gap-3">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <FormField label="Email" id={`custom-email-${project.id}`}>
+                    <Input
+                      id={`custom-email-${project.id}`}
+                      name="email"
+                      type="email"
+                      defaultValue={project.email}
+                      required
+                      placeholder="you@example.com"
+                      className="px-3 py-2 text-sm"
+                    />
+                  </FormField>
+                  <FormField
+                    label="Birthday"
+                    id={`custom-birthday-${project.id}`}
+                  >
+                    <Input
+                      id={`custom-birthday-${project.id}`}
+                      name="birthday"
+                      defaultValue={project.birthday}
+                      required
+                      placeholder="YYYY-MM-DD"
+                      className="px-3 py-2 text-sm"
+                    />
+                  </FormField>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <FormField
+                    label="First name"
+                    id={`custom-first-${project.id}`}
+                  >
+                    <Input
+                      id={`custom-first-${project.id}`}
+                      name="firstName"
+                      defaultValue={project.firstName}
+                      required
+                      className="px-3 py-2 text-sm"
+                    />
+                  </FormField>
+                  <FormField label="Last name" id={`custom-last-${project.id}`}>
+                    <Input
+                      id={`custom-last-${project.id}`}
+                      name="lastName"
+                      defaultValue={project.lastName}
+                      required
+                      className="px-3 py-2 text-sm"
+                    />
+                  </FormField>
+                </div>
+                <hr className="border-black/10" />
+                <p className="text-[10px] font-black uppercase tracking-[0.14em] text-black/35">
+                  Shipping address
+                </p>
+                <FormField label="Address" id={`custom-addr1-${project.id}`}>
+                  <Input
+                    id={`custom-addr1-${project.id}`}
+                    name="addressLine1"
+                    defaultValue={project.addressLine1}
+                    required
+                    placeholder="123 Main St"
+                    className="px-3 py-2 text-sm"
+                  />
+                </FormField>
+                <FormField
+                  label="Address line 2"
+                  id={`custom-addr2-${project.id}`}
+                >
+                  <Input
+                    id={`custom-addr2-${project.id}`}
+                    name="addressLine2"
+                    defaultValue={project.addressLine2}
+                    placeholder="Apt 4B"
+                    className="px-3 py-2 text-sm"
+                  />
+                </FormField>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <FormField label="City" id={`custom-city-${project.id}`}>
+                    <Input
+                      id={`custom-city-${project.id}`}
+                      name="city"
+                      defaultValue={project.city}
+                      required
+                      className="px-3 py-2 text-sm"
+                    />
+                  </FormField>
+                  <FormField
+                    label="State / Province"
+                    id={`custom-region-${project.id}`}
+                  >
+                    <Input
+                      id={`custom-region-${project.id}`}
+                      name="region"
+                      defaultValue={project.region}
+                      required
+                      className="px-3 py-2 text-sm"
+                    />
+                  </FormField>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <FormField
+                    label="Country"
+                    id={`custom-country-${project.id}`}
+                  >
+                    <Input
+                      id={`custom-country-${project.id}`}
+                      name="country"
+                      defaultValue={project.country}
+                      required
+                      className="px-3 py-2 text-sm"
+                    />
+                  </FormField>
+                  <FormField
+                    label="ZIP / Postal code"
+                    id={`custom-zip-${project.id}`}
+                  >
+                    <Input
+                      id={`custom-zip-${project.id}`}
+                      name="postalCode"
+                      defaultValue={project.postalCode}
+                      required
+                      className="px-3 py-2 text-sm"
+                    />
+                  </FormField>
+                </div>
+              </div>
+            </fieldset>
 
-          <ProjectActionMessage message={state.message} />
-        </form>
-      )}
+            <div className="rounded-xl border border-black/15 bg-zinc-50 p-4 text-sm text-black/60 shadow-[2px_2px_0_#000]/5">
+              <p className="font-black text-black">What happens next?</p>
+              <ol className="mt-2 ml-4 list-decimal space-y-1 text-xs font-semibold">
+                <li>
+                  A reviewer checks your build: repo, photos of the finished
+                  circuit, and a demo video of it working.
+                </li>
+                <li>
+                  If approved, you earn gold bread for your hours. No kit ships
+                  — you already built it.
+                </li>
+              </ol>
+              <p className="mt-3 flex items-center gap-1.5 font-black text-black">
+                <HiCodeBracket className="size-3.5" />
+                Reminder: Everything must be in a public git repo.
+              </p>
+            </div>
+
+            <ProjectActionMessage message={state.message} />
+          </form>
+        )}
       </div>
     </Modal>
   );

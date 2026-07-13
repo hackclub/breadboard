@@ -65,6 +65,7 @@ const shipProjectSchema = z.object({
     .trim()
     .min(1, "Screenshot URL is required")
     .max(2048),
+  breadOnly: z.string().max(8).default(""),
 });
 
 function hasMinimumWords(value: string, minimum: number) {
@@ -408,11 +409,13 @@ export async function shipProjectFromForm(
 
     const parsed = shipProjectSchema.parse({
       screenshotUrl: formData.get("screenshotUrl"),
+      breadOnly: formData.get("breadOnly") ?? "",
     });
     const session = await requireSession();
     const claims = await assertHackClubYswsEligible(session.user.id);
     const data = shippingFromClaims(session, claims);
     data.screenshotUrl = parsed.screenshotUrl;
+    data.breadOnly = parsed.breadOnly === "true";
     const [project] = await db
       .select({ codeUrl: projects.codeUrl, howToUse: projects.howToUse })
       .from(projects)
@@ -482,6 +485,7 @@ const customShipSchema = z.object({
     .min(0, "Hours must be at least 0")
     .max(999, "Hours seems unreasonably high"),
   screenshotUrl: z.string().trim().min(1, "Screenshot is required").max(2048),
+  breadOnly: z.string().max(8).default(""),
   email: z.string().trim().email().optional(),
   addressLine1: z.string().trim().optional(),
   addressLine2: z.string().trim().optional(),
@@ -524,6 +528,7 @@ export async function submitCustomProjectFromForm(
       gitUrl: formData.get("gitUrl"),
       hoursSpent: formData.get("hoursSpent"),
       screenshotUrl: formData.get("screenshotUrl"),
+      breadOnly: formData.get("breadOnly") ?? "",
       email: formData.get("email"),
       addressLine1: formData.get("addressLine1"),
       addressLine2: formData.get("addressLine2"),
@@ -542,6 +547,7 @@ export async function submitCustomProjectFromForm(
       gitUrl: parsed.gitUrl,
       screenshotUrl: parsed.screenshotUrl,
       hoursSpent: parsed.hoursSpent,
+      breadOnly: parsed.breadOnly === "true",
       email: orEmpty(parsed.email) || shipping.email,
       addressLine1: orEmpty(parsed.addressLine1) || shipping.addressLine1,
       addressLine2: orEmpty(parsed.addressLine2) || shipping.addressLine2,
@@ -1114,6 +1120,7 @@ const externalSubmitSchema = z.object({
   projectId: z.coerce.number().int().positive(),
   gitUrl: customShipSchema.shape.gitUrl,
   screenshotUrl: customShipSchema.shape.screenshotUrl,
+  breadOnly: customShipSchema.shape.breadOnly,
 });
 
 export async function submitExternalProjectFromForm(
@@ -1128,6 +1135,7 @@ export async function submitExternalProjectFromForm(
       projectId: formData.get("projectId"),
       gitUrl: formData.get("gitUrl"),
       screenshotUrl: formData.get("screenshotUrl"),
+      breadOnly: formData.get("breadOnly") ?? "",
     });
     const session = await requireSession();
     const claims = await assertHackClubYswsEligible(session.user.id);
@@ -1164,6 +1172,7 @@ export async function submitExternalProjectFromForm(
       gitUrl: parsed.gitUrl,
       screenshotUrl: parsed.screenshotUrl,
       hoursSpent,
+      breadOnly: parsed.breadOnly === "true",
       email: shipping.email,
       addressLine1: shipping.addressLine1,
       addressLine2: shipping.addressLine2,

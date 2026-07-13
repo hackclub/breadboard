@@ -68,6 +68,7 @@ type ReviewProject = {
   userId: string;
   kitType: string;
   submissionSource: string | null;
+  breadOnly: boolean;
   projectType: string;
 };
 
@@ -421,6 +422,12 @@ export function ReviewWorkspace({
                 <span className="inline-flex items-center gap-1 rounded-full border-2 border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-black text-amber-700 uppercase">
                   <HiWrenchScrewdriver className="size-3.5" />
                   External tool
+                </span>
+              ) : null}
+              {initial.breadOnly ? (
+                <span className="inline-flex items-center gap-1 rounded-full border-2 border-amber-400 bg-amber-100 px-3 py-1.5 text-xs font-black text-amber-800 uppercase">
+                  <BreadIcon size="sm" />
+                  Bread only
                 </span>
               ) : null}
               <span className="inline-flex items-center gap-1.5 rounded-full border-2 border-black bg-black px-3 py-1.5 text-xs font-black text-white uppercase">
@@ -812,6 +819,25 @@ export function ReviewWorkspace({
             </div>
           </div>
         </section>
+
+        {initial.breadOnly ? (
+          <section className="rounded-[16px] border border-amber-400 bg-amber-100 p-4 shadow-[2px_2px_0_#000]/10">
+            <div className="flex items-start gap-2">
+              <HiExclamationTriangle className="mt-0.5 size-5 shrink-0 text-amber-700" />
+              <div>
+                <h3 className="text-sm font-black text-amber-900">
+                  Shipping for bread only
+                </h3>
+                <p className="mt-1.5 text-xs font-semibold text-amber-800/80">
+                  The maker declared at submit time that this ship is only for
+                  bread and waived the cool-project quality bar (inputs,
+                  outputs, sensors, purpose, decision-making, unique firmware).
+                  Review the hours and honesty requirements as usual.
+                </p>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         {initial.submissionSource === "manual" ? (
           <section className="rounded-[16px] border border-amber-200 bg-amber-50 p-4 shadow-[2px_2px_0_#000]/10">

@@ -56,6 +56,9 @@ export type ShipInput = {
   birthday: string;
   firstName: string;
   lastName: string;
+  // Optional so PlatformProject rows (which extend this) don't need it: the
+  // flag lives on submissions, not projects.
+  breadOnly?: boolean;
 };
 
 export type DemoInput = {
@@ -67,6 +70,7 @@ export type CustomShipInput = {
   gitUrl: string;
   screenshotUrl: string;
   hoursSpent: number;
+  breadOnly?: boolean;
   email: string;
   addressLine1: string;
   addressLine2: string;

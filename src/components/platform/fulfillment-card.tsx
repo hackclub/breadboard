@@ -59,10 +59,12 @@ export function FulfillmentCard({
   order,
   items,
   kitType,
+  breadOnly = false,
 }: {
   order: FulfillmentOrder;
   items: FulfillmentItem[];
   kitType: string | null;
+  breadOnly?: boolean;
 }) {
   const router = useRouter();
   const [checked, setChecked] = useState<Record<number, boolean>>({});
@@ -118,6 +120,11 @@ export function FulfillmentCard({
               {order.projectId ? (
                 <span className="rounded-full border border-black/10 bg-white px-3 py-1 text-xs font-black text-black/55 uppercase">
                   Project #{order.projectId}
+                </span>
+              ) : null}
+              {breadOnly ? (
+                <span className="rounded-full border border-amber-500 bg-amber-100 px-3 py-1 text-xs font-black text-amber-800 uppercase">
+                  Shipped for bread only
                 </span>
               ) : null}
             </div>

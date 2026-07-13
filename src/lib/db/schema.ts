@@ -808,6 +808,10 @@ export const projectSubmissions = pgTable(
     internalNote: text("internal_note").notNull().default(""),
     userComment: text("user_comment").notNull().default(""),
     breadAmount: integer("bread_amount").notNull().default(0),
+    // Maker opted out of the cool-project quality bar at submit time: they
+    // want bread for the hours, not a kit-worthy showcase. Reviewers and
+    // fulfillment surface this.
+    breadOnly: boolean("bread_only").notNull().default(false),
     submissionSource: text("submission_source").notNull().default("editor"),
     submittedAt: timestamp("submitted_at", { withTimezone: true })
       .notNull()

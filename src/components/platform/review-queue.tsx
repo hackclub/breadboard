@@ -20,6 +20,7 @@ type ReviewProject = {
   status: string;
   submissionType: string;
   submissionSource?: string | null;
+  breadOnly?: boolean;
   shippedAt: Date | null;
   userEmail: string;
   versionCount: number;
@@ -168,6 +169,11 @@ export function ReviewQueue({ projects }: { projects: ReviewProject[] }) {
                   >
                     {statusLabel(project.status)} #{project.submissionNumber}
                   </Badge>
+                  {project.breadOnly ? (
+                    <Badge tone="yellow" className="shrink-0 text-[10px]">
+                      bread only
+                    </Badge>
+                  ) : null}
                   <span className="text-xs text-black/50">
                     {project.hoursSpent}h
                   </span>

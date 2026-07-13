@@ -1,0 +1,1 @@
+ALTER TABLE "project_submissions" ADD COLUMN "bread_only" boolean DEFAULT false NOT NULL;

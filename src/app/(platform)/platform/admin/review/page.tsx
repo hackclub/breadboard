@@ -43,6 +43,7 @@ export default async function AdminReviewPage() {
       status: projectSubmissions.status,
       submissionType: projectSubmissions.type,
       submissionSource: projectSubmissions.submissionSource,
+      breadOnly: projectSubmissions.breadOnly,
       shippedAt: projectSubmissions.submittedAt,
       userEmail: user.email,
       kitType: projects.kitType,

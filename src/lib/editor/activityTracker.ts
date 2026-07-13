@@ -246,7 +246,7 @@ export async function startActivityTracking(
           void storeSnapshot(trackedProjectId, sessionId, state, generation);
         } catch {
           snapshotWarning =
-            "Timelapse capture could not be prepared. Time is still server-confirmed, but this work may be missing visual evidence.";
+            "We couldn't capture a snapshot of your editor. Your time is still being counted, but this stretch may be missing from your project timelapse.";
           emit();
         }
       }

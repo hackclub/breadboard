@@ -44,6 +44,7 @@
     "kysely": "^0.29.2",
     "littlefs": "^0.1.0",
     "lucide-react": "^0.460.0",
+    "modern-screenshot": "^4.7.0",
     "monaco-editor": "0.55.1",
     "motion": "^12.40.0",
     "next": "^16.2.9",

@@ -34,8 +34,10 @@ const ProjectCircuitCanvas = dynamic(
  * saved editor canvas. */
 export function ProjectCircuitPreview({
   circuit,
+  onReady,
 }: {
   circuit: CircuitSnapshot;
+  onReady?: () => void;
 }) {
-  return <ProjectCircuitCanvas circuit={circuit} />;
+  return <ProjectCircuitCanvas circuit={circuit} onReady={onReady} />;
 }

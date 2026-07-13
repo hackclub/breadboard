@@ -315,8 +315,12 @@ function WireOverlay({ wires }: { wires: CircuitSnapshot["wires"] }) {
 
 export default function ProjectCircuitCanvas({
   circuit,
+  onReady,
 }: {
   circuit: CircuitSnapshot;
+  /** Fires once the circuit has been measured, scaled, and painted — the
+   * point where a screenshot of the container is faithful. */
+  onReady?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
@@ -403,6 +407,22 @@ export default function ProjectCircuitCanvas({
       alive = false;
     };
   }, [circuit]);
+
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+  const readyFiredRef = useRef(false);
+  useEffect(() => {
+    if (!bounds || !containerSize || readyFiredRef.current) return;
+    // Two frames: one for React to commit the final transform, one for the
+    // browser to paint it.
+    let raf = requestAnimationFrame(() => {
+      raf = requestAnimationFrame(() => {
+        readyFiredRef.current = true;
+        onReadyRef.current?.();
+      });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [bounds, containerSize]);
 
   const PAD = 20;
   let worldStyle: React.CSSProperties = { visibility: "hidden" };

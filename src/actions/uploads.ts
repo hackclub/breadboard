@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { requireAdminSession, requireSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import { projects } from "@/lib/db/schema";
+import { parseCircuitSnapshot } from "@/lib/projects/circuit-snapshot";
 import { createPresignedPutUrl } from "@/lib/storage/s3";
 import {
   createUploadToken,
@@ -43,6 +44,7 @@ async function assertProjectOwned(projectId: number, userId: string) {
 export async function createProjectScreenshotUpload(
   projectId: number,
   contentType: string,
+  options?: { auto?: boolean },
 ) {
   const session = await requireSession();
   const id = Number(projectId);
@@ -53,7 +55,13 @@ export async function createProjectScreenshotUpload(
   const extension = imageContentTypes.get(safeContentType);
   if (!extension) throw new Error("Upload a PNG, JPEG, or WebP image.");
 
-  const key = `project-screenshots/${session.user.id}/${id}/${randomUUID()}.${extension}`;
+  // Circuit-generated screenshots live at one stable key per project, so
+  // every regeneration overwrites the last and the stored URL keeps pointing
+  // at the freshest render. The "/auto.png" suffix is also how the client
+  // recognizes an auto screenshot to refresh (isAutoScreenshotUrl).
+  const key = options?.auto
+    ? `project-screenshots/${session.user.id}/${id}/auto.png`
+    : `project-screenshots/${session.user.id}/${id}/${randomUUID()}.${extension}`;
   return signedUploadUrls(key, safeContentType);
 }
 
@@ -66,6 +74,24 @@ export async function createExternalScreenshotUpload(contentType: string) {
 
   const key = `project-screenshots/${session.user.id}/external/${randomUUID()}.${extension}`;
   return signedUploadUrls(key, safeContentType);
+}
+
+// The submit flow auto-generates a screenshot when the maker never uploaded
+// one: the client renders this snapshot with the same preview canvas the
+// gallery uses, rasterizes it, and uploads the PNG. Null means there is no
+// circuit to draw (external project or empty editor).
+export async function getCircuitSnapshotForScreenshot(projectId: number) {
+  const session = await requireSession();
+  const id = Number(projectId);
+  if (!Number.isInteger(id) || id < 1) throw new Error("Invalid project");
+
+  const [project] = await db
+    .select({ editorData: projects.editorData })
+    .from(projects)
+    .where(and(eq(projects.id, id), eq(projects.userId, session.user.id)))
+    .limit(1);
+  if (!project) throw new Error("Project not found");
+  return parseCircuitSnapshot(project.editorData);
 }
 
 export async function createProjectDemoVideoUpload(

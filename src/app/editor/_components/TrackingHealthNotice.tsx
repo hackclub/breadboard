@@ -132,17 +132,13 @@ export function TrackingHealthNotice({ projectId }: { projectId: number }) {
         <div className="flex items-start gap-3">
           <MonitorUp className="mt-0.5 size-5 shrink-0 text-[#BD0F32]" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-black">Time isn't saving right now</p>
+            <p className="text-sm font-black">Time is not being saved</p>
             <p className="mt-1 text-xs font-semibold leading-relaxed text-[#aaa]">
               {issue.reason}
             </p>
             <p className="mt-2 text-xs font-semibold text-[#888]">
               {lastSavedLabel(issue.lastValidatedAt)} Confirmed total:{" "}
               {formatDuration(issue.totalTrackedSeconds)}.
-            </p>
-            <p className="mt-2 text-xs font-semibold text-[#888]">
-              We keep retrying automatically — you don't need to do anything.
-              Time resumes saving on its own once the connection is back.
             </p>
             <button
               type="button"

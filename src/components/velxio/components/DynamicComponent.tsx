@@ -448,7 +448,41 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
     elementRef.current = element;
     mountedRef.current = true;
 
+    // Make the hitbox match the drawing. HTML boxes hit-test across their
+    // whole rect, so the wrapper used to grab clicks anywhere in the part's
+    // (mostly transparent) bounding box — LED svgs for example reserve wide
+    // margins for the glow filter. The wrapper sets pointer-events:none,
+    // which inherits all the way into the shadow DOM; this injected sheet
+    // re-enables hit-testing on painted SVG shapes only (plus the HTML
+    // <canvas> screens that displays like the SSD1306 use), so the clickable
+    // area is exactly the visible artwork. Events from shadow content still
+    // bubble through the wrapper, so its capture-phase mousedown / hover /
+    // dblclick handlers keep working. Lit elements attach their shadow root
+    // on the first (async) render, hence the retry loop.
+    let hitboxTimer = 0;
+    const injectHitboxStyle = (tries: number) => {
+      const root = element.shadowRoot;
+      if (root) {
+        if (!root.querySelector("style[data-painted-hitbox]")) {
+          const style = document.createElement("style");
+          style.setAttribute("data-painted-hitbox", "");
+          style.textContent =
+            "svg * { pointer-events: visiblePainted; } canvas, img { pointer-events: auto; }";
+          root.appendChild(style);
+        }
+        return;
+      }
+      if (tries < 20) {
+        hitboxTimer = window.setTimeout(
+          () => injectHitboxStyle(tries + 1),
+          100,
+        );
+      }
+    };
+    injectHitboxStyle(0);
+
     return () => {
+      if (hitboxTimer) window.clearTimeout(hitboxTimer);
       if (containerRef.current && element.parentNode === containerRef.current) {
         containerRef.current.removeChild(element);
       }
@@ -705,7 +739,13 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
         // parts plugged into them, even while selected. Pin them to a base
         // layer below every other part (which sit at 1, or 5 when selected).
         zIndex: isBreadboard(metadata.id) ? 0 : isSelected ? 5 : 1,
-        pointerEvents: "auto",
+        // None — so the wrapper's padding, border and label strip don't
+        // catch clicks. Inherits into the shadow DOM, where the injected
+        // painted-hitbox sheet (see mount effect) re-enables hit-testing
+        // on the drawn artwork only. Events from those painted shapes
+        // still propagate through this wrapper, so the capture-phase
+        // mousedown and hover handlers below are unaffected.
+        pointerEvents: "none",
         transform: properties.rotation
           ? `rotate(${properties.rotation}deg)`
           : undefined,

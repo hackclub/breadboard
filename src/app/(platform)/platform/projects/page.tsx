@@ -43,14 +43,18 @@ const projectColumns = {
   kitType: projects.kitType,
   submissionSource: projects.submissionSource,
   projectType: projects.projectType,
+  // In a single-table select drizzle renders interpolated columns without a
+  // table qualifier, so `${projects.id}` inside these subqueries resolved to
+  // the subquery's own table and the counts came back 0 for everyone. The
+  // outer table reference has to be qualified by hand.
   journalCount: sql<number>`(
     SELECT COUNT(*) FROM ${projectJournals}
-    WHERE ${projectJournals.projectId} = ${projects.id}
+    WHERE ${projectJournals.projectId} = ${projects}."id"
   )`.mapWith(Number),
   trackedSeconds: sql<number>`(
     SELECT coalesce(sum(${editorActivitySessions.activeSeconds}), 0)::int
     FROM ${editorActivitySessions}
-    WHERE ${editorActivitySessions.projectId} = ${projects.id}
+    WHERE ${editorActivitySessions.projectId} = ${projects}."id"
   )`.mapWith(Number),
 };
 

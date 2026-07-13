@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { BreadboardSidebar } from "@/components/layout/breadboard-sidebar";
 import { Footer } from "@/components/layout/footer";
 import { Header } from "@/components/layout/header";
+import { Countdown } from "@/components/shared/countdown";
 import { pageGridClass } from "@/components/shared/styles";
 
 export const metadata = {
@@ -16,6 +17,7 @@ export default function MarketingLayout({ children }: { children: ReactNode }) {
       <main className="min-h-screen px-6 pt-8 pb-16 md:pt-5.5 md:pr-8 md:pb-16 md:pl-[234px]">
         {children}
       </main>
+      <Countdown variant="floating" />
       <Footer />
     </div>
   );

@@ -18,7 +18,7 @@ const TRANSITION = {
 
 const DIGITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
 
-const Number = memo(function Number({
+const DigitColumn = memo(function DigitColumn({
   mv,
   number,
 }: {
@@ -53,7 +53,7 @@ const Digit = memo(function Digit({ digit }: { digit: number }) {
     <div className="relative inline-block w-[1ch] overflow-x-visible overflow-y-clip leading-none tabular-nums">
       <div className="invisible">0</div>
       {DIGITS.map((i) => (
-        <Number key={i} mv={animatedValue} number={i} />
+        <DigitColumn key={i} mv={animatedValue} number={i} />
       ))}
     </div>
   );
@@ -99,15 +99,18 @@ export const SlidingNumber = memo(function SlidingNumber({
     <div className="flex items-center">
       {value < 0 && "-"}
       {integerDigits.map((digitChar, index) => {
-        const place = Math.pow(10, integerDigits.length - index - 1);
+        const place = 10 ** (integerDigits.length - index - 1);
         return <Digit key={`pos-${place}`} digit={parseInt(digitChar, 10)} />;
       })}
       {decimalDigits && (
         <>
           <span>{decimalSeparator}</span>
-          {decimalDigits.map((digitChar, index) => (
-            <Digit key={`decimal-${index}`} digit={parseInt(digitChar, 10)} />
-          ))}
+          {decimalDigits.map((digitChar, index) => {
+            const place = 10 ** -(index + 1);
+            return (
+              <Digit key={`dec-${place}`} digit={parseInt(digitChar, 10)} />
+            );
+          })}
         </>
       )}
     </div>

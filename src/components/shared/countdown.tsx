@@ -1,18 +1,8 @@
 "use client";
 
 import { Clock, Lock } from "lucide-react";
-import {
-  AnimatePresence,
-  motion,
-  useReducedMotion,
-} from "motion/react";
-import {
-  type FocusEvent,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { type FocusEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Confetti } from "@/components/shared/confetti";
 import { SlidingNumber } from "@/components/shared/sliding-number";
 
@@ -89,10 +79,13 @@ function useExpanded(disabled: boolean, canHover: boolean) {
     }
   }
 
+  // Unmount-only cleanup; reads the refs directly so the effect has no
+  // function dependencies.
   useEffect(
     () => () => {
-      clearLeave();
-      clearAuto();
+      if (leaveTimer.current != null) window.clearTimeout(leaveTimer.current);
+      if (autoCollapseTimer.current != null)
+        window.clearTimeout(autoCollapseTimer.current);
     },
     [],
   );
@@ -183,7 +176,9 @@ function Unit({
 }) {
   return (
     <div className="flex flex-col items-center leading-none">
-      <div className={`text-2xl font-bold tabular-nums sm:text-3xl ${numberClass}`}>
+      <div
+        className={`text-2xl font-bold tabular-nums sm:text-3xl ${numberClass}`}
+      >
         <SlidingNumber value={value} padStart />
       </div>
       <span
@@ -280,7 +275,9 @@ export function Countdown({
 
   const tier: Tier = diffMs == null ? "normal" : tierOf(diffMs);
   const split =
-    diffMs == null ? { days: 0, hours: 0, mins: 0, secs: 0 } : splitDiff(diffMs);
+    diffMs == null
+      ? { days: 0, hours: 0, mins: 0, secs: 0 }
+      : splitDiff(diffMs);
   const closed = tier === "closed";
   const { expanded: openState, handlers } = useExpanded(closed, canHover);
   const expanded = openState && !closed;
@@ -302,7 +299,9 @@ export function Countdown({
   const labelClass =
     tier === "urgent" || tier === "soon" ? "text-[#BD0F32]" : "text-black/50";
   const sepClass =
-    tier === "urgent" || tier === "soon" ? "text-[#BD0F32]/60" : "text-black/25";
+    tier === "urgent" || tier === "soon"
+      ? "text-[#BD0F32]/60"
+      : "text-black/25";
 
   const layoutTransition = reducedMotion ? { duration: 0 } : LAYOUT_SPRING;
   const contentTransition = reducedMotion ? { duration: 0 } : BLUR_TRANSITION;
@@ -310,6 +309,7 @@ export function Countdown({
   const contentVisible = reducedMotion ? { opacity: 1 } : VISIBLE;
 
   const pill = (
+    // biome-ignore lint/a11y/useSemanticElements: a real <button> can't hold the animated block layout; keyboard support is provided via tabIndex + key handlers.
     <motion.div
       layout
       transition={layoutTransition}

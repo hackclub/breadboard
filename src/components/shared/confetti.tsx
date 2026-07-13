@@ -18,6 +18,11 @@ export function Confetti({ active }: { active: boolean }) {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 
+    // Narrowed aliases: TS doesn't carry the null checks above into the
+    // nested draw() closure.
+    const c = canvas;
+    const x = ctx;
+
     type Particle = {
       x: number;
       y: number;
@@ -55,8 +60,6 @@ export function Confetti({ active }: { active: boolean }) {
     let frame: number;
 
     function draw() {
-      const c = canvas!;
-      const x = ctx!;
       x.clearRect(0, 0, c.width, c.height);
       let alive = false;
 

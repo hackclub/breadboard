@@ -19,8 +19,14 @@ import {
   updateProjectBasicsFromForm,
 } from "@/actions/projects";
 import { createProjectScreenshotUpload } from "@/actions/uploads";
+import {
+  AutoScreenshotCapture,
+  GenerateScreenshotButton,
+  isAutoScreenshotUrl,
+} from "@/components/platform/projects/auto-screenshot";
 import { LoadingInline } from "@/components/shared/loading-card";
 import { Modal } from "@/components/shared/modal";
+import { SubmitFinalCheck } from "@/components/platform/projects/submit-final-check";
 import { Button } from "@/components/ui/button";
 import { Input, inputClass } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -417,6 +423,7 @@ export function EditProjectModal({
           projectId={project.id}
           value={screenshotUrl}
           onChange={setScreenshotUrl}
+          autoRefresh
         />
         {canSwitchShipType ? (
           <fieldset className="grid gap-2">
@@ -472,13 +479,21 @@ function ScreenshotUploadField({
   projectId,
   value,
   onChange,
+  autoRefresh = false,
 }: {
   projectId: number;
   value: string;
   onChange: (value: string) => void;
+  /** Re-render an existing auto screenshot from the latest circuit on mount.
+      Leave off where a parent already mounts its own AutoScreenshotCapture. */
+  autoRefresh?: boolean;
 }) {
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  // Refresh only for a screenshot that was ALREADY auto when the field
+  // mounted; a fresh capture from the button below shouldn't immediately
+  // trigger a second, identical render.
+  const [wasAutoOnMount] = useState(() => isAutoScreenshotUrl(value));
 
   const uploadScreenshot = async (file: File | null) => {
     if (!file) return;
@@ -519,10 +534,14 @@ function ScreenshotUploadField({
             </div>
             <div className="min-w-0">
               <p className="truncate text-sm font-black text-black">
-                Screenshot saved
+                {isAutoScreenshotUrl(value)
+                  ? "Screenshot synced to your circuit"
+                  : "Screenshot saved"}
               </p>
               <p className="text-xs font-semibold text-black/50">
-                Upload a new one to replace it.
+                {isAutoScreenshotUrl(value)
+                  ? "It re-renders automatically as your circuit changes. Upload your own to replace it."
+                  : "Upload a new one to replace it."}
               </p>
             </div>
           </div>
@@ -541,23 +560,38 @@ function ScreenshotUploadField({
         </div>
       )}
 
-      <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-black bg-white px-4 py-3 text-sm font-black text-black shadow-[2px_2px_0_#000] transition hover:bg-black hover:text-white">
-        <HiArrowUpTray className="size-5" />
-        {uploading
-          ? "Uploading..."
-          : value
-            ? "Replace screenshot"
-            : "Upload screenshot"}
-        <input
-          type="file"
-          accept="image/png,image/jpeg,image/webp"
-          disabled={uploading}
-          onChange={(event) =>
-            void uploadScreenshot(event.target.files?.[0] ?? null)
-          }
-          className="sr-only"
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-black bg-white px-4 py-3 text-sm font-black text-black shadow-[2px_2px_0_#000] transition hover:bg-black hover:text-white">
+          <HiArrowUpTray className="size-5" />
+          {uploading
+            ? "Uploading..."
+            : value
+              ? "Replace screenshot"
+              : "Upload screenshot"}
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            disabled={uploading}
+            onChange={(event) =>
+              void uploadScreenshot(event.target.files?.[0] ?? null)
+            }
+            className="sr-only"
+          />
+        </label>
+        <GenerateScreenshotButton
+          projectId={projectId}
+          onCaptured={(url) => {
+            onChange(url);
+            setMessage(
+              "Screenshot generated from your circuit. It stays in sync as your circuit changes. Save changes to keep it.",
+            );
+          }}
         />
-      </label>
+      </div>
+
+      {autoRefresh && wasAutoOnMount ? (
+        <AutoScreenshotCapture projectId={projectId} onCaptured={onChange} />
+      ) : null}
 
       {message ? (
         <p className="text-xs font-bold text-black/60" aria-live="polite">
@@ -599,6 +633,11 @@ export function ShipProjectModal({
 
   const [screenshotUrl, setScreenshotUrl] = useState(project.screenshotUrl);
 
+  // Two-step submit: the form first, then a final self-check against the
+  // quality bar on /requirements before the real submit button unlocks.
+  const [confirming, setConfirming] = useState(false);
+  const [allConfirmed, setAllConfirmed] = useState(false);
+
   const isEditor = mode === "editor";
   const state = isEditor ? editorState : externalState;
   const pending = isEditor ? editorPending : externalPending;
@@ -627,44 +666,86 @@ export function ShipProjectModal({
       !hasTitle ||
       !hasDescription ||
       !hasHowToUse);
-  const editorAllGood =
-    isEditor &&
-    hasScreenshot &&
-    hasGitHubRepo &&
-    hasTitle &&
-    hasDescription &&
-    hasHowToUse;
-
   const externalBlocked = !isEditor && !hasScreenshot;
 
   const submitLabel = isEditor
     ? "Submit design for review"
     : "Submit for review";
 
+  const switchMode = (next: ShipMode) => {
+    setMode(next);
+    setConfirming(false);
+  };
+
+  // Run browser validation on the (still visible) form before moving to the
+  // final check, so hidden required fields can't block the real submit later.
+  const startConfirming = () => {
+    const form = document.getElementById(formId);
+    if (form instanceof HTMLFormElement && !form.reportValidity()) return;
+    setConfirming(true);
+  };
+
+  const confirmKind =
+    !isEditor && project.projectType === "build" ? "build" : "design";
+
   return (
     <Modal
       open
       onClose={onClose}
-      eyebrow="Submit design"
-      title={project.title}
+      eyebrow={confirming ? "Final check" : "Submit design"}
+      title={confirming ? "Are you sure?" : project.title}
       maxWidth="2xl"
       footer={
-        <ProjectModalFooter
-          formId={
-            isEditor && editorAllGood
-              ? formId
-              : !isEditor && !externalBlocked
-                ? formId
-                : undefined
-          }
-          pending={pending}
-          pendingLabel="Submitting"
-          submitLabel={submitLabel}
-          onClose={onClose}
-          disabled={isEditor ? editorBlocked : externalBlocked}
-        />
+        confirming ? (
+          <div className="flex items-center justify-between gap-3">
+            <Button
+              tone="paper"
+              className="rounded-full"
+              onClick={() => setConfirming(false)}
+            >
+              Go back
+            </Button>
+            <Button
+              type="submit"
+              form={formId}
+              disabled={pending || !allConfirmed}
+              tone="primary"
+              className="rounded-full px-6"
+            >
+              {pending ? <LoadingInline label="Submitting" /> : submitLabel}
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between gap-3">
+            <Button tone="paper" className="rounded-full" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={startConfirming}
+              disabled={pending || (isEditor ? editorBlocked : externalBlocked)}
+              tone="primary"
+              className="rounded-full px-6"
+            >
+              Continue
+            </Button>
+          </div>
+        )
       }
     >
+      {confirming ? (
+        <div className="grid gap-4">
+          <SubmitFinalCheck
+            kind={confirmKind}
+            onAllConfirmedChange={setAllConfirmed}
+          />
+          <ProjectActionMessage message={state.message} />
+        </div>
+      ) : null}
+
+      {/* The form stays mounted while the final check is showing so the
+          footer's submit button can still target it. */}
+      <div className={confirming ? "hidden" : undefined}>
       <div className="mb-4 grid gap-2">
         <p className="text-xs font-black uppercase tracking-[0.14em] text-black/50">
           How did you make this project?
@@ -683,7 +764,7 @@ export function ShipProjectModal({
               name="shipMode"
               value="editor"
               checked={isEditor}
-              onChange={() => setMode("editor")}
+              onChange={() => switchMode("editor")}
               className="size-4 accent-[#BD0F32]"
             />
             <div>
@@ -706,7 +787,7 @@ export function ShipProjectModal({
               name="shipMode"
               value="external"
               checked={!isEditor}
-              onChange={() => setMode("external")}
+              onChange={() => switchMode("external")}
               className="size-4 accent-[#BD0F32]"
             />
             <div>
@@ -724,16 +805,25 @@ export function ShipProjectModal({
             count it.
           </p>
         ) : null}
+        {/* No screenshot yet: generate one. Existing auto screenshot: re-render
+            it from the latest circuit so the submission matches the project as
+            it stands (manual uploads are never touched). */}
+        {!hasScreenshot || isAutoScreenshotUrl(screenshotUrl) ? (
+          <AutoScreenshotCapture
+            projectId={project.id}
+            onCaptured={(url) =>
+              setScreenshotUrl((prev) =>
+                !prev || isAutoScreenshotUrl(prev) ? url : prev,
+              )
+            }
+          />
+        ) : null}
       </div>
 
       {isEditor ? (
         <form id={formId} action={editorAction} className="grid gap-4">
           <input type="hidden" name="projectId" value={project.id} />
-          <input
-            type="hidden"
-            name="screenshotUrl"
-            value={project.screenshotUrl}
-          />
+          <input type="hidden" name="screenshotUrl" value={screenshotUrl} />
           {editorBlocked ? (
             <div className="grid gap-3 rounded-xl border border-[#BD0F32]/30 bg-[#fff5f7] p-4 text-sm font-bold text-black shadow-[2px_2px_0_#BD0F32]/15">
               <p className="flex items-center gap-2 text-[#BD0F32]">
@@ -1030,6 +1120,7 @@ export function ShipProjectModal({
           <ProjectActionMessage message={state.message} />
         </form>
       )}
+      </div>
     </Modal>
   );
 }

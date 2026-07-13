@@ -35,6 +35,7 @@ import {
   updateExternalJournalFromForm,
 } from "@/actions/projects";
 import { createExternalScreenshotUpload } from "@/actions/uploads";
+import { SubmitFinalCheck } from "@/components/platform/projects/submit-final-check";
 import { ScreenShareTracker } from "@/app/editor/_components/ScreenShareTracker";
 import { BreadIcon } from "@/components/shared/bread-amount";
 import { isBuildShip, type ProjectType } from "@/lib/projects/project-type";
@@ -1159,18 +1160,72 @@ function SubmitCard({
     initialState,
   );
 
+  // Two-step submit: the form first, then a final self-check against the
+  // quality bar on /requirements before the real submit button unlocks.
+  const [confirming, setConfirming] = useState(false);
+  const [allConfirmed, setAllConfirmed] = useState(false);
+  const formId = "external-submit-form";
+
   useEffect(() => {
     if (state.success) router.push("/platform/projects");
   }, [state.success, router]);
 
   const hasScreenshot = screenshotUrl.length > 0;
 
+  // Validate the (still visible) form before moving to the final check, so a
+  // hidden required field can't block the real submit later.
+  const startConfirming = () => {
+    const form = document.getElementById(formId);
+    if (form instanceof HTMLFormElement && !form.reportValidity()) return;
+    setConfirming(true);
+  };
+
   return (
     <Surface className="grid gap-4 bg-white">
       <div className="flex items-center gap-2">
         <HiArrowUpTray className="size-5 text-[#BD0F32]" />
-        <h2 className="text-lg font-black text-black">Submit for review</h2>
+        <h2 className="text-lg font-black text-black">
+          {confirming ? "Are you sure?" : "Submit for review"}
+        </h2>
       </div>
+      {confirming ? (
+        <div className="grid gap-4">
+          <SubmitFinalCheck
+            kind={isBuild ? "build" : "design"}
+            onAllConfirmedChange={setAllConfirmed}
+          />
+          {state.message ? (
+            <p className="text-sm font-bold text-[#BD0F32]" aria-live="polite">
+              {state.message}
+            </p>
+          ) : null}
+          <div className="flex items-center justify-between gap-3">
+            <Button
+              tone="paper"
+              className="rounded-full"
+              onClick={() => setConfirming(false)}
+            >
+              Go back
+            </Button>
+            <Button
+              type="submit"
+              form={formId}
+              tone="primary"
+              className="rounded-full px-6"
+              disabled={pending || !allConfirmed}
+            >
+              {pending ? (
+                <LoadingInline label="Submitting" />
+              ) : (
+                "Submit for review"
+              )}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {/* The form stays mounted while the final check is showing so the
+          confirm button above can still target it. */}
+      <div className={confirming ? "hidden" : "grid gap-4"}>
       <div className="rounded-xl border border-black bg-[#fffaf1] p-4 text-sm text-black shadow-[2px_2px_0_#000]">
         {isBuild ? (
           <p className="flex items-center gap-1.5 font-black">
@@ -1239,7 +1294,7 @@ function SubmitCard({
           </p>
         </div>
       </div>
-      <form action={formAction} className="grid gap-4">
+      <form id={formId} action={formAction} className="grid gap-4">
         <input type="hidden" name="projectId" value={projectId} />
         <input type="hidden" name="screenshotUrl" value={screenshotUrl} />
 
@@ -1267,19 +1322,17 @@ function SubmitCard({
 
         <div className="flex justify-end">
           <Button
-            type="submit"
+            type="button"
+            onClick={startConfirming}
             tone="primary"
             className="rounded-full px-6"
             disabled={pending || !hasScreenshot}
           >
-            {pending ? (
-              <LoadingInline label="Submitting" />
-            ) : (
-              "Submit for review"
-            )}
+            Continue
           </Button>
         </div>
       </form>
+      </div>
     </Surface>
   );
 }

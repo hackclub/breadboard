@@ -58,7 +58,10 @@ const resizeHandleStyle: React.CSSProperties = {
 export const EditorPage: React.FC<{
   readOnly?: boolean;
   shareMode?: boolean;
-}> = ({ readOnly = false, shareMode = false }) => {
+  /** Share views only: can this page compile/run against the live backend?
+      True on the dynamic /share route, false on static GitHub Pages shares. */
+  executable?: boolean;
+}> = ({ readOnly = false, shareMode = false, executable = false }) => {
   const { t } = useTranslation();
   useAutoSaveProject();
   const [editorWidthPct, setEditorWidthPct] = useState(45);
@@ -416,7 +419,7 @@ export const EditorPage: React.FC<{
               setCompileLogs={setCompileLogs}
               centerSlot={!isRaspberryPi3 ? <FileTabs /> : null}
               readOnly={readOnly}
-              allowExecution={shareMode}
+              allowExecution={executable}
             />
           </div>
           <div className="unified-toolbar-canvas" ref={setCanvasHeaderSlot} />
@@ -516,7 +519,7 @@ export const EditorPage: React.FC<{
                     setCompileLogs={setCompileLogs}
                     centerSlot={!isRaspberryPi3 ? <FileTabs /> : null}
                     readOnly={readOnly}
-                    allowExecution={shareMode}
+                    allowExecution={executable}
                   />
                 </div>
               </div>
@@ -606,7 +609,7 @@ export const EditorPage: React.FC<{
                 compileLogs={compileLogs}
                 setCompileLogs={setCompileLogs}
                 readOnly={readOnly}
-                allowExecution
+                allowExecution={executable}
               />
             </div>
           )}
@@ -622,6 +625,7 @@ export const EditorPage: React.FC<{
               headerSlot={!isMobile ? canvasHeaderSlot : null}
               readOnly={readOnly}
               shareMode={shareMode}
+              executable={executable}
             />
           </div>
           {serialMonitorOpen && (

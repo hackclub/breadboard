@@ -1285,6 +1285,13 @@ export const EditorToolbar = ({
               </select>
             )}
 
+          {/* Simulation controls (Compile / Run / Stop / …). Hidden entirely
+              when execution is disabled (render-only static shares) so every
+              published link is a consistent read-only schematic + code view,
+              never a mix of runnable and broken-looking pages. The live editor
+              (readOnly=false) keeps them; only readOnly-without-allowExecution
+              hides them. */}
+          {!executionDisabled && (
           <div className="toolbar-group">
             {/* Compile */}
             <button
@@ -1468,6 +1475,7 @@ export const EditorToolbar = ({
               </>
             )}
           </div>
+          )}
 
           {/* Center slot — file tabs share the row so action icons stay pinned. */}
           {centerSlot && (

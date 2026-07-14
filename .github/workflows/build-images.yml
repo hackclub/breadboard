@@ -98,6 +98,10 @@ jobs:
           tags: |
             ${{ env.NEXTJS_IMAGE }}:latest
             ${{ env.NEXTJS_IMAGE }}:${{ github.sha }}
+          build-args: |
+            NEXT_DEPLOYMENT_ID=${{ github.sha }}
+          secrets: |
+            next_server_actions_key=${{ secrets.NEXT_SERVER_ACTIONS_ENCRYPTION_KEY }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

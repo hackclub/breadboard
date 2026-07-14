@@ -5,6 +5,16 @@ const nextConfig: NextConfig = {
   ...(process.env.NEXT_OUTPUT_STANDALONE === "1"
     ? ({ output: "standalone" } as const)
     : {}),
+  // Version-skew protection. We redeploy on every push to main, so a review or
+  // editor tab left open across a deploy would otherwise fire Server Actions at
+  // a build that no longer recognizes them ("Failed to find Server Action").
+  // Stamping the build with the deploying commit makes such a tab hard-navigate
+  // to consistent assets instead of silently breaking. Paired with a pinned
+  // NEXT_SERVER_ACTIONS_ENCRYPTION_KEY (injected at build time, see Dockerfile +
+  // build-images.yml) so action payloads from a pre-deploy tab still decrypt.
+  ...(process.env.NEXT_DEPLOYMENT_ID
+    ? { deploymentId: process.env.NEXT_DEPLOYMENT_ID }
+    : {}),
   serverExternalPackages: ["pg", "drizzle-orm"],
   experimental: {
     // proxy.ts buffers every request body in memory, capped here. The default

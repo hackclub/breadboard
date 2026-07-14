@@ -1689,7 +1689,18 @@ export const SimulatorCanvas = ({
     componentId: string,
     e: React.MouseEvent,
   ) => {
-    if (readOnly) return;
+    // Read-only shares keep one interaction: opening sensor panels while
+    // the simulation runs. Claim the click so mouseUp's SENSOR_CONTROLS
+    // branch can open the panel; the readOnly guard in mousemove already
+    // stops the part from actually dragging. Everything else stays inert.
+    if (readOnly) {
+      const component = components.find((c) => c.id === componentId);
+      const isRunningSensor =
+        interactionRunning &&
+        !!component &&
+        SENSOR_CONTROLS[component.metadataId] !== undefined;
+      if (!isRunningSensor) return;
+    }
     if (showPropertyDialog) return;
 
     // While running, the canvas is read-only and most components
@@ -1992,6 +2003,25 @@ export const SimulatorCanvas = ({
 
     if (draggedComponentId) {
       if (readOnly) {
+        // Mirror of the click detection below, kept to the one interaction
+        // a read-only share allows: opening a sensor panel mid-simulation.
+        const roTimeDiff = Date.now() - clickStartTime;
+        const roPosDiff = Math.hypot(
+          e.clientX - clickStartPos.x,
+          e.clientY - clickStartPos.y,
+        );
+        if (roPosDiff < 5 && roTimeDiff < 300 && interactionRunning) {
+          const component = components.find(
+            (c) => c.id === draggedComponentId,
+          );
+          if (
+            component &&
+            SENSOR_CONTROLS[component.metadataId] !== undefined
+          ) {
+            setSensorControlComponentId(draggedComponentId);
+            setSensorControlMetadataId(component.metadataId);
+          }
+        }
         setDraggedComponentId(null);
         return;
       }

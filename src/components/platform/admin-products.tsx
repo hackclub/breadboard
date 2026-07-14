@@ -11,6 +11,7 @@ import {
   updateProduct,
 } from "@/actions/shop";
 import { createProductImageUpload } from "@/actions/uploads";
+import { downscaleImage } from "@/lib/images/downscale";
 import { safeImageUrl, shouldOptimizeImage } from "@/lib/storage/urls";
 
 type ProductFormState = {
@@ -46,13 +47,13 @@ function ProductFields({
     if (!file) return;
     setUploading(true);
     try {
-      const { uploadUrl, publicUrl } = await createProductImageUpload(
-        file.type,
-      );
+      const { blob, contentType } = await downscaleImage(file);
+      const { uploadUrl, publicUrl } =
+        await createProductImageUpload(contentType);
       const res = await fetch(uploadUrl, {
         method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
+        headers: { "Content-Type": contentType },
+        body: blob,
       });
       if (!res.ok) throw new Error("Upload failed. Try again.");
       onChange({ ...value, imageUrl: publicUrl });

@@ -35,6 +35,7 @@ import {
   updateExternalJournalFromForm,
 } from "@/actions/projects";
 import { createExternalScreenshotUpload } from "@/actions/uploads";
+import { downscaleImage } from "@/lib/images/downscale";
 import { SubmitFinalCheck } from "@/components/platform/projects/submit-final-check";
 import { ScreenShareTracker } from "@/app/editor/_components/ScreenShareTracker";
 import { BreadIcon } from "@/components/shared/bread-amount";
@@ -605,13 +606,13 @@ function JournalCard({
     setImageUploading(true);
     setImageError(null);
     try {
-      const { uploadUrl, publicUrl } = await createExternalScreenshotUpload(
-        file.type,
-      );
+      const { blob, contentType } = await downscaleImage(file);
+      const { uploadUrl, publicUrl } =
+        await createExternalScreenshotUpload(contentType);
       const res = await fetch(uploadUrl, {
         method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
+        headers: { "Content-Type": contentType },
+        body: blob,
       });
       if (!res.ok) throw new Error("Image upload failed. Try again.");
       insertAtCursor(`\n![image](${publicUrl})\n`);
@@ -1361,13 +1362,13 @@ function ExternalScreenshotField({
     setUploading(true);
     setMessage(null);
     try {
-      const { uploadUrl, publicUrl } = await createExternalScreenshotUpload(
-        file.type,
-      );
+      const { blob, contentType } = await downscaleImage(file);
+      const { uploadUrl, publicUrl } =
+        await createExternalScreenshotUpload(contentType);
       const response = await fetch(uploadUrl, {
         method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
+        headers: { "Content-Type": contentType },
+        body: blob,
       });
       if (!response.ok) throw new Error("Upload failed. Try again.");
       onChange(publicUrl);

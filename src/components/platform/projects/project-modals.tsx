@@ -19,6 +19,7 @@ import {
   updateProjectBasicsFromForm,
 } from "@/actions/projects";
 import { createProjectScreenshotUpload } from "@/actions/uploads";
+import { downscaleImage } from "@/lib/images/downscale";
 import {
   AutoScreenshotCapture,
   GenerateScreenshotButton,
@@ -510,15 +511,16 @@ function ScreenshotUploadField({
     setMessage(null);
 
     try {
+      const { blob, contentType } = await downscaleImage(file);
       const { uploadUrl, publicUrl } = await createProjectScreenshotUpload(
         projectId,
-        file.type,
+        contentType,
       );
 
       const response = await fetch(uploadUrl, {
         method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
+        headers: { "Content-Type": contentType },
+        body: blob,
       });
 
       if (!response.ok) throw new Error("Upload failed. Try again.");

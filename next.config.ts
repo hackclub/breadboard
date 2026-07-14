@@ -6,6 +6,13 @@ const nextConfig: NextConfig = {
     ? ({ output: "standalone" } as const)
     : {}),
   serverExternalPackages: ["pg", "drizzle-orm"],
+  experimental: {
+    // proxy.ts buffers every request body in memory, capped here. The default
+    // 10MB silently truncates larger uploads (e.g. camera photos), so raise it
+    // to a bounded ceiling. Keep in sync with MAX_UPLOAD_BYTES in the uploads
+    // route, which rejects anything over the limit with a clear error.
+    proxyClientMaxBodySize: "25mb",
+  },
   async rewrites() {
     const backend = process.env.EDITOR_BACKEND_URL ?? "http://127.0.0.1:8001";
     return [

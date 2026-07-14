@@ -11,6 +11,7 @@ import {
   ProjectCircuitPreview,
   type CircuitSnapshot,
 } from "@/components/gallery/ProjectCircuitPreview";
+import { downscaleImage } from "@/lib/images/downscale";
 import { cn } from "@/lib/utils";
 
 /**
@@ -84,8 +85,9 @@ function useCircuitScreenshot(
     capturedRef.current = true;
     let step = 1;
     try {
-      const blob = await domToBlob(container, { type: "image/png" });
-      if (!blob) throw new Error("Empty capture");
+      const captured = await domToBlob(container, { type: "image/png" });
+      if (!captured) throw new Error("Empty capture");
+      const { blob } = await downscaleImage(captured, { mime: "image/png" });
       setPhase("uploading");
       step = 2;
       const { uploadUrl, publicUrl } = await createProjectScreenshotUpload(

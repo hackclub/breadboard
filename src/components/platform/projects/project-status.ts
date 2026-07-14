@@ -11,7 +11,8 @@ export function projectStatusCopy(status: string) {
     return "Build your kit. Take photos and video of it working, then submit your demo.";
   if (status === "demo_review")
     return "Demo submitted for final review. Almost done!";
-  if (status === "done") return "Done. Currency awarded. Spend it in the shop!";
+  if (status === "done")
+    return "Done. Currency awarded. Keep building and ship an update anytime to earn more.";
   if (status === "shipped")
     return "Snapshot in review. Keep editing, ship again after a decision.";
   if (status === "needs_changes")
@@ -95,7 +96,16 @@ export function projectStepMeta(status: string) {
     return {
       step: 8,
       headline: "Done — currency awarded",
-      detail: "Currency awarded. Spend it in the shop!",
+      detail: "Currency awarded. Ship an update anytime to earn more.",
+      tone: "green" as const,
+    };
+  }
+  if (status === "approved") {
+    return {
+      step: 8,
+      headline: "Approved — currency awarded",
+      detail:
+        "Bread awarded for your hours. Keep building and ship updates anytime.",
       tone: "green" as const,
     };
   }
@@ -143,5 +153,14 @@ export function canShipProjectCard(status: string) {
     "paid_out",
     "fulfilled",
     "approved",
+    "done",
   ].includes(status);
+}
+
+// Terminal states where the project already had a ship approved: a new ship
+// from here is an update that pays bread for the new hours at design review.
+export function isUpdateShipStatus(status: string) {
+  return ["reviewed", "paid_out", "fulfilled", "approved", "done"].includes(
+    status,
+  );
 }

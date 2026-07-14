@@ -347,6 +347,7 @@ export function ReviewWorkspace({
   const [approvedHours, setApprovedHours] = useState(
     initial.overrideHoursSpent ?? initial.hoursSpent,
   );
+  const [acceptBreadOnly, setAcceptBreadOnly] = useState(false);
   const [userComment, setUserComment] = useState("");
   const [pending, startTransition] = useTransition();
   const [submitted, setSubmitted] = useState(false);
@@ -412,8 +413,14 @@ export function ReviewWorkspace({
 
   // Ship type decides the payout currency and whether a kit ships, so once the
   // project is paid out the server refuses the change; hide the button then.
-  const typeLocked = ["done", "paid_out", "fulfilled"].includes(
+  const typeLocked = ["done", "paid_out", "fulfilled", "approved"].includes(
     initial.projectStatus,
+  );
+
+  // A prior approved ship means this submission is an update: approving pays
+  // bread for the new hours immediately and never ships another kit.
+  const isUpdateShip = submissionHistory.some(
+    (entry) => entry.status === "approved" || entry.status === "fulfilled",
   );
 
   function changeShipType(next: "build" | "design") {
@@ -451,6 +458,11 @@ export function ReviewWorkspace({
                 <span className="inline-flex items-center gap-1 rounded-full border-2 border-amber-400 bg-amber-100 px-3 py-1.5 text-xs font-black text-amber-800 uppercase">
                   <BreadIcon size="sm" />
                   Bread only
+                </span>
+              ) : null}
+              {isUpdateShip ? (
+                <span className="inline-flex items-center gap-1 rounded-full border-2 border-violet-400 bg-violet-50 px-3 py-1.5 text-xs font-black text-violet-800 uppercase">
+                  Update ship #{initial.submissionNumber}
                 </span>
               ) : null}
               <span className="inline-flex items-center gap-1.5 rounded-full border-2 border-black bg-black px-3 py-1.5 text-xs font-black text-white uppercase">
@@ -657,6 +669,17 @@ export function ReviewWorkspace({
 
             {verdict === "approve" ? (
               <div className="grid gap-4">
+                {isUpdateShip ? (
+                  <div className="rounded-xl border-2 border-violet-400 bg-violet-50 p-3">
+                    <p className="text-sm font-black text-violet-900">
+                      Update to an approved project
+                    </p>
+                    <p className="mt-1 text-xs font-semibold text-violet-800/80">
+                      The hours below are new since the last approved ship.
+                      Approving pays the bread immediately; no kit ships.
+                    </p>
+                  </div>
+                ) : null}
                 <label className="grid gap-1.5">
                   <span className="text-xs font-black tracking-[0.14em] text-black/40 uppercase">
                     Approved hours
@@ -685,6 +708,38 @@ export function ReviewWorkspace({
                     className="rounded-xl border border-black bg-white px-4 py-3 text-sm"
                   />
                 </label>
+                {!initial.breadOnly && !isBuild && !isUpdateShip ? (
+                  <button
+                    type="button"
+                    aria-pressed={acceptBreadOnly}
+                    onClick={() => setAcceptBreadOnly((value) => !value)}
+                    className={`rounded-xl border px-4 py-3 text-left ${
+                      acceptBreadOnly
+                        ? "border-amber-500 bg-amber-100"
+                        : "border-black bg-white hover:bg-zinc-50"
+                    }`}
+                  >
+                    <span
+                      className={`inline-flex items-center gap-1.5 text-sm font-black ${
+                        acceptBreadOnly ? "text-amber-900" : "text-black"
+                      }`}
+                    >
+                      <BreadIcon size="sm" />
+                      {acceptBreadOnly
+                        ? "Accepting for bread only"
+                        : "Accept for bread only"}
+                    </span>
+                    <span
+                      className={`mt-1 block text-xs font-semibold ${
+                        acceptBreadOnly ? "text-amber-800/80" : "text-black/50"
+                      }`}
+                    >
+                      Approve a project that misses the cool-project complexity
+                      bar. The maker still earns full bread and the ship gets
+                      marked bread only.
+                    </span>
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   disabled={pending || locked}
@@ -699,6 +754,7 @@ export function ReviewWorkspace({
                         initial.projectStatus === "demo_review"
                           ? "demo"
                           : "materials",
+                        acceptBreadOnly,
                       ),
                     )
                   }
@@ -708,6 +764,18 @@ export function ReviewWorkspace({
                     <span className="inline-flex items-center gap-0.5">
                       Approve demo ·{" "}
                       <BreadAmount amount={approvedBread} size="sm" />
+                    </span>
+                  ) : isBuild ||
+                    isUpdateShip ||
+                    initial.breadOnly ||
+                    acceptBreadOnly ? (
+                    <span className="inline-flex items-center gap-0.5">
+                      {isUpdateShip ? "Approve update ·" : "Approve ·"}{" "}
+                      <BreadAmount
+                        amount={approvedBread}
+                        gold={isBuild}
+                        size="sm"
+                      />
                     </span>
                   ) : (
                     "Approve materials · send kit"
@@ -885,10 +953,11 @@ export function ReviewWorkspace({
                   Shipping for bread only
                 </h3>
                 <p className="mt-1.5 text-xs font-semibold text-amber-800/80">
-                  The maker declared at submit time that this ship is only for
-                  bread and waived the cool-project quality bar (inputs,
-                  outputs, sensors, purpose, decision-making, unique firmware).
-                  Review the hours and honesty requirements as usual.
+                  This ship is only for bread, either declared by the maker at
+                  submit time or accepted that way by a reviewer. The
+                  cool-project quality bar (inputs, outputs, sensors, purpose,
+                  decision-making, unique firmware) is waived. Review the hours
+                  and honesty requirements as usual.
                 </p>
               </div>
             </div>

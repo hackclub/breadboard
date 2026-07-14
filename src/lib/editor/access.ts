@@ -2,21 +2,9 @@ import { and, eq } from "drizzle-orm";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import { projects } from "@/lib/db/schema";
+import { TRACKING_BLOCKED_PROJECT_STATUSES } from "@/lib/projects/tracking-status";
 
-export const TRACKING_BLOCKED_PROJECT_STATUSES = new Set([
-  "materials_review",
-  "shipped",
-  "reviewed",
-  "approved",
-  "paid_out",
-  "fulfilled",
-  "kit_approved",
-  "kit_fulfillment",
-  "kit_sent",
-  "building",
-  "demo_review",
-  "done",
-]);
+export { TRACKING_BLOCKED_PROJECT_STATUSES };
 
 export async function getEditorProject(projectId: number) {
   const session = await getSession();

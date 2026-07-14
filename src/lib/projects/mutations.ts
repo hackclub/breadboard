@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, isNull, max, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import { db } from "@/lib/db/db";
 import {
   editorActivitySessions,
@@ -201,6 +201,31 @@ export async function updateProjectBasicsForUser(
   }
 }
 
+// Every submission stores the cumulative measured total at ship time in
+// trackedSeconds, so the highest approved value is the accounting floor: an
+// update ship claims only the time beyond it. Docked hours stay docked (the
+// floor is what was measured at the approved ship, not what was paid), and
+// hours from rejected or needs_changes ships stay claimable.
+async function approvedShipFloor(tx: typeof db, projectId: number) {
+  const [row] = await tx
+    .select({
+      countedSeconds: sql<number>`coalesce(max(${projectSubmissions.trackedSeconds}), 0)::int`,
+      approvedShips: sql<number>`count(*)::int`,
+    })
+    .from(projectSubmissions)
+    .where(
+      and(
+        eq(projectSubmissions.projectId, projectId),
+        eq(projectSubmissions.type, "materials"),
+        inArray(projectSubmissions.status, ["approved", "fulfilled"]),
+      ),
+    );
+  return {
+    countedSeconds: row?.countedSeconds ?? 0,
+    hasApprovedShip: (row?.approvedShips ?? 0) > 0,
+  };
+}
+
 export async function shipProjectForUser(
   owner: ProjectOwner,
   projectId: number,
@@ -241,7 +266,20 @@ export async function shipProjectForUser(
         ),
       );
     const activeSeconds = tracked[0]?.activeSeconds ?? 0;
-    const hoursSpent = Math.max(0, Math.ceil(activeSeconds / 3600));
+    const { countedSeconds, hasApprovedShip } = await approvedShipFloor(
+      tx,
+      projectId,
+    );
+    const newSeconds = Math.max(0, activeSeconds - countedSeconds);
+    if (hasApprovedShip && newSeconds <= 0) {
+      throw new Error(
+        "Track new time in the editor before shipping an update.",
+      );
+    }
+    // The submission claims only the new hours; the project keeps the
+    // cumulative total.
+    const hoursSpent = Math.max(0, Math.ceil(newSeconds / 3600));
+    const totalHours = Math.max(0, Math.ceil(activeSeconds / 3600));
     const projectRows = await tx
       .select({ editorData: projects.editorData, codeUrl: projects.codeUrl })
       .from(projects)
@@ -307,7 +345,7 @@ export async function shipProjectForUser(
         birthday: clean(data.birthday),
         firstName: clean(data.firstName),
         lastName: clean(data.lastName),
-        hoursSpent,
+        hoursSpent: totalHours,
         status: "materials_review",
         reviewNote: "",
         updatedAt: now,
@@ -316,7 +354,7 @@ export async function shipProjectForUser(
         and(eq(projects.id, projectId), eq(projects.userId, owner.userId)),
       );
 
-    return { hoursSpent, activeSeconds };
+    return { hoursSpent, totalHours, activeSeconds };
   });
 }
 
@@ -344,7 +382,19 @@ export async function shipCustomProjectForUser(
           isNull(editorActivitySessions.endedAt),
         ),
       );
-    const hoursSpent = Math.max(0, Math.floor(data.hoursSpent || 0));
+    // data.hoursSpent is the cumulative measured total; the submission claims
+    // only what earlier approved ships haven't already covered.
+    const totalHours = Math.max(0, Math.floor(data.hoursSpent || 0));
+    const totalSeconds = totalHours * 3600;
+    const { countedSeconds, hasApprovedShip } = await approvedShipFloor(
+      tx,
+      projectId,
+    );
+    const newSeconds = Math.max(0, totalSeconds - countedSeconds);
+    if (hasApprovedShip && newSeconds <= 0) {
+      throw new Error("Track new time before shipping an update.");
+    }
+    const hoursSpent = Math.max(0, Math.ceil(newSeconds / 3600));
     const codeUrl = clean(data.gitUrl);
     if (!codeUrl)
       throw new Error("Git URL is required for custom submissions.");
@@ -366,7 +416,7 @@ export async function shipCustomProjectForUser(
       firstName: clean(data.firstName),
       lastName: clean(data.lastName),
       hoursSpent,
-      trackedSeconds: hoursSpent * 3600,
+      trackedSeconds: totalSeconds,
       submissionSource: "manual",
       breadOnly: data.breadOnly ?? false,
       status: "pending_review",
@@ -390,7 +440,7 @@ export async function shipCustomProjectForUser(
         birthday: clean(data.birthday),
         firstName: clean(data.firstName),
         lastName: clean(data.lastName),
-        hoursSpent,
+        hoursSpent: totalHours,
         submissionSource: "manual",
         // This legacy path is a build ship: the modal promises gold bread and
         // no kit, and review requires build evidence (photos + demo video).
@@ -398,8 +448,9 @@ export async function shipCustomProjectForUser(
         // approval would pay regular bread and ship a kit, contradicting the
         // promise. Off-platform *designs* go through createExternalDraftFromForm
         // instead. Builders use their own parts, so kitType follows suit.
-        projectType: "build",
-        kitType: "own",
+        // Update ships must not reclassify: the currency decision happened at
+        // the first approval, so the type stays whatever it was paid as.
+        ...(hasApprovedShip ? {} : { projectType: "build", kitType: "own" }),
         status: "materials_review",
         reviewNote: "",
         updatedAt: now,
@@ -408,7 +459,7 @@ export async function shipCustomProjectForUser(
         and(eq(projects.id, projectId), eq(projects.userId, owner.userId)),
       );
 
-    return { hoursSpent };
+    return { hoursSpent, totalHours };
   });
 }
 
@@ -430,6 +481,9 @@ async function assertProjectCanShip(userId: string, projectId: number) {
     .limit(1);
 
   if (!existing[0]) throw new Error("Project not found.");
+  // Mid-flow states are blocked; terminal approved states (done, approved,
+  // paid_out, fulfilled, reviewed) are not, so makers can ship updates to
+  // already-approved projects and earn bread for the new hours.
   if (
     [
       "materials_review",
@@ -438,7 +492,6 @@ async function assertProjectCanShip(userId: string, projectId: number) {
       "kit_sent",
       "building",
       "demo_review",
-      "done",
     ].includes(existing[0].status)
   ) {
     throw new Error(

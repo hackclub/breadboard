@@ -14,6 +14,7 @@ import {
   canEditProjectCard,
   canShipProjectCard,
   isAfterKitApproved,
+  isUpdateShipStatus,
   projectStatusCopy,
   projectStatusLabel,
 } from "./project-status";
@@ -177,11 +178,13 @@ export function ProjectCard({
           ) : null}
           {isAfterKitApproved(project.status) && editable && !isManual ? (
             <p className="text-center text-[11px] font-bold text-black/45">
-              Editing stays open. Extra editor time is not tracked after kit
-              approval.
+              Editing stays open. New editor time counts toward your next update
+              ship.
             </p>
           ) : null}
-          {project.status === "draft" && isManual && offPlatformEnabled ? (
+          {(project.status === "draft" || isUpdateShipStatus(project.status)) &&
+          isManual &&
+          offPlatformEnabled ? (
             <Link
               href={`/platform/projects/${project.id}/track`}
               className={buttonClass({ tone: "ink" })}
@@ -217,7 +220,9 @@ export function ProjectCard({
             <Button tone="primary" onClick={() => setShipOpen(true)}>
               {project.status === "needs_changes"
                 ? "Submit again"
-                : "Submit design"}
+                : isUpdateShipStatus(project.status)
+                  ? "Ship an update"
+                  : "Submit design"}
             </Button>
           ) : project.status === "kit_sent" ? (
             <form action={confirmKitReceivedFromForm}>
@@ -294,7 +299,9 @@ export function ProjectCard({
                 </p>
               ) : null}
             </form>
-          ) : isManual && project.status === "draft" ? null : (
+          ) : isManual &&
+            (project.status === "draft" ||
+              isUpdateShipStatus(project.status)) ? null : (
             <Button tone="paper" disabled className="gap-2">
               <HiLockClosed className="size-4" />
               {project.status === "materials_review" ||

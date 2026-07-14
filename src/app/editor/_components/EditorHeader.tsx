@@ -28,6 +28,7 @@ import {
 } from "./BreadEstimatePill";
 import { EditorActivityIndicator } from "./EditorActivityIndicator";
 import { ScreenShareTracker } from "./ScreenShareTracker";
+import { isTrackingBlockedStatus } from "@/lib/projects/tracking-status";
 
 // Total tracked time on this project, live. Same data feed as the bread
 // estimate badge: server baseline plus heartbeat growth since mount.
@@ -299,20 +300,7 @@ export function EditorHeader({
   }, [canManageProject, handlePublish]);
 
   const showStatus = state.status !== "idle";
-  const trackingBlocked = [
-    "materials_review",
-    "shipped",
-    "reviewed",
-    "approved",
-    "paid_out",
-    "fulfilled",
-    "kit_approved",
-    "kit_fulfillment",
-    "kit_sent",
-    "building",
-    "demo_review",
-    "done",
-  ].includes(projectStatus);
+  const trackingBlocked = isTrackingBlockedStatus(projectStatus);
 
   return (
     <header className="flex h-10 shrink-0 items-center gap-2 border-b border-[#333] px-3 select-none bg-[#1e1e1e]">

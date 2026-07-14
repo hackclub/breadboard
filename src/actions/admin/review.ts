@@ -1,6 +1,6 @@
 "use server";
 
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth/guards";
 import { audit } from "@/lib/audit";
@@ -231,6 +231,29 @@ async function resolveReviewTarget(
   );
 }
 
+// Reviewers can accept a project for bread only when it falls short of the
+// complexity bar the maker signed up for. The flag lives on the latest
+// materials submission because that's the row every reader consults (review
+// queue, review workspace, fulfillment), even while a demo is under review.
+async function markLatestMaterialsBreadOnly(tx: typeof db, projectId: number) {
+  const latest = await tx
+    .select({ id: projectSubmissions.id })
+    .from(projectSubmissions)
+    .where(
+      and(
+        eq(projectSubmissions.projectId, projectId),
+        eq(projectSubmissions.type, "materials"),
+      ),
+    )
+    .orderBy(desc(projectSubmissions.submittedAt))
+    .limit(1);
+  if (!latest[0]) return;
+  await tx
+    .update(projectSubmissions)
+    .set({ breadOnly: true, updatedAt: new Date() })
+    .where(eq(projectSubmissions.id, latest[0].id));
+}
+
 async function getOrCreateKitProduct(tx: typeof db, kitType: string) {
   const name = kitType === "esp32" ? "Kit B" : "Kit A";
   const imageUrl =
@@ -333,6 +356,7 @@ export async function approveProject(
   userComment: string,
   checks?: ReviewCheckInput[],
   expectedPhase: ReviewPhase = "materials",
+  breadOnly = false,
 ) {
   const session = await requireAdminSession();
   const id = requirePositiveProjectId(projectId);
@@ -350,6 +374,9 @@ export async function approveProject(
     return;
   }
   const submission = target.submission;
+  // Bread-only is a design-flow concept (build ships have their own bar and
+  // pay gold), so ignore the flag for builds even if a stale client sends it.
+  const acceptBreadOnly = breadOnly && !isBuildShip(project);
 
   if (target.phase === "demo") {
     const bread = hours * BREAD_PER_HOUR;
@@ -386,6 +413,7 @@ export async function approveProject(
         .returning({ userId: projectSubmissions.userId });
       if (!updatedSubmission)
         throw new Error("Only pending demos can be approved");
+      if (acceptBreadOnly) await markLatestMaterialsBreadOnly(tx, id);
       await tx
         .update(projects)
         .set({
@@ -431,6 +459,7 @@ export async function approveProject(
     await audit("admin.review.demo_approve", "project", String(id), {
       hours,
       bread,
+      breadOnly: acceptBreadOnly,
     });
     revalidateReviewViews(id);
     await notifyReviewDecision(id, "demo", "accepted", {
@@ -484,10 +513,12 @@ export async function approveProject(
         .update(projects)
         .set({
           status: "done",
-          overrideHoursSpent: hours,
+          // Accumulate so update ships to an already-done build add to the
+          // project's totals instead of replacing them.
+          overrideHoursSpent: (project.overrideHoursSpent ?? 0) + hours,
           overrideHoursSpentJustification: reviewJustification,
           reviewNote: reviewComment,
-          breadAmount: gold,
+          breadAmount: sql`${projects.breadAmount} + ${gold}`,
           approvedAt: new Date(),
           doneAt: new Date(),
           updatedAt: new Date(),
@@ -529,6 +560,122 @@ export async function approveProject(
     await notifyReviewDecision(id, "materials", "accepted", {
       bread: gold,
       gold: true,
+      note: reviewComment,
+    });
+    return;
+  }
+
+  // A design ship pays out at materials approval when no demo phase lies ahead
+  // of it: bread-only ships (declared by the maker or accepted by the
+  // reviewer), and update ships to a project that already had a ship approved.
+  // The kit decision happens exactly once, on the first approval. Updates
+  // never trigger fulfillment, whether the project got a kit or was bread only.
+  const [priorApproved] = await db
+    .select({ id: projectSubmissions.id })
+    .from(projectSubmissions)
+    .where(
+      and(
+        eq(projectSubmissions.projectId, id),
+        eq(projectSubmissions.type, "materials"),
+        inArray(projectSubmissions.status, ["approved", "fulfilled"]),
+        ne(projectSubmissions.id, submission.id),
+      ),
+    )
+    .limit(1);
+  const isUpdateShip = Boolean(priorApproved);
+
+  if (acceptBreadOnly || submission.breadOnly || isUpdateShip) {
+    const bread = hours * BREAD_PER_HOUR;
+    const creditedUser = await db.transaction(async (tx) => {
+      await createReviewRecord(tx, {
+        projectId: id,
+        submissionId: submission.id,
+        reviewerId: session.user.id,
+        phase: "materials",
+        decision: "approved",
+        approvedHours: hours,
+        bread,
+        internalComment: reviewJustification,
+        publicComment: reviewComment,
+        checks,
+      });
+      const [updatedSubmission] = await tx
+        .update(projectSubmissions)
+        .set({
+          status: "approved",
+          approvedHours: hours,
+          internalNote: reviewJustification,
+          userComment: reviewComment,
+          breadAmount: bread,
+          ...(acceptBreadOnly ? { breadOnly: true } : {}),
+          reviewedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(projectSubmissions.id, submission.id),
+            eq(projectSubmissions.status, "pending_review"),
+          ),
+        )
+        .returning({ userId: projectSubmissions.userId });
+      if (!updatedSubmission)
+        throw new Error("Only pending snapshots can be approved");
+      await tx
+        .update(projects)
+        .set({
+          // A project that already finished the kit flow returns to done;
+          // bread-only projects sit in approved. Both keep tracking time and
+          // can ship further updates. overrideHoursSpent accumulates so it
+          // stays the total approved hours across all ships.
+          status: project.doneAt ? "done" : "approved",
+          overrideHoursSpent: (project.overrideHoursSpent ?? 0) + hours,
+          overrideHoursSpentJustification: reviewJustification,
+          reviewNote: reviewComment,
+          breadAmount: sql`${projects.breadAmount} + ${bread}`,
+          approvedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(projects.id, id));
+      const [credited] = await tx
+        .insert(userBread)
+        .values({ userId: updatedSubmission.userId, balance: bread })
+        .onConflictDoUpdate({
+          target: userBread.userId,
+          set: {
+            balance: sql`${userBread.balance} + ${bread}`,
+            updatedAt: new Date(),
+          },
+        })
+        .returning({ balance: userBread.balance });
+      // Deterministic key: the submission moves out of pending_review inside
+      // this same tx, so a retried approval can't double-credit.
+      await recordCurrencyTransaction(tx, {
+        userId: updatedSubmission.userId,
+        actorId: session.user.id,
+        type: "project_payout",
+        amount: bread,
+        balanceAfter: credited?.balance ?? null,
+        sourceEntityType: "submission",
+        sourceEntityId: String(submission.id),
+        idempotencyKey: `project_payout:materials:${submission.id}`,
+        note: isUpdateShip
+          ? "Project update approved"
+          : "Design approved (bread only)",
+      });
+      return updatedSubmission.userId;
+    });
+    await audit("admin.user.bread_add", "user", creditedUser, {
+      amount: bread,
+    });
+    await audit("admin.review.materials_approve", "project", String(id), {
+      hours,
+      bread,
+      breadOnly: acceptBreadOnly || submission.breadOnly,
+      update: isUpdateShip,
+    });
+    revalidateReviewViews(id);
+    await notifyReviewDecision(id, "materials", "accepted", {
+      bread,
       note: reviewComment,
     });
     return;
@@ -621,6 +768,7 @@ export async function approveProject(
   await audit("admin.review.materials_approve", "project", String(id), {
     hours,
     userId: creditedUser,
+    breadOnly: acceptBreadOnly,
   });
   revalidateReviewViews(id);
   await notifyReviewDecision(id, "materials", "accepted", {
@@ -645,10 +793,30 @@ export async function setProjectShipType(
     revalidateReviewViews(id);
     return;
   }
-  if (["done", "paid_out", "fulfilled"].includes(project.status))
+  if (["done", "paid_out", "fulfilled", "approved"].includes(project.status))
     throw new Error(
       "This project was already paid out, so its ship type can't change.",
     );
+  // An update ship under review keeps the project in materials_review, but the
+  // currency decision already happened on the first approval, so an update must
+  // not flip a bread project to gold (or vice versa).
+  if (project.status === "materials_review") {
+    const [prior] = await db
+      .select({ id: projectSubmissions.id })
+      .from(projectSubmissions)
+      .where(
+        and(
+          eq(projectSubmissions.projectId, id),
+          eq(projectSubmissions.type, "materials"),
+          inArray(projectSubmissions.status, ["approved", "fulfilled"]),
+        ),
+      )
+      .limit(1);
+    if (prior)
+      throw new Error(
+        "This project already had a ship paid out, so its ship type can't change.",
+      );
+  }
   await db
     .update(projects)
     .set({ projectType: shipType, updatedAt: new Date() })

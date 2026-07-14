@@ -455,7 +455,9 @@ export async function shipProjectFromForm(
       project: {
         id: projectId,
         ...data,
-        hoursSpent: tracked.hoursSpent,
+        // The project row keeps the cumulative total; tracked.hoursSpent is
+        // what this ship claims (new hours only on an update).
+        hoursSpent: tracked.totalHours,
         status: "materials_review",
         reviewNote: "",
       },
@@ -583,7 +585,9 @@ export async function submitCustomProjectFromForm(
       project: {
         id: projectId,
         ...data,
-        hoursSpent: tracked.hoursSpent,
+        // The project row keeps the cumulative total; tracked.hoursSpent is
+        // what this ship claims (new hours only on an update).
+        hoursSpent: tracked.totalHours,
         status: "materials_review",
         reviewNote: "",
       },

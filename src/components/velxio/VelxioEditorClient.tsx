@@ -14,21 +14,7 @@ import {
   markRealActivity,
 } from "@/lib/editor/activityTracker";
 import { createInitialKitPayload } from "@/lib/velxio/data/kitInventory";
-
-const NON_TRACKING_PROJECT_STATUSES = new Set([
-  "materials_review",
-  "shipped",
-  "reviewed",
-  "approved",
-  "paid_out",
-  "fulfilled",
-  "kit_approved",
-  "kit_fulfillment",
-  "kit_sent",
-  "building",
-  "demo_review",
-  "done",
-]);
+import { TRACKING_BLOCKED_PROJECT_STATUSES } from "@/lib/projects/tracking-status";
 
 loader.config({
   paths: {
@@ -385,7 +371,8 @@ export function VelxioNextEditor({
         installBreadboardAutosave(projectId, canPersist, modules);
 
         const trackTime =
-          canPersist && !NON_TRACKING_PROJECT_STATUSES.has(data.project.status);
+          canPersist &&
+          !TRACKING_BLOCKED_PROJECT_STATUSES.has(data.project.status);
 
         if (trackTime) {
           startActivityTracking(projectId, () =>

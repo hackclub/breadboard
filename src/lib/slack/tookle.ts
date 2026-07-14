@@ -289,6 +289,15 @@ function reviewDecisionCopy(
     };
   }
 
+  // Bread-only ships and updates to an already-approved project pay out at
+  // design review, so the decision carries a bread amount and no kit follows.
+  if (decision === "accepted" && phase === "materials" && bread !== undefined) {
+    return {
+      title: "Design review accepted",
+      body: `Nice, your design got accepted. You got ${bread} bread to spend in the shop. Keep building and ship an update anytime to earn more.`,
+    };
+  }
+
   if (decision === "accepted" && phase === "materials") {
     return {
       title: "Design review accepted",

@@ -14,6 +14,7 @@ import {
 } from "@/lib/db/schema";
 import { lapseOAuthConfigured, lapseProgramKeyConfigured } from "@/lib/lapse";
 import { isBuildShip } from "@/lib/projects/project-type";
+import { isUpdateShipStatus } from "@/components/platform/projects/project-status";
 import { resolveLapseUserId } from "@/lib/lapse-identity";
 
 export default async function ExternalTrackPage({
@@ -46,9 +47,11 @@ export default async function ExternalTrackPage({
 
   if (!project) notFound();
 
-  // Tracking only accrues on drafts. Once submitted, send them back to the
-  // project list where they can follow the review status.
-  if (project.status !== "draft") redirect(`/platform/projects`);
+  // Tracking accrues on drafts and on already-approved projects gathering new
+  // hours for an update ship. While a ship is under review, send them back to
+  // the project list where they can follow the status.
+  if (project.status !== "draft" && !isUpdateShipStatus(project.status))
+    redirect(`/platform/projects`);
 
   const [tracked] = await db
     .select({

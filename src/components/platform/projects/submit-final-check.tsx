@@ -101,10 +101,15 @@ const BUILD_CHECKS: CheckItem[] = [
 
 export function SubmitFinalCheck({
   kind,
+  updateShip = false,
   onAllConfirmedChange,
   onBreadOnlyChange,
 }: {
   kind: "design" | "build";
+  // Update to an already-approved project: the quality bar was settled at the
+  // first approval, so those checks are waived and the bread-only choice no
+  // longer exists (updates always pay bread at design review).
+  updateShip?: boolean;
   onAllConfirmedChange: (allConfirmed: boolean) => void;
   onBreadOnlyChange?: (breadOnly: boolean) => void;
 }) {
@@ -112,7 +117,9 @@ export function SubmitFinalCheck({
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   const [breadOnly, setBreadOnly] = useState(false);
   const isWaived = (id: string) =>
-    kind === "design" && breadOnly && BREAD_ONLY_WAIVED_IDS.has(id);
+    kind === "design" &&
+    (breadOnly || updateShip) &&
+    BREAD_ONLY_WAIVED_IDS.has(id);
   const allConfirmed = items.every(
     (item) => isWaived(item.id) || checked.has(item.id),
   );
@@ -158,7 +165,15 @@ export function SubmitFinalCheck({
         </div>
       </div>
 
-      {kind === "design" ? (
+      {kind === "design" && updateShip ? (
+        <p className="rounded-lg border border-black/15 bg-zinc-50 p-3 text-xs font-bold text-black/60">
+          This is an update to an already-approved project. Reviewers check the
+          new hours and the honesty requirements; the quality bar was settled
+          when the project was first approved.
+        </p>
+      ) : null}
+
+      {kind === "design" && !updateShip ? (
         <button
           type="button"
           aria-pressed={breadOnly}

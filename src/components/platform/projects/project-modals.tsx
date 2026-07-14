@@ -27,6 +27,7 @@ import {
 import { LoadingInline } from "@/components/shared/loading-card";
 import { Modal } from "@/components/shared/modal";
 import { SubmitFinalCheck } from "@/components/platform/projects/submit-final-check";
+import { isUpdateShipStatus } from "@/components/platform/projects/project-status";
 import { Button } from "@/components/ui/button";
 import { Input, inputClass } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -690,9 +691,11 @@ export function ShipProjectModal({
       !hasHowToUse);
   const externalBlocked = !isEditor && !hasScreenshot;
 
-  const submitLabel = isEditor
-    ? "Submit design for review"
-    : "Submit for review";
+  const submitLabel = isUpdateShipStatus(project.status)
+    ? "Submit update for review"
+    : isEditor
+      ? "Submit design for review"
+      : "Submit for review";
 
   const switchMode = (next: ShipMode) => {
     setMode(next);
@@ -709,12 +712,19 @@ export function ShipProjectModal({
 
   const confirmKind =
     !isEditor && project.projectType === "build" ? "build" : "design";
+  const updateShip = isUpdateShipStatus(project.status);
 
   return (
     <Modal
       open
       onClose={onClose}
-      eyebrow={confirming ? "Final check" : "Submit design"}
+      eyebrow={
+        confirming
+          ? "Final check"
+          : updateShip
+            ? "Ship an update"
+            : "Submit design"
+      }
       title={confirming ? "Are you sure?" : project.title}
       maxWidth="2xl"
       footer={
@@ -759,6 +769,7 @@ export function ShipProjectModal({
         <div className="grid gap-4">
           <SubmitFinalCheck
             kind={confirmKind}
+            updateShip={updateShip}
             onAllConfirmedChange={setAllConfirmed}
             onBreadOnlyChange={setBreadOnly}
           />

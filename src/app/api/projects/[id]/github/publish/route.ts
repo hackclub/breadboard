@@ -25,7 +25,11 @@ import {
   putFile,
 } from "@/lib/github/contents";
 import { GITHUB_PUBLISH_PROVIDER_ID } from "@/lib/github/oauth";
-import { normalizeBomItems, parseStoredBom, serializeBom } from "@/lib/projects/bom";
+import {
+  normalizeBomItems,
+  parseStoredBom,
+  serializeBom,
+} from "@/lib/projects/bom";
 import {
   buildBom,
   buildJournalsMarkdown,

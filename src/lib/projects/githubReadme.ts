@@ -398,7 +398,10 @@ export async function runReadmeBackfill(
     .where(
       opts.id
         ? eq(projects.id, opts.id)
-        : and(eq(projects.submissionSource, "editor"), ne(projects.codeUrl, "")),
+        : and(
+            eq(projects.submissionSource, "editor"),
+            ne(projects.codeUrl, ""),
+          ),
     )
     .orderBy(asc(projects.id));
 
@@ -425,7 +428,11 @@ export async function runReadmeBackfill(
       });
       continue;
     }
-    const result = await refreshGitHubReadme(project.id, project.userId, origin);
+    const result = await refreshGitHubReadme(
+      project.id,
+      project.userId,
+      origin,
+    );
     // Republish the static play page too, so a backfilled repo is current
     // end to end. runStaticShareBackfill with an explicit id processes the
     // project regardless of its playableUrl and updates it on success.

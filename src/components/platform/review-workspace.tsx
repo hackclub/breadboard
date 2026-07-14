@@ -472,9 +472,7 @@ export function ReviewWorkspace({
                   <button
                     type="button"
                     disabled={typePending}
-                    onClick={() =>
-                      changeShipType(isBuild ? "design" : "build")
-                    }
+                    onClick={() => changeShipType(isBuild ? "design" : "build")}
                     title={
                       isBuild
                         ? "Reclassify as a design ship: regular bread, ships a kit"

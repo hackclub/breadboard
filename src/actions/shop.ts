@@ -293,7 +293,9 @@ export async function placeOrder(
         throw new Error(`${item.productName} is no longer in stock.`);
     }
 
-    const balanceColumn = payingGold ? userBread.goldBalance : userBread.balance;
+    const balanceColumn = payingGold
+      ? userBread.goldBalance
+      : userBread.balance;
     const [updatedBalance] = await tx
       .update(userBread)
       .set({

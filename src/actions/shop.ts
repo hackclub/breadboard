@@ -39,6 +39,7 @@ type ProductInput = {
   description: string;
   imageUrl: string;
   price: number;
+  goldPrice?: number | null;
   stock?: number | null;
   active?: boolean;
 };
@@ -83,10 +84,16 @@ function limitedText(
 
 function normalizeProductInput(data: ProductInput) {
   const imageUrl = limitedText(data.imageUrl, "Image URL");
-  try {
-    new URL(imageUrl);
-  } catch {
-    throw new Error("Image URL must be valid");
+  // Uploaded product images come back as root-relative /api/uploads/... paths,
+  // which `new URL` alone rejects. Accept those plus absolute URLs, but not
+  // protocol-relative //host paths.
+  const isUploadPath = imageUrl.startsWith("/") && !imageUrl.startsWith("//");
+  if (!isUploadPath) {
+    try {
+      new URL(imageUrl);
+    } catch {
+      throw new Error("Image URL must be valid");
+    }
   }
 
   return {
@@ -94,6 +101,10 @@ function normalizeProductInput(data: ProductInput) {
     description: limitedText(data.description, "Description", 1000),
     imageUrl,
     price: requirePositiveInt(data.price, "Price"),
+    goldPrice:
+      data.goldPrice === null || data.goldPrice === undefined
+        ? null
+        : requirePositiveInt(data.goldPrice, "Gold price"),
     stock:
       data.stock === null || data.stock === undefined
         ? null
@@ -189,11 +200,16 @@ export async function removeFromCart(cartItemId: number) {
 export async function placeOrder(
   checkoutItems: CheckoutItem[],
   address: ShippingAddress,
+  currency: "bread" | "gold" = "bread",
 ) {
   const session = await requireSession();
   if (!(await shopOpen())) {
     throw new Error("The shop is closed right now. Project kits still work.");
   }
+  if (currency !== "bread" && currency !== "gold") {
+    throw new Error("Invalid currency");
+  }
+  const payingGold = currency === "gold";
   const shippingAddress = normalizeAddress(address);
 
   const normalizedItems = checkoutItems
@@ -209,7 +225,8 @@ export async function placeOrder(
     .select({
       productId: products.id,
       productName: products.name,
-      unitPrice: products.price,
+      price: products.price,
+      goldPrice: products.goldPrice,
       stock: products.stock,
     })
     .from(products)
@@ -225,10 +242,19 @@ export async function placeOrder(
 
   const items = productRows
     .filter((product) => quantityByProduct.has(product.productId))
-    .map((product) => ({
-      ...product,
-      quantity: quantityByProduct.get(product.productId) ?? 0,
-    }));
+    .map((product) => {
+      const unitPrice = payingGold ? product.goldPrice : product.price;
+      if (unitPrice === null) {
+        throw new Error(
+          `${product.productName} can't be bought with gold bread.`,
+        );
+      }
+      return {
+        ...product,
+        unitPrice,
+        quantity: quantityByProduct.get(product.productId) ?? 0,
+      };
+    });
 
   if (items.length !== quantityByProduct.size) {
     throw new Error("One or more items are unavailable");
@@ -267,38 +293,54 @@ export async function placeOrder(
         throw new Error(`${item.productName} is no longer in stock.`);
     }
 
+    const balanceColumn = payingGold ? userBread.goldBalance : userBread.balance;
     const [updatedBalance] = await tx
       .update(userBread)
       .set({
-        balance: sql`${userBread.balance} - ${totalCost}`,
+        ...(payingGold
+          ? { goldBalance: sql`${userBread.goldBalance} - ${totalCost}` }
+          : { balance: sql`${userBread.balance} - ${totalCost}` }),
         updatedAt: new Date(),
       })
       .where(
         and(
           eq(userBread.userId, session.user.id),
-          sql`${userBread.balance} >= ${totalCost}`,
+          sql`${balanceColumn} >= ${totalCost}`,
         ),
       )
-      .returning({ balance: userBread.balance });
+      .returning({ balance: balanceColumn });
 
     if (!updatedBalance) {
-      throw new Error(`Insufficient balance. You need ${totalCost} bread.`);
+      throw new Error(
+        `Insufficient balance. You need ${totalCost} ${
+          payingGold ? "gold bread" : "bread"
+        }.`,
+      );
     }
 
     await recordCurrencyTransaction(tx, {
       userId: session.user.id,
       type: "shop_purchase",
+      currency,
       amount: -totalCost,
       balanceAfter: updatedBalance.balance,
       sourceEntityType: "shop",
-      note: `Shop purchase of ${items.length} item(s)`,
+      note: `Shop purchase of ${items.length} item(s)${
+        payingGold ? " (gold bread)" : ""
+      }`,
     });
 
+    // Orders are single-currency, so a gold purchase only merges into a
+    // pending gold order (and bread into bread).
     const existingOrder = await tx
       .select()
       .from(orders)
       .where(
-        and(eq(orders.userId, session.user.id), eq(orders.status, "pending")),
+        and(
+          eq(orders.userId, session.user.id),
+          eq(orders.status, "pending"),
+          eq(orders.currency, currency),
+        ),
       )
       .orderBy(sql`${orders.createdAt} DESC`)
       .limit(1);
@@ -310,6 +352,7 @@ export async function placeOrder(
         .insert(orders)
         .values({
           userId: session.user.id,
+          currency,
           totalCost,
           shippingName: shippingAddress.name,
           shippingLine1: shippingAddress.line1,
@@ -330,7 +373,7 @@ export async function placeOrder(
         });
       }
 
-      return { orderId: createdOrder.id, totalCost, merged: false };
+      return { orderId: createdOrder.id, totalCost, currency, merged: false };
     }
 
     await tx
@@ -374,7 +417,7 @@ export async function placeOrder(
         });
       }
     }
-    return { orderId: pendingOrder.id, totalCost, merged: true };
+    return { orderId: pendingOrder.id, totalCost, currency, merged: true };
   });
 
   revalidatePath("/platform/shop/orders");
@@ -552,7 +595,11 @@ export async function cancelOrder(orderId: number) {
           eq(orders.status, "pending"),
         ),
       )
-      .returning({ id: orders.id, totalCost: orders.totalCost });
+      .returning({
+        id: orders.id,
+        totalCost: orders.totalCost,
+        currency: orders.currency,
+      });
     if (!cancelledOrder)
       throw new Error("Only pending orders can be cancelled");
 
@@ -576,33 +623,48 @@ export async function cancelOrder(orderId: number) {
         );
     }
 
+    // Refund whichever balance the order was paid from.
+    const refundGold = cancelledOrder.currency === "gold";
     const [refunded] = await tx
       .insert(userBread)
       .values({
         userId: session.user.id,
-        balance: cancelledOrder.totalCost,
+        ...(refundGold
+          ? { goldBalance: cancelledOrder.totalCost }
+          : { balance: cancelledOrder.totalCost }),
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
         target: userBread.userId,
         set: {
-          balance: sql`${userBread.balance} + ${cancelledOrder.totalCost}`,
+          ...(refundGold
+            ? {
+                goldBalance: sql`${userBread.goldBalance} + ${cancelledOrder.totalCost}`,
+              }
+            : {
+                balance: sql`${userBread.balance} + ${cancelledOrder.totalCost}`,
+              }),
           updatedAt: new Date(),
         },
       })
-      .returning({ balance: userBread.balance });
+      .returning({
+        balance: refundGold ? userBread.goldBalance : userBread.balance,
+      });
 
     // Deterministic key: an order refunds at most once (guarded by the
     // pending→cancelled transition), so a retry can't double-credit.
     await recordCurrencyTransaction(tx, {
       userId: session.user.id,
       type: "order_refund",
+      currency: cancelledOrder.currency,
       amount: cancelledOrder.totalCost,
       balanceAfter: refunded?.balance ?? null,
       sourceEntityType: "order",
       sourceEntityId: String(id),
       idempotencyKey: `order_refund:${id}`,
-      note: "Order cancelled — bread refunded",
+      note: refundGold
+        ? "Order cancelled — gold bread refunded"
+        : "Order cancelled — bread refunded",
     });
   });
 
@@ -674,6 +736,7 @@ export async function addProduct(data: {
   description: string;
   imageUrl: string;
   price: number;
+  goldPrice?: number | null;
   stock?: number | null;
 }) {
   await requireAdminSession();
@@ -689,6 +752,7 @@ export async function updateProduct(
     description: string;
     imageUrl: string;
     price: number;
+    goldPrice?: number | null;
     stock: number | null;
     active: boolean;
   },

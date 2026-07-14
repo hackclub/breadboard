@@ -24,6 +24,7 @@ export async function recordCurrencyTransaction(
   entry: {
     userId: string;
     type: CurrencyType;
+    currency?: "bread" | "gold"; // which balance moved; defaults to bread
     amount: number; // signed: credit > 0, debit < 0
     actorId?: string | null;
     balanceAfter?: number | null;
@@ -39,6 +40,7 @@ export async function recordCurrencyTransaction(
       userId: entry.userId,
       actorId: entry.actorId ?? null,
       type: entry.type,
+      currency: entry.currency ?? "bread",
       amount: entry.amount,
       balanceAfter: entry.balanceAfter ?? null,
       sourceEntityType: entry.sourceEntityType ?? "",

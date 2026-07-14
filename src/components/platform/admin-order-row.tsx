@@ -28,6 +28,7 @@ export function OrderRow({
   currentTracking,
   userEmail,
   totalCost,
+  currency = "bread",
   items,
   createdAt,
 }: {
@@ -36,6 +37,7 @@ export function OrderRow({
   currentTracking: string | null;
   userEmail: string;
   totalCost: number;
+  currency?: "bread" | "gold";
   items: AdminOrderItem[];
   createdAt: string;
 }) {
@@ -60,7 +62,7 @@ export function OrderRow({
         </div>
         <div className="text-sm sm:text-right">
           <p className="font-semibold text-black">
-            <BreadAmount amount={totalCost} />
+            <BreadAmount amount={totalCost} gold={currency === "gold"} />
           </p>
           <p className="text-black/50">{createdAt}</p>
         </div>

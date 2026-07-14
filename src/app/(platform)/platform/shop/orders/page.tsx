@@ -122,7 +122,7 @@ async function OrderCard({ orderId }: { orderId: number }) {
         <div>
           <p className="text-xs font-semibold text-black/45">Total</p>
           <p className="mt-1 font-black text-black">
-            <BreadAmount amount={o.totalCost} />
+            <BreadAmount amount={o.totalCost} gold={o.currency === "gold"} />
           </p>
         </div>
         <div className="sm:text-right">
@@ -156,7 +156,11 @@ async function OrderCard({ orderId }: { orderId: number }) {
                 Quantity: {item.quantity}
               </p>
               <p className="mt-1 text-sm text-black/55">
-                <BreadAmount amount={item.unitPrice} /> each
+                <BreadAmount
+                  amount={item.unitPrice}
+                  gold={o.currency === "gold"}
+                />{" "}
+                each
               </p>
               {o.trackingInfo ? (
                 <p className="mt-3 rounded-[8px] border border-black bg-[#f4f4f4] px-3 py-2 text-sm font-semibold text-black">
@@ -165,7 +169,10 @@ async function OrderCard({ orderId }: { orderId: number }) {
               ) : null}
             </div>
             <p className="font-black text-black sm:text-right">
-              <BreadAmount amount={item.unitPrice * item.quantity} />
+              <BreadAmount
+                amount={item.unitPrice * item.quantity}
+                gold={o.currency === "gold"}
+              />
             </p>
           </li>
         ))}

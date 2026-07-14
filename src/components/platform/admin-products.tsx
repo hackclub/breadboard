@@ -17,6 +17,7 @@ type ProductFormState = {
   description: string;
   imageUrl: string;
   price: number;
+  goldPrice: number | null;
   stock: number | null;
   active: boolean;
 };
@@ -26,6 +27,7 @@ const emptyProduct: ProductFormState = {
   description: "",
   imageUrl: "",
   price: 1,
+  goldPrice: null,
   stock: null,
   active: true,
 };
@@ -72,13 +74,32 @@ function ProductFields({
         />
       </label>
       <label className="flex flex-col gap-1">
-        <span className="text-xs font-bold text-black/60">Price</span>
+        <span className="text-xs font-bold text-black/60">Price (bread)</span>
         <input
           type="number"
           value={value.price}
           min={1}
           onChange={(event) =>
             onChange({ ...value, price: Number(event.target.value) })
+          }
+          className="rounded-[10px] border border-black bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-[#BD0F32]/20"
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="text-xs font-bold text-black/60">
+          Price (gold bread)
+        </span>
+        <input
+          type="number"
+          value={value.goldPrice ?? ""}
+          min={1}
+          placeholder="No gold price"
+          onChange={(event) =>
+            onChange({
+              ...value,
+              goldPrice:
+                event.target.value === "" ? null : Number(event.target.value),
+            })
           }
           className="rounded-[10px] border border-black bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-[#BD0F32]/20"
         />
@@ -336,6 +357,11 @@ export function ProductAdminCard({
               <span className="text-xs font-semibold text-black/55">
                 <BreadAmount amount={product.price} />
               </span>
+              {product.goldPrice !== null ? (
+                <span className="text-xs font-semibold text-black/55">
+                  <BreadAmount amount={product.goldPrice} gold />
+                </span>
+              ) : null}
               <span className="text-xs font-semibold text-black/55">
                 {product.stock === null
                   ? "Unlimited stock"

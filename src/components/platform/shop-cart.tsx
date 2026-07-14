@@ -21,9 +21,12 @@ type CartItem = {
   name: string;
   imageUrl: string;
   price: number;
+  goldPrice: number | null;
   stock: number | null;
   quantity: number;
 };
+
+type Currency = "bread" | "gold";
 
 type Address = {
   name: string;
@@ -54,6 +57,12 @@ function normalizeCart(value: unknown): CartItem[] {
       name: String(item?.name ?? "Product"),
       imageUrl: String(item?.imageUrl ?? ""),
       price: Number(item?.price),
+      goldPrice:
+        item?.goldPrice === null ||
+        item?.goldPrice === undefined ||
+        !Number.isFinite(Number(item.goldPrice))
+          ? null
+          : Number(item.goldPrice),
       stock:
         item?.stock === null || item?.stock === undefined
           ? null
@@ -175,9 +184,11 @@ export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
   const [placedOrder, setPlacedOrder] = useState<{
     orderId: number;
     totalCost: number;
+    currency: Currency;
     merged: boolean;
   } | null>(null);
   const [address, setAddress] = useState<Address>(emptyAddress);
+  const [currency, setCurrency] = useState<Currency>("bread");
 
   useEffect(() => {
     const syncCart = () => setItems(loadCart());
@@ -188,8 +199,18 @@ export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
     };
   }, []);
 
+  // Gold checkout is only possible when every item in the cart has a gold
+  // price; otherwise the toggle is disabled and we fall back to bread.
+  const goldAvailable =
+    items.length > 0 && items.every((item) => item.goldPrice !== null);
+  const payCurrency: Currency =
+    currency === "gold" && goldAvailable ? "gold" : "bread";
+  const payingGold = payCurrency === "gold";
+  const unitPrice = (item: CartItem) =>
+    payingGold ? (item.goldPrice ?? item.price) : item.price;
+
   const total = items.reduce(
-    (sum, item) => sum + item.price * item.quantity,
+    (sum, item) => sum + unitPrice(item) * item.quantity,
     0,
   );
   const count = items.reduce((sum, item) => sum + item.quantity, 0);
@@ -238,16 +259,18 @@ export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
       const result = await placeOrder(
         items.map(({ productId, quantity }) => ({ productId, quantity })),
         address,
+        payCurrency,
       );
       setItems([]);
       saveCart([]);
       setCheckout(false);
       setAddress(emptyAddress);
+      setCurrency("bread");
       setPlacedOrder(result);
       setMessage(
-        `Order #${result.orderId} placed for ${result.totalCost} bread.${
-          result.merged ? " Added to your existing pending order." : ""
-        }`,
+        `Order #${result.orderId} placed for ${result.totalCost} ${
+          result.currency === "gold" ? "gold bread" : "bread"
+        }.${result.merged ? " Added to your existing pending order." : ""}`,
       );
     } catch (error) {
       setMessage(
@@ -276,7 +299,7 @@ export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
         </span>
         {total > 0 ? (
           <span className="rounded-full bg-black px-2.5 py-1 text-xs font-semibold text-white">
-            <BreadAmount amount={total} />
+            <BreadAmount amount={total} gold={payingGold} />
           </span>
         ) : null}
       </button>
@@ -334,7 +357,11 @@ export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
                   <div className="mt-6 rounded-[12px] bg-[#f4f4f4] p-4">
                     <p className="text-sm font-bold text-black/55">Total</p>
                     <p className="text-3xl font-black text-black">
-                      <BreadAmount amount={placedOrder.totalCost} size="lg" />
+                      <BreadAmount
+                        amount={placedOrder.totalCost}
+                        size="lg"
+                        gold={placedOrder.currency === "gold"}
+                      />
                     </p>
                     {placedOrder.merged ? (
                       <p className="mt-2 text-sm font-semibold text-black/60">
@@ -390,7 +417,11 @@ export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
                           <div>
                             <p className="font-black text-black">{item.name}</p>
                             <p className="mt-1 text-sm text-black/60">
-                              <BreadAmount amount={item.price} /> each
+                              <BreadAmount
+                                amount={unitPrice(item)}
+                                gold={payingGold}
+                              />{" "}
+                              each
                             </p>
                             {item.stock !== null ? (
                               <p className="mt-1 text-xs font-bold text-[#BD0F32]">
@@ -399,7 +430,10 @@ export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
                             ) : null}
                           </div>
                           <p className="text-lg font-semibold text-black">
-                            <BreadAmount amount={item.price * item.quantity} />
+                            <BreadAmount
+                              amount={unitPrice(item) * item.quantity}
+                              gold={payingGold}
+                            />
                           </p>
                         </div>
                         <div className="mt-4 flex items-center justify-between gap-3 border-t border-black/10 pt-4">
@@ -480,7 +514,10 @@ export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
                             </p>
                           </div>
                           <p className="text-sm font-black text-black">
-                            <BreadAmount amount={item.price * item.quantity} />
+                            <BreadAmount
+                              amount={unitPrice(item) * item.quantity}
+                              gold={payingGold}
+                            />
                           </p>
                         </div>
                       ))}
@@ -541,10 +578,49 @@ export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
             </div>
 
             <div className="border-t-[1.5px] border-black bg-white p-6">
+              {!placedOrder && items.length > 0 ? (
+                <div className="mb-4">
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="font-semibold text-black/60">
+                      Pay with
+                    </span>
+                    <div className="flex overflow-hidden rounded-full border border-black">
+                      <button
+                        type="button"
+                        onClick={() => setCurrency("bread")}
+                        className={`px-4 py-1.5 text-xs font-black transition ${
+                          !payingGold
+                            ? "bg-black text-white"
+                            : "bg-white text-black hover:bg-[#f4f4f4]"
+                        }`}
+                      >
+                        Bread
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCurrency("gold")}
+                        disabled={!goldAvailable}
+                        className={`border-l border-black px-4 py-1.5 text-xs font-black transition ${
+                          payingGold
+                            ? "bg-black text-white"
+                            : "bg-white text-black hover:bg-[#f4f4f4]"
+                        } disabled:cursor-not-allowed disabled:opacity-40`}
+                      >
+                        Gold
+                      </button>
+                    </div>
+                  </div>
+                  {!goldAvailable ? (
+                    <p className="mt-2 text-right text-xs font-semibold text-black/45">
+                      Some items in your cart have no gold price.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="mb-4 flex items-center justify-between text-sm">
                 <span className="font-semibold text-black/60">Order total</span>
                 <span className="text-3xl font-black text-black">
-                  <BreadAmount amount={total} size="lg" />
+                  <BreadAmount amount={total} size="lg" gold={payingGold} />
                 </span>
               </div>
               {placedOrder ? null : checkout ? (
@@ -595,6 +671,7 @@ export function AddToCartButton({
   name,
   imageUrl,
   price,
+  goldPrice = null,
   stock,
   shopOpen = true,
 }: {
@@ -602,6 +679,7 @@ export function AddToCartButton({
   name: string;
   imageUrl: string;
   price: number;
+  goldPrice?: number | null;
   stock: number | null;
   shopOpen?: boolean;
 }) {
@@ -626,6 +704,7 @@ export function AddToCartButton({
             ? {
                 ...item,
                 stock,
+                goldPrice: goldPrice === null ? null : Number(goldPrice),
                 quantity: Math.min(
                   stock ?? Number.POSITIVE_INFINITY,
                   item.quantity + 1,
@@ -640,6 +719,7 @@ export function AddToCartButton({
             name,
             imageUrl,
             price: Number(price),
+            goldPrice: goldPrice === null ? null : Number(goldPrice),
             stock,
             quantity: 1,
           },

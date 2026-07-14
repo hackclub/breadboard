@@ -101,9 +101,16 @@ export default async function PlatformShopPage() {
                 </p>
                 <div className="mt-4 border-t border-black/10 pt-4">
                   <div className="mb-3 flex items-end justify-between gap-3">
-                    <p className="text-2xl font-black text-black">
-                      <BreadAmount amount={product.price} size="md" />
-                    </p>
+                    <div>
+                      <p className="text-2xl font-black text-black">
+                        <BreadAmount amount={product.price} size="md" />
+                      </p>
+                      {product.goldPrice !== null ? (
+                        <p className="mt-1 text-sm font-black text-black/60">
+                          or <BreadAmount amount={product.goldPrice} gold />
+                        </p>
+                      ) : null}
+                    </div>
                     <p
                       className={`text-sm font-black ${
                         product.stock === null
@@ -125,6 +132,7 @@ export default async function PlatformShopPage() {
                     name={product.name}
                     imageUrl={product.imageUrl}
                     price={product.price}
+                    goldPrice={product.goldPrice}
                     stock={product.stock}
                     shopOpen={isShopOpen}
                   />

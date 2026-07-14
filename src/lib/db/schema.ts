@@ -202,6 +202,10 @@ export const products = pgTable("products", {
   description: text("description").notNull().default(""),
   imageUrl: text("image_url").notNull(),
   price: integer("price").notNull().default(1),
+  // Price in gold bread (earned from build ships). Null means the item has no
+  // gold price set; gold bread buys items at a discount, so this is usually
+  // lower than `price`.
+  goldPrice: integer("gold_price"),
   stock: integer("stock"),
   active: boolean("active").notNull().default(true),
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),
@@ -288,6 +292,9 @@ export const currencyTransactionTypeEnum = pgEnum("currency_transaction_type", [
   "admin_adjustment",
 ]);
 
+// Which balance moved: regular bread or gold bread (earned from build ships).
+export const breadCurrencyEnum = pgEnum("bread_currency", ["bread", "gold"]);
+
 export const currencyTransactions = pgTable(
   "currency_transactions",
   {
@@ -299,6 +306,7 @@ export const currencyTransactions = pgTable(
       onDelete: "set null",
     }),
     type: currencyTransactionTypeEnum("type").notNull(),
+    currency: breadCurrencyEnum("currency").notNull().default("bread"),
     amount: integer("amount").notNull(),
     balanceAfter: integer("balance_after"),
     sourceEntityType: text("source_entity_type").notNull().default(""),
@@ -380,6 +388,9 @@ export const orders = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     status: orderStatusEnum("status").notNull().default("pending"),
+    // The whole order charges (and refunds) in one currency; unit prices on
+    // its items are denominated in it.
+    currency: breadCurrencyEnum("currency").notNull().default("bread"),
     totalCost: integer("total_cost").notNull().default(0),
     shippingName: text("shipping_name").notNull().default(""),
     shippingLine1: text("shipping_line1").notNull().default(""),
@@ -808,9 +819,10 @@ export const projectSubmissions = pgTable(
     internalNote: text("internal_note").notNull().default(""),
     userComment: text("user_comment").notNull().default(""),
     breadAmount: integer("bread_amount").notNull().default(0),
-    // Maker opted out of the cool-project quality bar at submit time: they
-    // want bread for the hours, not a kit-worthy showcase. Reviewers and
-    // fulfillment surface this.
+    // The ship opted out of the cool-project quality bar: it earns bread for
+    // the hours without being a kit-worthy showcase. Set by the maker at
+    // submit time, or by a reviewer accepting a project that misses the bar.
+    // Lives on the materials submission; reviewers and fulfillment surface it.
     breadOnly: boolean("bread_only").notNull().default(false),
     submissionSource: text("submission_source").notNull().default("editor"),
     submittedAt: timestamp("submitted_at", { withTimezone: true })

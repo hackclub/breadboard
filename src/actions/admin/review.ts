@@ -508,6 +508,7 @@ export async function approveProject(
         userId: updatedSubmission.userId,
         actorId: session.user.id,
         type: "project_payout",
+        currency: "gold",
         amount: gold,
         balanceAfter: credited?.goldBalance ?? null,
         sourceEntityType: "submission",
@@ -717,6 +718,7 @@ export async function payOutProject(projectId: number) {
       userId: updatedProject.userId,
       actorId: session.user.id,
       type: "project_payout",
+      currency: buildShip ? "gold" : "bread",
       amount: bread,
       balanceAfter: buildShip
         ? (credited?.goldBalance ?? null)

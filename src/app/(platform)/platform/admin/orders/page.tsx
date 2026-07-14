@@ -36,6 +36,7 @@ export default async function AdminOrdersPage() {
       status: orders.status,
       trackingInfo: orders.trackingInfo,
       totalCost: orders.totalCost,
+      currency: orders.currency,
       createdAt: orders.createdAt,
       userEmail: user.email,
     })
@@ -91,6 +92,7 @@ export default async function AdminOrdersPage() {
               currentTracking={o.trackingInfo}
               userEmail={o.userEmail}
               totalCost={o.totalCost}
+              currency={o.currency}
               items={o.items}
               createdAt={new Date(o.createdAt).toLocaleDateString()}
             />

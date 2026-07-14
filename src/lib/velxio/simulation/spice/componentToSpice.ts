@@ -940,6 +940,28 @@ const MAPPERS: Record<string, Mapper> = {
     };
   },
 
+  // Water level sensor — 3-pin module (+ / S / -). The analog output on S
+  // rises with immersion depth: empty → 0 V, full → 5 V, linear in `level`
+  // (0–100%). Modeled as an ideal voltage source from S to the module ground
+  // so the value flows through the solver and `analogRead` picks it up via the
+  // ADC bridge — no direct ADC injection. A steady full tank therefore holds
+  // 5 V across re-solves instead of being clobbered to the undriven-net 0 V.
+  // Referenced to the '-' (GND) net, or SPICE ground if left unwired.
+  "water-level-sensor": (comp, netLookup) => {
+    const out = netLookup("S") ?? netLookup("OUT");
+    if (!out) return null;
+    const gnd = netLookup("-") ?? netLookup("GND") ?? "0";
+    const level = Math.max(
+      0,
+      Math.min(100, Number(comp.properties.level ?? 0)),
+    );
+    const volts = (level / 100) * 5;
+    return {
+      cards: [`V_${comp.id} ${out} ${gnd} DC ${volts}`],
+      modelsUsed: new Set(),
+    };
+  },
+
   // Ammeter — inserts a 0 V source so ngspice reports the branch current.
   // Terminals are 'A+' and 'A-'. The probe is modelled as:
   //    A+ ──[V_<id>_sense=0]── mid ──[shunt=1mΩ]── A-

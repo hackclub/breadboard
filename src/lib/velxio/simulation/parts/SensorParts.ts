@@ -187,20 +187,19 @@ PartSimulationRegistry.register("lm35dz", {
 
 // ─── Water Level Sensor ──────────────────────────────────────────────────────
 
+// The analog output is driven through SPICE (see the `water-level-sensor`
+// mapper in componentToSpice.ts): the panel slider updates the `level`
+// property, the netlist rebuilds with a voltage source on the S net, and the
+// ADC bridge reads that solved voltage. This handler only mirrors the value
+// to the element (for the water-fill visual) and emits the property change.
 PartSimulationRegistry.register("water-level-sensor", {
-  attachEvents: (_element, simulator, getArduinoPinHelper, componentId) => {
-    const pin = getArduinoPinHelper("S") ?? getArduinoPinHelper("OUT");
-    const levelToVolts = (level: number) =>
-      Math.max(0, Math.min(5, (level / 100) * 5));
-
-    if (pin !== null) setAdcVoltage(simulator, pin, 0);
+  attachEvents: (_element, _simulator, _getArduinoPinHelper, componentId) => {
     (_element as any).level = 0;
 
     registerSensorUpdate(componentId, (values) => {
       if ("level" in values) {
         const level = values.level as number;
         (_element as any).level = level;
-        if (pin !== null) setAdcVoltage(simulator, pin, levelToVolts(level));
         emitPropertyChange(componentId, "level", level);
       }
     });

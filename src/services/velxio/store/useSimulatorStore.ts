@@ -64,7 +64,7 @@ import {
   countKitBoards,
   countKitComponents,
   isAnyKitBoard,
-  isAnyKitComponent,
+  isIgnoreStockComponent,
   isKitBoard,
   isKitComponent,
   kitBoardLimit,
@@ -898,6 +898,7 @@ interface SimulatorState {
     x: number,
     y: number,
     explicitId?: string,
+    opts?: { bypassKitCheck?: boolean },
   ) => string;
   removeBoard: (boardId: string) => void;
   /** Reload the entire workspace from a saved project payload. Tears down
@@ -1229,21 +1230,29 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       x: number,
       y: number,
       explicitId?: string,
+      opts?: { bypassKitCheck?: boolean },
     ) => {
       const kitType = get().kitType;
       const ignoreStock = get().ignoreStock;
-      if (
-        ignoreStock
-          ? !isAnyKitBoard(boardKind)
-          : !isKitBoard(boardKind, kitType)
-      )
-        return;
-      const boardCounts = countKitBoards(get().boards);
-      if (
-        !ignoreStock &&
-        (boardCounts[boardKind] ?? 0) >= kitBoardLimit(boardKind, kitType)
-      )
-        return;
+      // Kit membership and per-kit count limits gate what a USER may add. A
+      // project load recreates whatever was saved and must bypass both, or a
+      // saved non-kit board (e.g. an Arduino Nano) is silently dropped on
+      // load — taking its code (file groups are anchored to the board id) with
+      // it. That is a data-loss bug, not a stock restriction.
+      if (!opts?.bypassKitCheck) {
+        if (
+          ignoreStock
+            ? !isAnyKitBoard(boardKind)
+            : !isKitBoard(boardKind, kitType)
+        )
+          return;
+        const boardCounts = countKitBoards(get().boards);
+        if (
+          !ignoreStock &&
+          (boardCounts[boardKind] ?? 0) >= kitBoardLimit(boardKind, kitType)
+        )
+          return;
+      }
 
       let id: string;
       if (explicitId) {
@@ -1542,7 +1551,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       // Recreate boards with their saved ids so wire endpoints (which embed
       // the literal board id) keep matching.
       payload.boards.forEach((b) => {
-        addBoard(b.boardKind, b.x, b.y, b.id);
+        addBoard(b.boardKind, b.x, b.y, b.id, { bypassKitCheck: true });
         // Apply the rest of the saved fields that addBoard doesn't set.
         const patch: Partial<BoardInstance> = {};
         if (b.languageMode && b.languageMode !== "arduino")
@@ -2715,7 +2724,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         const metadataId = component.metadataId;
         if (!metadataId) return state;
         if (state.ignoreStock) {
-          if (!isAnyKitComponent(metadataId)) return state;
+          if (!isIgnoreStockComponent(metadataId)) return state;
           return { components: [...state.components, component] };
         }
         if (!isKitComponent(metadataId, state.kitType)) return state;
@@ -2811,24 +2820,19 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     setComponents: (components) => {
       // Bulk replacement (project load / clear) — any pending undo/redo
       // would point at component IDs that no longer exist after this.
-      set((state) => {
-        const counts: Record<string, number> = {};
-        const next = components.filter((component) => {
-          const metadataId = component.metadataId;
-          if (state.ignoreStock) {
-            return metadataId ? isAnyKitComponent(metadataId) : false;
-          }
-          if (!metadataId || !isKitComponent(metadataId, state.kitType))
-            return false;
-          const count = counts[metadataId] ?? 0;
-          if (count >= kitComponentLimit(metadataId, state.kitType))
-            return false;
-          counts[metadataId] = count + 1;
-          return true;
-        });
-
-        return { components: next, history: [], historyIndex: -1 };
-      });
+      //
+      // Load faithfully: keep every saved component so it renders, regardless
+      // of kit membership or per-kit quantity limits. Kit restrictions belong
+      // on the ADD paths (addComponent / handleSelectComponent), which already
+      // enforce them — filtering here silently dropped non-kit parts (and any
+      // part built before the kit restriction existed) from saved projects,
+      // deleting them on the next save. Drop only entries with no metadataId,
+      // which getById() can't resolve and so can never render.
+      set((_state) => ({
+        components: components.filter((component) => component.metadataId),
+        history: [],
+        historyIndex: -1,
+      }));
     },
 
     addWire: (wire) => set((state) => ({ wires: [...state.wires, wire] })),

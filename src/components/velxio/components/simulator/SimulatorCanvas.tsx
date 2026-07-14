@@ -26,7 +26,7 @@ import {
   countKitBoards,
   countKitComponents,
   isAnyKitBoard,
-  isAnyKitComponent,
+  isIgnoreStockComponent,
   isKitBoard,
   isKitComponent,
   kitBoardLimit,
@@ -1618,7 +1618,7 @@ export const SimulatorCanvas = ({
     if (readOnly) return;
     if (
       ignoreStock
-        ? !isAnyKitComponent(metadata.id)
+        ? !isIgnoreStockComponent(metadata.id)
         : !isKitComponent(metadata.id, kitType)
     )
       return;

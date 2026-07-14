@@ -11,7 +11,6 @@ import type {
   ComponentCategory,
   ComponentMetadataCollection,
 } from "@/lib/velxio/types/component-metadata";
-import { filterAvailableComponents } from "@/lib/velxio/data/kitInventory";
 import { assetUrl } from "@/lib/velxio/utils/assetBase";
 
 // One-line picker descriptions for entries whose generated metadata ships
@@ -339,7 +338,13 @@ export class ComponentRegistry {
           "SG90 micro servo, sweeps its arm 0 to 180 degrees from a PWM signal.";
       }
 
-      this.processMetadata(filterAvailableComponents(data.components));
+      // Index the FULL catalog, not just kit parts. getById() backs canvas
+      // rendering, so trimming the registry to the kit made every non-kit
+      // component in a saved project (and every project built before the kit
+      // restriction existed) render as nothing. The component picker does its
+      // own kit filtering (see ComponentPickerModal), so limiting what can be
+      // ADDED never depended on the registry being trimmed.
+      this.processMetadata(data.components);
       this.loaded = true;
 
       console.log(

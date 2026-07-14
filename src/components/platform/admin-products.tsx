@@ -11,6 +11,7 @@ import {
   updateProduct,
 } from "@/actions/shop";
 import { createProductImageUpload } from "@/actions/uploads";
+import { safeImageUrl, shouldOptimizeImage } from "@/lib/storage/urls";
 
 type ProductFormState = {
   name: string;
@@ -128,10 +129,11 @@ function ProductFields({
           <div className="flex items-center gap-4">
             <div className="relative size-28 shrink-0 overflow-hidden rounded-[12px] border border-black bg-[#f4f4f4]">
               <Image
-                src={value.imageUrl}
+                src={safeImageUrl(value.imageUrl) ?? value.imageUrl}
                 alt="Product preview"
                 fill
                 sizes="112px"
+                unoptimized={!shouldOptimizeImage(value.imageUrl)}
                 className="object-contain p-3"
               />
             </div>
@@ -335,10 +337,11 @@ export function ProductAdminCard({
         <div className="grid gap-4 lg:grid-cols-[112px_1fr_auto] lg:items-center">
           <div className="relative h-28 w-28 overflow-hidden rounded-[12px] border border-black bg-[#f4f4f4]">
             <Image
-              src={product.imageUrl}
+              src={safeImageUrl(product.imageUrl) ?? product.imageUrl}
               alt={product.name}
               fill
               sizes="112px"
+              unoptimized={!shouldOptimizeImage(product.imageUrl)}
               className="object-contain p-3"
             />
           </div>

@@ -10,6 +10,7 @@ import { PageHero } from "@/components/shared/docs-frame";
 import { getSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import { orderItems, orders, products } from "@/lib/db/schema";
+import { safeImageUrl, shouldOptimizeImage } from "@/lib/storage/urls";
 
 export default async function PlatformOrdersPage() {
   const session = await getSession();
@@ -142,13 +143,19 @@ async function OrderCard({ orderId }: { orderId: number }) {
             className="grid gap-4 p-5 sm:grid-cols-[112px_1fr_auto]"
           >
             <div className="relative h-28 w-28 rounded-[10px] border border-black bg-[#f4f4f4]">
-              <Image
-                src={item.imageUrl}
-                alt={item.name}
-                fill
-                sizes="112px"
-                className="object-contain p-3"
-              />
+              {(() => {
+                const image = safeImageUrl(item.imageUrl);
+                return image ? (
+                  <Image
+                    src={image}
+                    alt={item.name}
+                    fill
+                    sizes="112px"
+                    unoptimized={!shouldOptimizeImage(image)}
+                    className="object-contain p-3"
+                  />
+                ) : null;
+              })()}
             </div>
             <div>
               <h3 className="text-lg font-black text-black">{item.name}</h3>

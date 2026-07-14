@@ -8,6 +8,7 @@ import { products } from "@/lib/db/schema";
 import { AddToCartButton, ShopCart } from "@/components/platform/shop-cart";
 import { ShopTabs } from "./_nav";
 import { BreadAmount } from "@/components/shared/bread-amount";
+import { safeImageUrl, shouldOptimizeImage } from "@/lib/storage/urls";
 import { shopOpen } from "@/flags";
 
 export default async function PlatformShopPage() {
@@ -74,77 +75,83 @@ export default async function PlatformShopPage() {
           </p>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-          {allProducts.map((product) => (
-            <div
-              key={product.id}
-              data-product-card
-              className="group flex min-h-full flex-col overflow-hidden rounded-[12px] border border-black bg-white shadow-[4px_4px_0_#000] transition hover:-translate-y-0.5 hover:shadow-[6px_6px_0_#BD0F32]"
-            >
+          {allProducts.map((product) => {
+            const image = safeImageUrl(product.imageUrl);
+            return (
               <div
-                data-product-image
-                className="relative h-56 border-b border-black bg-[#f4f4f4]"
+                key={product.id}
+                data-product-card
+                className="group flex min-h-full flex-col overflow-hidden rounded-[12px] border border-black bg-white shadow-[4px_4px_0_#000] transition hover:-translate-y-0.5 hover:shadow-[6px_6px_0_#BD0F32]"
               >
-                <Image
-                  src={product.imageUrl}
-                  alt={product.name}
-                  fill
-                  sizes="(min-width:1536px) 25vw, (min-width:1280px) 33vw, (min-width:640px) 50vw, 100vw"
-                  className="object-contain p-5 transition duration-300 group-hover:scale-[1.04]"
-                />
-              </div>
-              <div className="flex flex-1 flex-col p-4">
-                <h3 className="line-clamp-2 text-lg font-black leading-tight text-black">
-                  {product.name}
-                </h3>
-                <p className="mt-2 flex-1 text-sm leading-relaxed text-black/60">
-                  {product.description}
-                </p>
-                <div className="mt-4 border-t border-black/10 pt-4">
-                  <div className="mb-3 flex items-end justify-between gap-3">
-                    <div className="flex items-center gap-2 text-black">
-                      <BreadAmount amount={product.price} size="md" />
-                      {product.goldPrice !== null ? (
-                        <>
-                          <span className="text-sm font-black text-black/45">
-                            or
-                          </span>
-                          <BreadAmount
-                            amount={product.goldPrice}
-                            size="md"
-                            gold
-                          />
-                        </>
-                      ) : null}
+                <div
+                  data-product-image
+                  className="relative h-56 border-b border-black bg-[#f4f4f4]"
+                >
+                  {image ? (
+                    <Image
+                      src={image}
+                      alt={product.name}
+                      fill
+                      sizes="(min-width:1536px) 25vw, (min-width:1280px) 33vw, (min-width:640px) 50vw, 100vw"
+                      unoptimized={!shouldOptimizeImage(image)}
+                      className="object-contain p-5 transition duration-300 group-hover:scale-[1.04]"
+                    />
+                  ) : null}
+                </div>
+                <div className="flex flex-1 flex-col p-4">
+                  <h3 className="line-clamp-2 text-lg font-black leading-tight text-black">
+                    {product.name}
+                  </h3>
+                  <p className="mt-2 flex-1 text-sm leading-relaxed text-black/60">
+                    {product.description}
+                  </p>
+                  <div className="mt-4 border-t border-black/10 pt-4">
+                    <div className="mb-3 flex items-end justify-between gap-3">
+                      <div className="flex items-center gap-2 text-black">
+                        <BreadAmount amount={product.price} size="md" />
+                        {product.goldPrice !== null ? (
+                          <>
+                            <span className="text-sm font-black text-black/45">
+                              or
+                            </span>
+                            <BreadAmount
+                              amount={product.goldPrice}
+                              size="md"
+                              gold
+                            />
+                          </>
+                        ) : null}
+                      </div>
+                      <p
+                        className={`text-sm font-black ${
+                          product.stock === null
+                            ? "text-black/50"
+                            : product.stock <= 5
+                              ? "text-[#BD0F32]"
+                              : "text-black/60"
+                        }`}
+                      >
+                        {product.stock === null
+                          ? "In stock"
+                          : product.stock > 0
+                            ? `Only ${product.stock} left`
+                            : "Out of stock"}
+                      </p>
                     </div>
-                    <p
-                      className={`text-sm font-black ${
-                        product.stock === null
-                          ? "text-black/50"
-                          : product.stock <= 5
-                            ? "text-[#BD0F32]"
-                            : "text-black/60"
-                      }`}
-                    >
-                      {product.stock === null
-                        ? "In stock"
-                        : product.stock > 0
-                          ? `Only ${product.stock} left`
-                          : "Out of stock"}
-                    </p>
+                    <AddToCartButton
+                      productId={product.id}
+                      name={product.name}
+                      imageUrl={product.imageUrl}
+                      price={product.price}
+                      goldPrice={product.goldPrice}
+                      stock={product.stock}
+                      shopOpen={isShopOpen}
+                    />
                   </div>
-                  <AddToCartButton
-                    productId={product.id}
-                    name={product.name}
-                    imageUrl={product.imageUrl}
-                    price={product.price}
-                    goldPrice={product.goldPrice}
-                    stock={product.stock}
-                    shopOpen={isShopOpen}
-                  />
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
       <ShopCart shopOpen={isShopOpen} />

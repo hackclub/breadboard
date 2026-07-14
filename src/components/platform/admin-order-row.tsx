@@ -7,6 +7,7 @@ import { BreadAmount } from "@/components/shared/bread-amount";
 import { Button } from "@/components/ui/button";
 import { Card, CardSection } from "@/components/ui/card";
 import { Input, inputClass, Label } from "@/components/ui/input";
+import { safeImageUrl, shouldOptimizeImage } from "@/lib/storage/urls";
 import type { OrderStatus, OrderStatusFormState } from "@/types";
 
 type AdminOrderItem = {
@@ -77,10 +78,11 @@ export function OrderRow({
             >
               <div className="relative h-[72px] w-[72px] rounded-[8px] border border-black bg-[#f4f4f4]">
                 <Image
-                  src={item.imageUrl}
+                  src={safeImageUrl(item.imageUrl) ?? item.imageUrl}
                   alt={item.name}
                   fill
                   sizes="72px"
+                  unoptimized={!shouldOptimizeImage(item.imageUrl)}
                   className="object-contain p-2"
                 />
               </div>

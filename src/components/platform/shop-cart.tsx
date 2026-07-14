@@ -15,6 +15,7 @@ import {
 } from "react-icons/hi2";
 import { placeOrder } from "@/actions/shop";
 import { BreadAmount } from "@/components/shared/bread-amount";
+import { safeImageUrl, shouldOptimizeImage } from "@/lib/storage/urls";
 
 type CartItem = {
   productId: number;
@@ -404,12 +405,15 @@ export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
                       >
                         <div className="grid grid-cols-[72px_1fr_auto] gap-4">
                           <div className="relative h-[72px] w-[72px] overflow-hidden rounded-[10px] border border-black bg-[#f4f4f4]">
-                            {item.imageUrl ? (
+                            {safeImageUrl(item.imageUrl) ? (
                               <Image
-                                src={item.imageUrl}
+                                src={safeImageUrl(item.imageUrl) as string}
                                 alt={item.name}
                                 fill
                                 sizes="72px"
+                                unoptimized={
+                                  !shouldOptimizeImage(item.imageUrl)
+                                }
                                 className="object-contain p-2"
                               />
                             ) : null}
@@ -495,12 +499,15 @@ export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
                           className="grid grid-cols-[56px_1fr_auto] gap-3"
                         >
                           <div className="relative h-14 w-14 rounded-[8px] border border-black bg-[#f4f4f4]">
-                            {item.imageUrl ? (
+                            {safeImageUrl(item.imageUrl) ? (
                               <Image
-                                src={item.imageUrl}
+                                src={safeImageUrl(item.imageUrl) as string}
                                 alt={item.name}
                                 fill
                                 sizes="56px"
+                                unoptimized={
+                                  !shouldOptimizeImage(item.imageUrl)
+                                }
                                 className="object-contain p-1.5"
                               />
                             ) : null}

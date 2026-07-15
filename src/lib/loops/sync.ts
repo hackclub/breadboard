@@ -218,7 +218,9 @@ export async function collectAllContacts(): Promise<{
  * remainder. No-op when Slack isn't configured.
  */
 async function enrichMissingSlackIds(budget: number) {
-  if (!process.env.SLACK_BOT_TOKEN?.trim() || budget <= 0) {
+  const slackConfigured =
+    process.env.SLACK_USER_TOKEN?.trim() || process.env.SLACK_BOT_TOKEN?.trim();
+  if (!slackConfigured || budget <= 0) {
     return { filled: 0, remaining: 0 };
   }
   const missing = await db

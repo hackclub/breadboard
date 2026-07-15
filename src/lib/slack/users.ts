@@ -1,18 +1,21 @@
 import "server-only";
 
 /**
- * Resolve a Hack Clubber's Slack user ID from their email via the Tookle bot.
+ * Resolve a Hack Clubber's Slack user ID from their email.
  *
  * Hack Club Auth only hands us slack_id when the user logs in (and grants the
- * scope), so this fills the gap for accounts that don't have one yet. Needs the
- * bot's `users:read.email` scope. Returns null when Slack is unconfigured, the
- * scope is missing, or no workspace member has that email, callers treat null
- * as "leave it blank," so a missing scope degrades quietly.
+ * scope), so this fills the gap for accounts that don't have one yet. Needs a
+ * token with `users:read.email`. Prefers SLACK_USER_TOKEN (a personal user
+ * token, `xoxp-`) when set, so you can do lookups without adding the scope to
+ * the shared Tookle bot; otherwise falls back to the bot token. Returns null
+ * when no token is set, the scope is missing, or no member has that email,
+ * callers treat null as "leave it blank," so it degrades quietly.
  */
 export async function lookupSlackIdByEmail(
   email: string,
 ): Promise<string | null> {
-  const token = process.env.SLACK_BOT_TOKEN?.trim();
+  const token =
+    process.env.SLACK_USER_TOKEN?.trim() || process.env.SLACK_BOT_TOKEN?.trim();
   if (!token || !email) return null;
 
   try {

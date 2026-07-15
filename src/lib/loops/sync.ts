@@ -1,6 +1,6 @@
 import "server-only";
 
-import { eq, min } from "drizzle-orm";
+import { eq, isNull, min } from "drizzle-orm";
 import { db } from "@/lib/db/db";
 import {
   emailSignups,
@@ -13,6 +13,7 @@ import {
   airtableEnabled,
   upsertContacts,
 } from "@/lib/loops/airtable";
+import { lookupSlackIdByEmail } from "@/lib/slack/users";
 
 // user.name is a single full-name field; the sanctioned Loops name path wants
 // First Name / Last Name (which feed the setFullName formula). Split on the
@@ -55,6 +56,18 @@ export async function computeMilestonesForUser(userId: string) {
   };
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Hack Club Auth only provides slack_id at login. When it's missing, fall back
+// to a Slack lookup by email and cache it on the user so the whole app benefits
+// and we never look the same person up twice.
+async function resolveAndPersistSlackId(userId: string, email: string) {
+  const found = await lookupSlackIdByEmail(email);
+  if (!found) return null;
+  await db.update(user).set({ slackId: found }).where(eq(user.id, userId));
+  return found;
+}
+
 async function upsertSafely(records: ContactRecord[]) {
   if (!airtableEnabled() || records.length === 0) return;
   try {
@@ -82,13 +95,15 @@ export async function syncUserToLoops(userId: string) {
       .where(eq(user.id, userId))
       .limit(1);
     if (!row?.email) return;
+    const slackId =
+      row.slackId ?? (await resolveAndPersistSlackId(userId, row.email));
     const milestones = await computeMilestonesForUser(userId);
     const { firstName, lastName } = splitName(row.name);
     await upsertSafely([
       {
         email: row.email,
         name: row.name,
-        slackId: row.slackId,
+        slackId,
         firstName,
         lastName,
         ...milestones,
@@ -199,10 +214,48 @@ export async function collectAllContacts(): Promise<{
 }
 
 /**
- * Reconcile the whole audience to Airtable. Idempotent (upsert by email).
+ * Fill user.slackId for up to `budget` accounts that don't have one, by looking
+ * each up in Slack by email and caching the result. Bounded + throttled so it
+ * stays under Slack's rate limit and doesn't blow the request timeout; repeated
+ * runs (or the scheduled sweep) chip away at the rest. No-op when Slack isn't
+ * configured.
  */
-export async function syncAllToLoops() {
+async function enrichMissingSlackIds(budget: number) {
+  if (!process.env.SLACK_BOT_TOKEN?.trim() || budget <= 0) {
+    return { filled: 0, remaining: 0 };
+  }
+  const missing = await db
+    .select({ id: user.id, email: user.email })
+    .from(user)
+    .where(isNull(user.slackId));
+  const batch = missing.slice(0, budget);
+  let filled = 0;
+  for (const u of batch) {
+    if (!u.email) continue;
+    const found = await lookupSlackIdByEmail(u.email);
+    if (found) {
+      await db.update(user).set({ slackId: found }).where(eq(user.id, u.id));
+      filled++;
+    }
+    await sleep(1300); // ~46 lookups/min, under Slack's Tier 3 limit
+  }
+  return { filled, remaining: Math.max(0, missing.length - batch.length) };
+}
+
+/**
+ * Reconcile the whole audience to Airtable. Idempotent (upsert by email). Fills
+ * a bounded batch of missing Slack IDs first (see enrichMissingSlackIds).
+ */
+export async function syncAllToLoops(options?: { slackLookupBudget?: number }) {
+  const slack = await enrichMissingSlackIds(options?.slackLookupBudget ?? 25);
   const { records, counts } = await collectAllContacts();
   const { created, updated, skipped } = await upsertContacts(records);
-  return { ...counts, created, updated, skipped };
+  return {
+    ...counts,
+    created,
+    updated,
+    skipped,
+    slackFilled: slack.filled,
+    slackRemaining: slack.remaining,
+  };
 }

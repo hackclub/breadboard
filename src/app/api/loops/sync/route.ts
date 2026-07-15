@@ -14,6 +14,10 @@ export const dynamic = "force-dynamic";
  * disabled (401), so it can never run unauthenticated. Pass the secret as
  * `Authorization: Bearer <secret>`, an `X-Loops-Sync-Secret` header, or a
  * `?secret=` query param (header preferred; query params can leak into logs).
+ *
+ * Each run also resolves a bounded batch of missing Slack IDs via Slack (see
+ * enrichMissingSlackIds). Override the per-run batch size with `?slackBudget=N`
+ * (default 25, capped at 200) to grind through a large backlog faster.
  */
 function authorized(request: Request) {
   const secret = process.env.LOOPS_SYNC_SECRET?.trim();
@@ -35,7 +39,11 @@ async function run(request: Request) {
     return Response.json({ error: "airtable not configured" }, { status: 503 });
   }
   try {
-    const result = await syncAllToLoops();
+    const budgetParam = new URL(request.url).searchParams.get("slackBudget");
+    const slackLookupBudget = budgetParam
+      ? Math.min(200, Math.max(0, Number(budgetParam) || 0))
+      : undefined;
+    const result = await syncAllToLoops({ slackLookupBudget });
     return Response.json({ ok: true, ...result });
   } catch (error) {
     return Response.json(

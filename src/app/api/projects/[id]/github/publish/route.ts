@@ -63,6 +63,12 @@ function slugify(value: string) {
   );
 }
 
+// GitHub rejects repo descriptions containing control characters (so any
+// multi-line project description) and caps them around 350 chars.
+function repoDescription(value: string) {
+  return value.replace(/\s+/g, " ").trim().slice(0, 350);
+}
+
 function safeRepoPathSegment(value: string) {
   return (
     value
@@ -287,8 +293,9 @@ export async function POST(
           token: githubAccount.accessToken,
           owner: ghUser.login,
           baseName: baseRepoName,
-          description:
+          description: repoDescription(
             project.description || `Breadboard project: ${project.title}`,
+          ),
         });
     repo = resolved.repo;
     repoExisted = resolved.existed;

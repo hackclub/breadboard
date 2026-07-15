@@ -26,15 +26,12 @@ const nextConfig: NextConfig = {
   async rewrites() {
     const backend = process.env.EDITOR_BACKEND_URL ?? "http://127.0.0.1:8001";
     return [
-      {
-        source: "/api/compile/:path*",
-        destination: `${backend}/api/compile/:path*`,
-      },
-      {
-        source: "/api/compile-chip",
-        destination: `${backend}/api/compile-chip`,
-      },
-      { source: "/api/compile-rom", destination: `${backend}/api/compile-rom` },
+      // NOTE: /api/compile, /api/compile-chip, and /api/compile-rom are NOT
+      // rewritten here. They're served by route handlers under
+      // src/app/api/compile*/ that require a session before proxying to the
+      // backend (see src/lib/editor/backendProxy.ts) — compiling arbitrary
+      // source is a build-server abuse/file-read surface, so signed-out
+      // visitors can run a shared project's shipped hex but can't recompile.
       {
         source: "/api/libraries/:path*",
         destination: `${backend}/api/libraries/:path*`,

@@ -331,6 +331,7 @@ export function VelxioSnapshotViewer({
   interactive = false,
   shareMode = false,
   executable = false,
+  sandbox = false,
 }: {
   snapshot: SnapshotLike;
   interactive?: boolean;
@@ -342,6 +343,13 @@ export function VelxioSnapshotViewer({
    * offline execution), so all simulation controls are hidden there.
    */
   executable?: boolean;
+  /**
+   * Full editable sandbox: unlock the editor (schematic, code, run) and show
+   * the complete editor chrome instead of the stripped share layout. Nothing
+   * persists — the snapshot viewer never wires autosave, so edits live only in
+   * this tab. Overrides shareMode's read-only, both-panes-only presentation.
+   */
+  sandbox?: boolean;
 }) {
   const [ready, setReady] = useState(false);
   const editorPageRef = useRef<FC<{
@@ -402,7 +410,11 @@ export function VelxioSnapshotViewer({
           onKeyDown={(e) => e.stopPropagation()}
         />
       ) : null}
-      <EP readOnly shareMode={shareMode} executable={executable} />
+      <EP
+        readOnly={!sandbox}
+        shareMode={shareMode && !sandbox}
+        executable={executable}
+      />
     </div>
   );
 }

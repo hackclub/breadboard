@@ -56,17 +56,20 @@ export default async function ProjectSharePage({
             ) : null}
           </div>
           <span className="hidden shrink-0 text-xs text-[#a8a8a8] sm:inline">
-            Run and inspect
+            Edit and run freely. Changes aren't saved.
           </span>
         </header>
         <div className="min-h-0 flex-1">
           {/* executable: unlike the static GitHub Pages share, this page has
-              the live backend behind it, so viewers can compile and run. */}
+              the live backend behind it, so viewers can compile and run.
+              sandbox: a full editable editor — viewers can change the
+              schematic and code and re-run, but nothing persists (the snapshot
+              viewer never wires autosave), so edits stay in their tab only. */}
           <VelxioSnapshotViewer
             snapshot={snapshot}
             interactive
-            shareMode
             executable
+            sandbox
           />
         </div>
       </div>

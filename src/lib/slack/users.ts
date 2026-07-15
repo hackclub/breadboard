@@ -29,7 +29,9 @@ export async function lookupSlackIdByEmail(
       "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
     };
     // An xoxc web-client token is only valid alongside its `d` (xoxd) cookie.
-    if (cookie) headers.Cookie = `d=${encodeURIComponent(cookie)}`;
+    // Send the value verbatim — the browser's `d` cookie is already
+    // URL-encoded, so re-encoding it here would corrupt it (=> invalid_auth).
+    if (cookie) headers.Cookie = `d=${cookie}`;
     const res = await fetch("https://slack.com/api/users.lookupByEmail", {
       method: "POST",
       headers,

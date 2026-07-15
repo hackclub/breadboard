@@ -77,7 +77,7 @@ export async function syncUserToLoops(userId: string) {
   if (!airtableEnabled()) return;
   try {
     const [row] = await db
-      .select({ email: user.email, name: user.name })
+      .select({ email: user.email, name: user.name, slackId: user.slackId })
       .from(user)
       .where(eq(user.id, userId))
       .limit(1);
@@ -85,7 +85,14 @@ export async function syncUserToLoops(userId: string) {
     const milestones = await computeMilestonesForUser(userId);
     const { firstName, lastName } = splitName(row.name);
     await upsertSafely([
-      { email: row.email, name: row.name, firstName, lastName, ...milestones },
+      {
+        email: row.email,
+        name: row.name,
+        slackId: row.slackId,
+        firstName,
+        lastName,
+        ...milestones,
+      },
     ]);
   } catch (error) {
     console.error(
@@ -122,7 +129,12 @@ export async function collectAllContacts(): Promise<{
   counts: SyncCounts;
 }> {
   const users = await db
-    .select({ id: user.id, email: user.email, name: user.name })
+    .select({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      slackId: user.slackId,
+    })
     .from(user);
   const createdRows = await db
     .select({ userId: projects.userId, at: min(projects.createdAt) })
@@ -161,6 +173,7 @@ export async function collectAllContacts(): Promise<{
     records.push({
       email,
       name: u.name,
+      slackId: u.slackId,
       firstName,
       lastName,
       createdProjectAt,

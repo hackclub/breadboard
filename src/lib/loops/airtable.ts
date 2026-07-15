@@ -33,6 +33,7 @@ const EMAIL_FIELD = "Email";
 const NAME_FIELD = "Name";
 const FIRST_NAME_FIELD = "First Name";
 const LAST_NAME_FIELD = "Last Name";
+const SLACK_ID_FIELD = "Slack ID";
 const CREATED_PROJECT_FIELD = "Loops - breadboardCreatedProjectAt";
 const SUBMITTED_PROJECT_FIELD = "Loops - breadboardSubmittedProjectAt";
 
@@ -41,6 +42,7 @@ export type ContactRecord = {
   name?: string | null;
   firstName?: string | null;
   lastName?: string | null;
+  slackId?: string | null;
   // ISO 8601 timestamps. Omit or null to leave a field untouched — we never
   // clear a milestone once it's set.
   createdProjectAt?: string | null;
@@ -83,6 +85,8 @@ function toFields(record: ContactRecord) {
   if (first) fields[FIRST_NAME_FIELD] = first;
   const last = record.lastName?.trim();
   if (last) fields[LAST_NAME_FIELD] = last;
+  const slackId = record.slackId?.trim();
+  if (slackId) fields[SLACK_ID_FIELD] = slackId;
   // Only send a milestone when we have one, so a sync never clears a timestamp.
   if (record.createdProjectAt)
     fields[CREATED_PROJECT_FIELD] = record.createdProjectAt;

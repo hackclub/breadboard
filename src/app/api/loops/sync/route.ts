@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
  *
  * Each run also resolves a bounded batch of missing Slack IDs via Slack (see
  * enrichMissingSlackIds). Override the per-run batch size with `?slackBudget=N`
- * (default 25, capped at 200) to grind through a large backlog faster.
+ * (default 25, capped at 40) to grind through a large backlog faster.
  */
 function authorized(request: Request) {
   const secret = process.env.LOOPS_SYNC_SECRET?.trim();
@@ -41,7 +41,7 @@ async function run(request: Request) {
   try {
     const budgetParam = new URL(request.url).searchParams.get("slackBudget");
     const slackLookupBudget = budgetParam
-      ? Math.min(200, Math.max(0, Number(budgetParam) || 0))
+      ? Math.min(40, Math.max(0, Number(budgetParam) || 0))
       : undefined;
     const result = await syncAllToLoops({ slackLookupBudget });
     return Response.json({ ok: true, ...result });

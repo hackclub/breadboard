@@ -56,8 +56,6 @@ export async function computeMilestonesForUser(userId: string) {
   };
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 // Hack Club Auth only provides slack_id at login. When it's missing, fall back
 // to a Slack lookup by email and cache it on the user so the whole app benefits
 // and we never look the same person up twice.
@@ -215,10 +213,9 @@ export async function collectAllContacts(): Promise<{
 
 /**
  * Fill user.slackId for up to `budget` accounts that don't have one, by looking
- * each up in Slack by email and caching the result. Bounded + throttled so it
- * stays under Slack's rate limit and doesn't blow the request timeout; repeated
- * runs (or the scheduled sweep) chip away at the rest. No-op when Slack isn't
- * configured.
+ * each up in Slack by email and caching the result. Keep `budget` small so the
+ * whole thing finishes well inside a request; repeated runs chip away at any
+ * remainder. No-op when Slack isn't configured.
  */
 async function enrichMissingSlackIds(budget: number) {
   if (!process.env.SLACK_BOT_TOKEN?.trim() || budget <= 0) {
@@ -237,19 +234,19 @@ async function enrichMissingSlackIds(budget: number) {
       await db.update(user).set({ slackId: found }).where(eq(user.id, u.id));
       filled++;
     }
-    await sleep(1300); // ~46 lookups/min, under Slack's Tier 3 limit
   }
   return { filled, remaining: Math.max(0, missing.length - batch.length) };
 }
 
 /**
- * Reconcile the whole audience to Airtable. Idempotent (upsert by email). Fills
- * a bounded batch of missing Slack IDs first (see enrichMissingSlackIds).
+ * Reconcile the whole audience to Airtable. Idempotent (upsert by email). The
+ * Loops upsert runs first so it always completes; a small batch of missing
+ * Slack IDs is resolved afterward (see enrichMissingSlackIds).
  */
 export async function syncAllToLoops(options?: { slackLookupBudget?: number }) {
-  const slack = await enrichMissingSlackIds(options?.slackLookupBudget ?? 25);
   const { records, counts } = await collectAllContacts();
   const { created, updated, skipped } = await upsertContacts(records);
+  const slack = await enrichMissingSlackIds(options?.slackLookupBudget ?? 25);
   return {
     ...counts,
     created,

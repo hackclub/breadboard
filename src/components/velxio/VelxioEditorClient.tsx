@@ -370,8 +370,15 @@ export function VelxioNextEditor({
 
         installBreadboardAutosave(projectId, canPersist, modules);
 
+        // Time tracking follows ownership, not canPersist: browsing an old
+        // version is read-only (canPersist is false so nothing autosaves), but
+        // the owner is still working on the project, so the screen share and
+        // the clock keep running instead of dropping when they peek at a
+        // version. Autosave above stays gated on canPersist, so no version
+        // data is ever written back.
         const trackTime =
-          canPersist &&
+          !serverReadOnly &&
+          data.project.editable &&
           !TRACKING_BLOCKED_PROJECT_STATUSES.has(data.project.status);
 
         if (trackTime) {

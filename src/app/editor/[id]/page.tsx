@@ -51,8 +51,14 @@ export default async function ProjectEditorPage({
     notFound();
   }
   const canPersist = version === undefined && isOwner && editable;
-  const adminPreview = isAdmin && !isOwner;
-  const readOnly = !canPersist && !adminPreview;
+  // The editor is always interactive. When the viewer can't persist —
+  // browsing an old version, or an admin looking at someone else's project —
+  // it runs as an ephemeral sandbox: schematic edits, code edits, and the
+  // simulation all work locally, but nothing is written back to the project.
+  // Saving is gated by canPersist on the client (installBreadboardAutosave
+  // no-ops) and canWriteEditorProject on the server, so unlocking the UI here
+  // never opens a persistence path.
+  const readOnly = false;
   const submissionRows =
     version !== undefined
       ? await db
@@ -100,8 +106,8 @@ export default async function ProjectEditorPage({
         initialHowToUse={project.howToUse || null}
         initialBom={project.bom || null}
         version={version}
-        readOnly={readOnly}
         canManageProject={canPersist}
+        isOwner={isOwner}
         reviewLabel={reviewLabel}
         trackedSeconds={trackedSeconds}
       />

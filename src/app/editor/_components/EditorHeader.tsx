@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   Clock,
   Github,
+  History,
   Plus,
   Save,
   Trash2,
@@ -50,6 +51,26 @@ function ProjectTimeTotal({
       <span className="font-semibold text-[#888]">total</span>
     </span>
   );
+}
+
+type EditorVersion = {
+  id: number;
+  versionNumber: number;
+  reason: string;
+  createdAt: string;
+};
+
+function versionReasonLabel(reason: string): string {
+  switch (reason) {
+    case "autosave":
+      return "Autosave";
+    case "manual":
+      return "Manual save";
+    case "before-unload":
+      return "Before unload";
+    default:
+      return reason;
+  }
 }
 
 function timeAgo(ms: number | null): string {
@@ -103,8 +124,8 @@ export function EditorHeader({
   initialHowToUse,
   initialBom,
   version,
-  readOnly,
   canManageProject = false,
+  isOwner = false,
   reviewLabel,
   trackedSeconds,
 }: {
@@ -117,8 +138,12 @@ export function EditorHeader({
   initialHowToUse?: string | null;
   initialBom?: string | null;
   version?: number;
-  readOnly?: boolean;
   canManageProject?: boolean;
+  // The signed-in user owns this project. Unlike canManageProject (which goes
+  // false while browsing an old version), this stays true across versions, so
+  // it gates things that must survive a version switch: the Versions browser
+  // and the time-tracking cluster, including the live screen share.
+  isOwner?: boolean;
   reviewLabel?: string;
   trackedSeconds?: number;
 }) {
@@ -150,6 +175,33 @@ export function EditorHeader({
   );
   const nextBomId = useRef(bomRows.length);
   const autoPublishStarted = useRef(false);
+
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const [versions, setVersions] = useState<EditorVersion[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [versionsError, setVersionsError] = useState("");
+
+  const openVersions = useCallback(async () => {
+    setVersionsOpen(true);
+    setVersionsLoading(true);
+    setVersionsError("");
+    try {
+      const res = await fetch(`/api/editor/projects/${projectId}/versions`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error(`Failed to load versions (${res.status})`);
+      }
+      const payload = (await res.json()) as { versions: EditorVersion[] };
+      setVersions(payload.versions);
+    } catch (err) {
+      setVersionsError(
+        err instanceof Error ? err.message : "Failed to load versions",
+      );
+    } finally {
+      setVersionsLoading(false);
+    }
+  }, [projectId]);
 
   const addBomRow = useCallback(() => {
     const id = nextBomId.current;
@@ -318,16 +370,22 @@ export function EditorHeader({
         <>
           <span className="text-[#444] text-sm">/</span>
           <span className="text-sm text-[#666]">v{version}</span>
+          {isOwner ? (
+            <button
+              type="button"
+              onClick={() => router.push(`/editor/${projectId}`)}
+              className="flex items-center gap-1 rounded bg-[#2a2a2a] px-2 py-1 text-xs text-[#aaa] hover:bg-[#3a3a3a] hover:text-white transition-colors"
+              title="Leave this version and return to your current project"
+            >
+              <X className="size-3" />
+              Exit version
+            </button>
+          ) : null}
         </>
       )}
-      {readOnly ? (
+      {!canManageProject ? (
         <span className="rounded-full border border-[#444] px-2 py-0.5 text-[11px] font-semibold text-[#999]">
-          {reviewLabel ?? "Read-only review"}
-        </span>
-      ) : null}
-      {!readOnly && !canManageProject ? (
-        <span className="rounded-full border border-[#444] px-2 py-0.5 text-[11px] font-semibold text-[#999]">
-          Review mode
+          {reviewLabel ?? "Sandbox"}
         </span>
       ) : null}
       {trackingBlocked && canManageProject ? (
@@ -335,9 +393,9 @@ export function EditorHeader({
           No extra time here will be tracked
         </span>
       ) : null}
-      {readOnly ? (
+      {!canManageProject ? (
         <span className="hidden text-[11px] font-semibold text-[#777] md:inline">
-          Read-only. Live edits are not shown here.
+          Edits and simulation run here, but nothing is saved.
         </span>
       ) : null}
 
@@ -346,7 +404,7 @@ export function EditorHeader({
           initialTotalSeconds={trackedSeconds ?? 0}
           projectId={projectId}
         />
-        {canManageProject && !trackingBlocked ? (
+        {isOwner && !trackingBlocked ? (
           <>
             <BreadEstimatePill
               initialTotalSeconds={trackedSeconds ?? 0}
@@ -382,6 +440,17 @@ export function EditorHeader({
             {publishing ? "Publishing..." : "Publish"}
           </button>
         ) : null}
+        {isOwner ? (
+          <button
+            type="button"
+            onClick={openVersions}
+            className="flex items-center gap-1 rounded bg-[#2a2a2a] px-2 py-1 text-xs text-[#aaa] hover:bg-[#3a3a3a] hover:text-white transition-colors"
+            title="Browse saved versions of this project"
+          >
+            <History className="size-3" />
+            Versions
+          </button>
+        ) : null}
         {canManageProject ? (
           <button
             type="button"
@@ -394,6 +463,95 @@ export function EditorHeader({
           </button>
         ) : null}
       </div>
+      {versionsOpen ? (
+        <div className="fixed inset-0 z-1000 grid place-items-center bg-black/70 p-4">
+          <div className="w-full max-w-lg overflow-hidden rounded-[22px] border border-[#3a3a3a] bg-[#1f1f1f] shadow-[0_24px_80px_rgba(0,0,0,.45)]">
+            <div className="flex items-center justify-between border-b border-[#333] px-5 py-4">
+              <div className="flex items-center gap-3">
+                <div className="grid size-9 place-items-center rounded-full bg-[#2a2a2a] text-white">
+                  <History className="size-5" />
+                </div>
+                <div>
+                  <h2 className="font-black text-white text-sm">Versions</h2>
+                  <p className="text-[#888] text-xs">
+                    Every save is kept. Open one to view it in a sandbox.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVersionsOpen(false)}
+                className="rounded p-1 text-[#888] transition hover:bg-[#333] hover:text-white"
+                aria-label="Close versions dialog"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto px-5 py-4">
+              {versionsLoading ? (
+                <p className="py-6 text-center text-[#888] text-xs">
+                  Loading versions...
+                </p>
+              ) : versionsError ? (
+                <p className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-red-200 text-xs font-bold">
+                  {versionsError}
+                </p>
+              ) : versions.length === 0 ? (
+                <p className="py-6 text-center text-[#888] text-xs">
+                  No saved versions yet. Versions are created when your project
+                  is saved.
+                </p>
+              ) : (
+                <div className="grid gap-1.5">
+                  {versions.map((v) => {
+                    const isCurrent =
+                      version === undefined &&
+                      v.versionNumber ===
+                        Math.max(...versions.map((r) => r.versionNumber));
+                    const isViewing = version === v.versionNumber;
+                    return (
+                      <button
+                        type="button"
+                        key={v.id}
+                        onClick={() => {
+                          setVersionsOpen(false);
+                          // Client-side navigation: a full reload would tear
+                          // down the live screen share and force a re-prompt.
+                          router.push(
+                            `/editor/${projectId}?version=${v.versionNumber}`,
+                          );
+                        }}
+                        className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition ${
+                          isViewing
+                            ? "border-[#BD0F32] bg-[#BD0F32]/10"
+                            : "border-[#3a3a3a] bg-[#111] hover:border-[#BD0F32]"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-sm font-black text-white tabular-nums">
+                            v{v.versionNumber}
+                          </span>
+                          <span className="rounded-full border border-[#444] px-2 py-0.5 text-[10px] font-bold text-[#aaa]">
+                            {versionReasonLabel(v.reason)}
+                          </span>
+                          {isCurrent ? (
+                            <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-[10px] font-bold text-green-300">
+                              Current
+                            </span>
+                          ) : null}
+                        </div>
+                        <span className="text-[11px] text-[#888] tabular-nums">
+                          {new Date(v.createdAt).toLocaleString()}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
       {publishModalOpen ? (
         <div
           style={{

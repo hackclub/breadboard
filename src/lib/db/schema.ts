@@ -213,6 +213,9 @@ export const products = pgTable("products", {
   // gold price set; gold bread buys items at a discount, so this is usually
   // lower than `price`.
   goldPrice: integer("gold_price"),
+  // Estimated real-world cost of the item in USD cents. Admin-only reference,
+  // never shown in the shop.
+  estimatedPriceCents: integer("estimated_price_cents"),
   stock: integer("stock"),
   active: boolean("active").notNull().default(true),
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),

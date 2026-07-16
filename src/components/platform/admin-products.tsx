@@ -20,6 +20,7 @@ type ProductFormState = {
   imageUrl: string;
   price: number;
   goldPrice: number | null;
+  estimatedPriceCents: number | null;
   stock: number | null;
   active: boolean;
 };
@@ -30,9 +31,17 @@ const emptyProduct: ProductFormState = {
   imageUrl: "",
   price: 1,
   goldPrice: null,
+  estimatedPriceCents: null,
   stock: null,
   active: true,
 };
+
+function formatUsd(cents: number) {
+  return (cents / 100).toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+  });
+}
 
 function ProductFields({
   value,
@@ -101,6 +110,32 @@ function ProductFields({
               ...value,
               goldPrice:
                 event.target.value === "" ? null : Number(event.target.value),
+            })
+          }
+          className="rounded-[10px] border border-black bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-[#BD0F32]/20"
+        />
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="text-xs font-bold text-black/60">
+          Estimated price (USD)
+        </span>
+        <input
+          type="number"
+          value={
+            value.estimatedPriceCents === null
+              ? ""
+              : value.estimatedPriceCents / 100
+          }
+          min={0.01}
+          step={0.01}
+          placeholder="No estimate"
+          onChange={(event) =>
+            onChange({
+              ...value,
+              estimatedPriceCents:
+                event.target.value === ""
+                  ? null
+                  : Math.round(Number(event.target.value) * 100),
             })
           }
           className="rounded-[10px] border border-black bg-white px-3 py-2 text-sm outline-none focus:ring-4 focus:ring-[#BD0F32]/20"
@@ -364,6 +399,11 @@ export function ProductAdminCard({
               {product.goldPrice !== null ? (
                 <span className="text-xs font-semibold text-black/55">
                   <BreadAmount amount={product.goldPrice} gold />
+                </span>
+              ) : null}
+              {product.estimatedPriceCents !== null ? (
+                <span className="text-xs font-semibold text-black/55">
+                  ~{formatUsd(product.estimatedPriceCents)} est.
                 </span>
               ) : null}
               <span className="text-xs font-semibold text-black/55">

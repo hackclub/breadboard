@@ -1,0 +1,1 @@
+ALTER TABLE "products" ADD COLUMN "estimated_price_cents" integer;

@@ -63,6 +63,7 @@ export default async function AdminProductsPage() {
                 imageUrl: p.imageUrl,
                 price: p.price,
                 goldPrice: p.goldPrice,
+                estimatedPriceCents: p.estimatedPriceCents,
                 stock: p.stock,
                 active: p.active,
               }}

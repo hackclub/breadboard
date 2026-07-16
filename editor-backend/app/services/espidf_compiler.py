@@ -189,6 +189,25 @@ def _run_with_streaming(
     )
 
 
+def _config_template_hash() -> str:
+    """Hash the template files that seed sdkconfig, so a change to them (e.g. a
+    newly added CONFIG_ line) invalidates warm persistent build dirs.
+
+    Without this, `sdkconfig.defaults` only seeds `sdkconfig` when the latter is
+    absent — so a warm dir keeps compiling against its old resolved config
+    forever. That's exactly how the MBEDTLS PSK options (needed for
+    arduino-esp32's WiFiClientSecure/HTTPClient to link) silently never reached
+    existing caches after they were committed.
+    """
+    h = hashlib.sha256()
+    for name in ('sdkconfig.defaults.in', 'sdkconfig.defaults'):
+        p = _TEMPLATE_DIR / name
+        if p.exists():
+            h.update(name.encode())
+            h.update(p.read_bytes())
+    return h.hexdigest()[:12]
+
+
 def _prepare_persistent_project_dir(
     idf_target: str,
     options_hash: str = '',
@@ -229,6 +248,16 @@ def _prepare_persistent_project_dir(
         if options_sentinel.exists() else ''
     )
 
+    # Config-template fingerprint. A missing sentinel on an existing project_dir
+    # means the dir predates this tracking → treat as changed so warm caches
+    # built against an older template self-heal on their next compile.
+    config_sentinel = target_dir / '.config_hash'
+    config_hash = _config_template_hash()
+    prior_config_hash = (
+        config_sentinel.read_text(encoding='utf-8').strip()
+        if config_sentinel.exists() else ''
+    )
+
     if not project_dir.exists():
         # First use of this target — full template copy.
         shutil.copytree(_TEMPLATE_DIR, project_dir)
@@ -241,24 +270,34 @@ def _prepare_persistent_project_dir(
         shutil.copytree(_TEMPLATE_DIR / 'main', project_dir / 'main')
         shutil.rmtree(project_dir / 'user_libs', ignore_errors=True)
 
-        if options_hash and options_hash != prior_options_hash:
-            # First compile after this feature shipped: prior_options_hash is
-            # empty but the persistent build/ was compiled against the old
-            # static sdkconfig. Wipe it once to force a clean reconfigure
-            # against the templated config — otherwise stale .o files
-            # silently mask the new options.
-            reason = (
-                'first compile post-upgrade'
-                if not prior_options_hash
-                else f'changed {prior_options_hash!r} -> {options_hash!r}'
-            )
+        options_changed = bool(options_hash) and options_hash != prior_options_hash
+        config_changed = config_hash != prior_config_hash
+        if options_changed or config_changed:
+            # Wipe build/ so cached .o files compiled against the previous
+            # config can't silently mask the new one. Also delete the resolved
+            # sdkconfig: sdkconfig.defaults only seeds it when it's absent, so a
+            # stale sdkconfig would otherwise ignore the updated defaults.
+            if config_changed:
+                reason = (
+                    'sdkconfig template changed'
+                    if prior_config_hash
+                    else 'config-hash tracking added (existing warm cache)'
+                )
+            else:
+                reason = (
+                    'first compile post-upgrade'
+                    if not prior_options_hash
+                    else f'board options {prior_options_hash!r} -> {options_hash!r}'
+                )
             logger.info(
-                f'[espidf] board options {reason}; '
-                f'wiping build/ to force a full reconfigure'
+                f'[espidf] {reason}; wiping build/ + sdkconfig '
+                f'to force a full reconfigure'
             )
             shutil.rmtree(project_dir / 'build', ignore_errors=True)
+            (project_dir / 'sdkconfig').unlink(missing_ok=True)
 
     sentinel.write_text(current_signature, encoding='utf-8')
+    config_sentinel.write_text(config_hash, encoding='utf-8')
     if options_hash:
         options_sentinel.write_text(options_hash, encoding='utf-8')
     return project_dir

@@ -130,7 +130,7 @@ export function AdminDauChart({
       title="Daily active users"
       description={
         view === "total"
-          ? `Distinct users per day (UTC), last 30 days. Active = ${definitionLabel.toLowerCase()}.`
+          ? `Distinct users per day (US Eastern), last 30 days. Active = ${definitionLabel.toLowerCase()}.`
           : `Each day's active users split by how long they've been active, counting from their first active day. Active = ${definitionLabel.toLowerCase()}.`
       }
       action={

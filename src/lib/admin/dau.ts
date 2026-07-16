@@ -12,12 +12,12 @@ import { db } from "@/lib/db/db";
 import { editorActivitySessions, session } from "@/lib/db/schema";
 
 // A subquery producing the distinct (user_id, day) pairs that count as active
-// under one definition. `day` is a UTC calendar date.
+// under one definition. `day` is a US Eastern calendar date (DST-aware).
 const ACTIVITY_SOURCE: Record<DauDefinition, SQL> = {
   editor: sql`
     select
       ${editorActivitySessions.userId} as user_id,
-      (${editorActivitySessions.lastActivityAt} at time zone 'UTC')::date as day
+      (${editorActivitySessions.lastActivityAt} at time zone 'America/New_York')::date as day
     from ${editorActivitySessions}
     group by user_id, day
   `,
@@ -27,10 +27,10 @@ const ACTIVITY_SOURCE: Record<DauDefinition, SQL> = {
   onsite: sql`
     select user_id, day from (
       select ${session.userId} as user_id,
-        (${session.createdAt} at time zone 'UTC')::date as day from ${session}
+        (${session.createdAt} at time zone 'America/New_York')::date as day from ${session}
       union
       select ${session.userId} as user_id,
-        (${session.updatedAt} at time zone 'UTC')::date as day from ${session}
+        (${session.updatedAt} at time zone 'America/New_York')::date as day from ${session}
     ) s
     group by user_id, day
   `,
@@ -86,17 +86,21 @@ async function loadSeries(definition: DauDefinition): Promise<DauPoint[]> {
       count(*) filter (where a.day - fs.first_day >= 21)::int as week_3_plus
     from activity a
     join first_seen fs on fs.user_id = a.user_id
-    where a.day >= ((now() at time zone 'UTC')::date - make_interval(days => ${DAU_WINDOW_DAYS}))
+    where a.day >= ((now() at time zone 'America/New_York')::date - make_interval(days => ${DAU_WINDOW_DAYS}))
     group by a.day
     order by a.day
   `);
 
   const byDay = new Map(result.rows.map((row) => [row.day, row]));
 
-  // Build a continuous UTC day axis so gaps (days with no activity) render as
-  // zeros instead of the chart quietly skipping them.
-  const end = new Date();
-  end.setUTCHours(0, 0, 0, 0);
+  // Build a continuous US Eastern day axis so gaps (days with no activity)
+  // render as zeros instead of the chart quietly skipping them. en-CA formats
+  // as YYYY-MM-DD; anchoring it at UTC midnight lets the loop below step whole
+  // days with setUTCDate.
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+  }).format(new Date());
+  const end = new Date(`${today}T00:00:00Z`);
   const series: DauPoint[] = [];
   for (let ago = DAU_WINDOW_DAYS; ago >= 0; ago--) {
     const date = new Date(end);

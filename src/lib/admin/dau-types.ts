@@ -28,7 +28,7 @@ export const DAU_DEFINITIONS: {
 ];
 
 export interface DauPoint {
-  day: string; // YYYY-MM-DD (UTC)
+  day: string; // YYYY-MM-DD (US Eastern)
   first2d: number;
   days2to7: number;
   week1to2: number;

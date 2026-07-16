@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "unified_justification_override" text DEFAULT '' NOT NULL;

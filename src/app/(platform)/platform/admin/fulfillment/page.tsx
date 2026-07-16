@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, ne } from "drizzle-orm";
 import Link from "next/link";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { DocsFrame, PageHero } from "@/components/shared/platform-docs-frame";
+import { refreshYswsEligible } from "@/lib/auth/hackclub";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import {
@@ -56,6 +57,9 @@ export default async function FulfillmentPage({
       shippingPostalCode: orders.shippingPostalCode,
       shippingCountry: orders.shippingCountry,
       userEmail: user.email,
+      userId: orders.userId,
+      yswsEligible: user.yswsEligible,
+      yswsExempt: user.yswsExempt,
       source: orders.source,
       projectId: orders.projectId,
       acceptedAt: orders.acceptedAt,
@@ -103,6 +107,13 @@ export default async function FulfillmentPage({
       .limit(1);
     breadOnly = submissionRow[0]?.breadOnly ?? false;
   }
+  // Users who signed up under 19 can submit before their identity
+  // verification clears. Re-check the claim live so the hold note disappears
+  // the moment they become YSWS eligible (and never shows for exempt users).
+  let yswsHold = false;
+  if (order && !order.yswsEligible && !order.yswsExempt) {
+    yswsHold = !(await refreshYswsEligible(order.userId)).eligible;
+  }
   const items = order
     ? await db
         .select({
@@ -142,6 +153,7 @@ export default async function FulfillmentPage({
             items={items}
             kitType={kitType}
             breadOnly={breadOnly}
+            yswsHold={yswsHold}
           />
         ) : (
           <div className="rounded-[18px] border border-black bg-white p-10 text-center shadow-[5px_5px_0_#000]">

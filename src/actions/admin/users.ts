@@ -17,6 +17,7 @@ export async function updateUserProfile(
     image: string;
     emailVerified: boolean;
     admin: boolean;
+    yswsExempt: boolean;
   },
 ) {
   const session = await requireAdminSession();
@@ -38,6 +39,7 @@ export async function updateUserProfile(
       image: image || null,
       emailVerified: data.emailVerified,
       admin: data.admin,
+      yswsExempt: data.yswsExempt,
       updatedAt: new Date(),
     })
     .where(eq(user.id, userId))
@@ -48,6 +50,7 @@ export async function updateUserProfile(
     name,
     email,
     admin: data.admin,
+    yswsExempt: data.yswsExempt,
   });
   revalidatePath("/platform/admin/users");
 }

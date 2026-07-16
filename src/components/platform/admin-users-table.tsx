@@ -34,6 +34,8 @@ type AdminUser = {
   slackId: string | null;
   emailVerified: boolean;
   admin: boolean;
+  yswsEligible: boolean;
+  yswsExempt: boolean;
   createdAt: string;
   updatedAt: string;
   balance: number;
@@ -145,6 +147,7 @@ export function AdminUsersTable({
                   onSort={setSortKey}
                 />
                 <TableHeaderCell>Admin</TableHeaderCell>
+                <TableHeaderCell>YSWS</TableHeaderCell>
                 <TableHeaderCell>Actions</TableHeaderCell>
               </tr>
             </TableHead>
@@ -177,6 +180,23 @@ export function AdminUsersTable({
                   <TableCell>
                     <Badge tone={user.admin ? "red" : "muted"}>
                       {user.admin ? "Admin" : "No"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      tone={
+                        user.yswsEligible
+                          ? "green"
+                          : user.yswsExempt
+                            ? "yellow"
+                            : "muted"
+                      }
+                    >
+                      {user.yswsEligible
+                        ? "Eligible"
+                        : user.yswsExempt
+                          ? "Exempt"
+                          : "Not eligible"}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -279,6 +299,7 @@ function UserModal({
     image: user.image ?? "",
     emailVerified: user.emailVerified,
     admin: user.admin,
+    yswsExempt: user.yswsExempt,
   });
 
   const run = async (action: () => Promise<void>) => {
@@ -380,6 +401,17 @@ function UserModal({
               className="size-4 accent-[#BD0F32] disabled:opacity-40"
             />
             Admin user
+          </label>
+          <label className="flex items-center gap-2 text-sm font-black text-black">
+            <input
+              type="checkbox"
+              checked={form.yswsExempt}
+              onChange={(event) =>
+                setForm({ ...form, yswsExempt: event.target.checked })
+              }
+              className="size-4 accent-[#BD0F32]"
+            />
+            YSWS exception (submit + fulfill without the eligible claim)
           </label>
           <dl className="grid gap-3 rounded-[12px] border border-black/15 bg-[#f4f4f4] p-4 text-sm sm:grid-cols-2">
             <div>

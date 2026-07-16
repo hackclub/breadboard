@@ -22,6 +22,13 @@ export const user = pgTable("user", {
   admin: boolean("admin").notNull().default(false),
   image: text("image"),
   slackId: text("slack_id"),
+  // Last ysws_eligible claim seen from Hack Club Auth, refreshed at sign-in
+  // and on every submission gate check. Under-19 users can sign in and submit
+  // before this turns true; fulfillment pages flag their kits until it does.
+  yswsEligible: boolean("ysws_eligible").notNull().default(false),
+  // Admin-granted exception: this user may submit and be fulfilled without
+  // the ysws_eligible claim. Set from the admin users page.
+  yswsExempt: boolean("ysws_exempt").notNull().default(false),
   lapseAccessToken: text("lapse_access_token"),
   lapseRefreshToken: text("lapse_refresh_token"),
   lapseTokenExpiresAt: timestamp("lapse_token_expires_at", {
@@ -628,6 +635,12 @@ export const projects = pgTable(
     hoursSpent: integer("hours_spent").notNull().default(0),
     overrideHoursSpent: integer("override_hours_spent"),
     overrideHoursSpentJustification: text("override_hours_spent_justification")
+      .notNull()
+      .default(""),
+    // When set, this exact text is sent to the Unified YSWS DB as the ship's
+    // justification instead of the template composed from database facts
+    // (src/lib/ysws/unified.ts). Edited from the admin review page.
+    unifiedJustificationOverride: text("unified_justification_override")
       .notNull()
       .default(""),
     reviewNote: text("review_note").notNull().default(""),

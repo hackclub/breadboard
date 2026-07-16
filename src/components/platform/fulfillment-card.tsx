@@ -60,11 +60,13 @@ export function FulfillmentCard({
   items,
   kitType,
   breadOnly = false,
+  yswsHold = false,
 }: {
   order: FulfillmentOrder;
   items: FulfillmentItem[];
   kitType: string | null;
   breadOnly?: boolean;
+  yswsHold?: boolean;
 }) {
   const router = useRouter();
   const [checked, setChecked] = useState<Record<number, boolean>>({});
@@ -162,6 +164,17 @@ export function FulfillmentCard({
           />
         </div>
       </div>
+
+      {yswsHold ? (
+        <div className="flex items-start gap-2 border-b border-black bg-red-50 px-6 py-3 text-sm font-black text-red-900">
+          <HiExclamationTriangle className="mt-0.5 size-5 shrink-0" />
+          <span>
+            Not YSWS eligible yet. They could submit because they&apos;re under
+            19, but hold this order until their identity verification clears at
+            auth.hackclub.com, or grant an exception from User Admin.
+          </span>
+        </div>
+      ) : null}
 
       {isKitOrder ? (
         <div className="border-b border-black bg-[#fffaf1] px-6 py-3 text-sm font-black text-black">

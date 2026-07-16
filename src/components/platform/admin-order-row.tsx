@@ -32,6 +32,7 @@ export function OrderRow({
   currency = "bread",
   items,
   createdAt,
+  yswsHold = false,
 }: {
   orderId: number;
   currentStatus: string;
@@ -41,6 +42,7 @@ export function OrderRow({
   currency?: "bread" | "gold";
   items: AdminOrderItem[];
   createdAt: string;
+  yswsHold?: boolean;
 }) {
   const [status, setStatus] = useState<OrderStatus>(
     normalizeOrderStatus(currentStatus),
@@ -58,7 +60,16 @@ export function OrderRow({
     <Card elevated={false} className="rounded-[12px]">
       <div className="grid gap-3 border-b border-black bg-[#f4f4f4] px-5 py-4 sm:grid-cols-[1fr_auto] sm:items-center">
         <div>
-          <p className="text-lg font-semibold text-black">Order #{orderId}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-lg font-semibold text-black">
+              Order #{orderId}
+            </p>
+            {yswsHold ? (
+              <span className="rounded-full border border-red-700 bg-red-50 px-3 py-1 text-xs font-black text-red-800 uppercase">
+                Not YSWS eligible yet
+              </span>
+            ) : null}
+          </div>
           <p className="text-sm text-black/60">{userEmail}</p>
         </div>
         <div className="text-sm sm:text-right">

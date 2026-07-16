@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/lib/db/db";
 import { account, user } from "@/lib/db/schema";
 
@@ -69,12 +69,55 @@ export async function ensureSlackId(userId: string): Promise<string | null> {
   return slackId;
 }
 
-export async function assertHackClubYswsEligible(userId: string) {
+// The OIDC birthdate claim is "YYYY-MM-DD". Under 19 is the YSWS age bar; a
+// missing or malformed birthdate counts as not under 19, so it can't be used
+// to slip past the gate by withholding the claim.
+export function isUnder19(
+  birthdate: string | null | undefined,
+  now = new Date(),
+) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(birthdate ?? "").trim());
+  if (!match) return false;
+  const nineteenth = new Date(
+    Date.UTC(Number(match[1]) + 19, Number(match[2]) - 1, Number(match[3])),
+  );
+  return !Number.isNaN(nineteenth.getTime()) && now < nineteenth;
+}
+
+/**
+ * Re-check the ysws_eligible claim against Hack Club Auth and keep the cached
+ * user.yswsEligible flag in sync. Fulfillment pages call this to decide
+ * whether a not-yet-eligible note is still warranted.
+ */
+export async function refreshYswsEligible(userId: string) {
   const claims = await getHackClubClaims(userId);
-  if (claims.ysws_eligible !== true) {
-    throw new Error("You must be YSWS eligible to use Breadboard.");
-  }
-  return claims;
+  const eligible = claims.ysws_eligible === true;
+  await db
+    .update(user)
+    .set({ yswsEligible: eligible, updatedAt: new Date() })
+    .where(and(eq(user.id, userId), ne(user.yswsEligible, eligible)));
+  return { claims, eligible };
+}
+
+/**
+ * Submission gate. YSWS-eligible users pass outright. Teens whose identity
+ * verification hasn't cleared yet may still submit as long as their birthdate
+ * says they're under 19; fulfillment pages flag their kits until the eligible
+ * claim shows up. Admins can also exempt a user by hand (user.yswsExempt).
+ */
+export async function assertHackClubYswsEligible(userId: string) {
+  const { claims, eligible } = await refreshYswsEligible(userId);
+  if (eligible) return claims;
+  if (isUnder19(claims.birthdate)) return claims;
+  const [row] = await db
+    .select({ yswsExempt: user.yswsExempt })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1);
+  if (row?.yswsExempt) return claims;
+  throw new Error(
+    "You must be YSWS eligible (or under 19) to submit. Verify your identity at auth.hackclub.com.",
+  );
 }
 
 export function countryFromHackClubClaims(claims: HackClubClaims) {

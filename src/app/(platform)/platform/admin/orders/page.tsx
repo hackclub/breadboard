@@ -39,6 +39,8 @@ export default async function AdminOrdersPage() {
       currency: orders.currency,
       createdAt: orders.createdAt,
       userEmail: user.email,
+      yswsEligible: user.yswsEligible,
+      yswsExempt: user.yswsExempt,
     })
     .from(orders)
     .innerJoin(user, eq(orders.userId, user.id))
@@ -95,6 +97,7 @@ export default async function AdminOrdersPage() {
               currency={o.currency}
               items={o.items}
               createdAt={new Date(o.createdAt).toLocaleDateString()}
+              yswsHold={!o.yswsEligible && !o.yswsExempt}
             />
           ))}
         </div>

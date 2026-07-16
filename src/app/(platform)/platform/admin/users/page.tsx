@@ -93,6 +93,8 @@ export default async function AdminUsersPage() {
       slackId: row.slackId,
       emailVerified: row.emailVerified,
       admin: row.admin,
+      yswsEligible: row.yswsEligible,
+      yswsExempt: row.yswsExempt,
       createdAt: row.createdAt.toLocaleString(),
       updatedAt: row.updatedAt.toLocaleString(),
       balance: balanceByUser.get(row.id) ?? 0,

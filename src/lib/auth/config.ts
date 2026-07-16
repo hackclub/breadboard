@@ -4,6 +4,7 @@ import type { OAuth2Tokens } from "better-auth";
 import { betterAuth } from "better-auth/minimal";
 import { genericOAuth } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
+import { isUnder19 } from "@/lib/auth/hackclub";
 import { db } from "@/lib/db/db";
 import { user } from "@/lib/db/schema";
 import { syncUserToLoops } from "@/lib/loops/sync";
@@ -68,16 +69,42 @@ export const auth = betterAuth({
               });
             }
             const raw = (await res.json()) as Record<string, unknown>;
-            if (raw.ysws_eligible !== true) {
-              throw new APIError("FORBIDDEN", {
-                message: "You must be YSWS eligible to use Breadboard.",
-              });
+            const email = String(raw.email ?? "");
+            const eligible = raw.ysws_eligible === true;
+            // Not-yet-eligible teens (identity verification still pending)
+            // may sign in and submit; their kits carry a hold note on the
+            // fulfillment pages until the eligible claim shows up. Admins can
+            // also exempt a specific account from the admin users page.
+            if (
+              !eligible &&
+              !isUnder19(
+                typeof raw.birthdate === "string" ? raw.birthdate : "",
+              )
+            ) {
+              const [existing] = email
+                ? await db
+                    .select({ yswsExempt: user.yswsExempt })
+                    .from(user)
+                    .where(eq(user.email, email))
+                    .limit(1)
+                : [];
+              if (!existing?.yswsExempt) {
+                throw new APIError("FORBIDDEN", {
+                  message:
+                    "You must be YSWS eligible (or under 19) to use Breadboard.",
+                });
+              }
             }
-            if (typeof raw.slack_id === "string" && raw.slack_id) {
+            if (email) {
               await db
                 .update(user)
-                .set({ slackId: raw.slack_id as string })
-                .where(eq(user.email, String(raw.email ?? "")));
+                .set({
+                  yswsEligible: eligible,
+                  ...(typeof raw.slack_id === "string" && raw.slack_id
+                    ? { slackId: raw.slack_id }
+                    : {}),
+                })
+                .where(eq(user.email, email));
             }
             return {
               id: String(raw.sub ?? raw.id ?? ""),

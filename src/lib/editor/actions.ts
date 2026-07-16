@@ -208,8 +208,13 @@ export async function sendHeartbeat(
         ),
       )
       .returning({ activeSeconds: editorActivitySessions.activeSeconds });
+    // The client needs this id to upload the evidence frame that clears the
+    // block. Without it, a page reload (or browser crash) that comes back to
+    // an open session with stale evidence can never recover: frames need a
+    // session id, and only this response can supply it.
     return {
       blocked: true,
+      sessionId: existing[0].id,
       reason:
         "Screen activity has not been verified recently. No new time is being saved until a changed screen frame reaches Breadboard.",
       needsJournal: false,

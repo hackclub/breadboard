@@ -342,6 +342,7 @@ async function sendHeartbeat(projectId: number) {
         }
       | {
           blocked: true;
+          sessionId?: number;
           reason: string;
           needsJournal: boolean;
           activeSeconds: number;
@@ -397,7 +398,13 @@ async function runHeartbeat(generation = trackingGeneration) {
       emitError("Time tracking heartbeat failed.");
       return null;
     }
-    if (!("sessionId" in result)) {
+    if ("blocked" in result) {
+      // Adopt the blocked session's id. Screen-evidence uploads are keyed on
+      // it, and after a reload or crash it is the only way the client learns
+      // which session needs a fresh frame before time can save again.
+      if (typeof result.sessionId === "number" && result.sessionId > 0) {
+        sessionId = result.sessionId;
+      }
       lastValidatedAt = Date.now();
       heartbeatStaleReported = false;
       emitBlocked(

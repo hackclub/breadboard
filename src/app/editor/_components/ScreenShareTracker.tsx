@@ -259,11 +259,13 @@ export function ScreenShareTracker({
 
   const captureFrame = useCallback(async () => {
     if (captureInFlightRef.current) return;
-    if (!shouldCaptureOutsideSite()) {
-      setOutsideSite(false);
-      return;
-    }
-    setOutsideSite(true);
+    const outsideSiteNow = shouldCaptureOutsideSite();
+    setOutsideSite(outsideSiteNow);
+    // The off-platform track page requires screen evidence for every
+    // heartbeat, including while its own tab is focused, so it must keep
+    // capturing frames here. The editor skips focused captures because
+    // on-site time is verified through editor activity instead.
+    if (!managesActivityTracking && !outsideSiteNow) return;
     captureInFlightRef.current = true;
     try {
       const screens = screensRef.current.filter(
@@ -371,7 +373,7 @@ export function ScreenShareTracker({
     } finally {
       captureInFlightRef.current = false;
     }
-  }, [enqueue, paused]);
+  }, [enqueue, managesActivityTracking, paused]);
 
   // Add one shared screen (browsers only grant one display per prompt, so
   // multi-monitor users click this once per screen, up to the cap).

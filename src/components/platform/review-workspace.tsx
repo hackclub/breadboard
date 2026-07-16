@@ -481,9 +481,10 @@ export function ReviewWorkspace({
     acceptBreadOnly;
   const missingJustification = paysOut && !unifiedJustification.trim();
 
-  // After the decision the review is locked, but the justification stays
-  // editable: corrections save directly and refresh the ship's Unified DB row
-  // if it was already pushed.
+  // After the decision the review is locked, but the justification and the
+  // approved hours stay editable: corrections save directly (bread moves by
+  // the hours difference) and refresh the ship's Unified DB row if it was
+  // already pushed.
   function saveJustification() {
     setJustificationError(null);
     startJustificationTransition(async () => {
@@ -491,6 +492,7 @@ export function ReviewWorkspace({
         await updateUnifiedJustification(
           initial.submissionId,
           unifiedJustification,
+          approvedHours,
         );
         setJustificationSaved(true);
         router.refresh();
@@ -502,15 +504,15 @@ export function ReviewWorkspace({
     });
   }
 
-  // Saving freezes the exact text as this project's Unified DB record;
-  // clearing goes back to the live-composed template. Both refresh the
-  // Airtable row when the ship already paid out.
+  // Saving freezes the exact text as this ship's Unified DB record; clearing
+  // goes back to the live-composed template. Both refresh the Airtable row
+  // when the ship already paid out.
   function submitTemplate(text: string, statusMessage: string) {
     setTemplateError(null);
     setTemplateStatus(null);
     startTemplateTransition(async () => {
       try {
-        await saveUnifiedTemplateOverride(initial.id, text);
+        await saveUnifiedTemplateOverride(initial.submissionId, text);
         setTemplateDirty(false);
         setTemplateStatus(statusMessage);
         router.refresh();
@@ -833,13 +835,14 @@ export function ReviewWorkspace({
                       {justificationPending
                         ? "Saving…"
                         : justificationSaved
-                          ? "Justification saved ✓"
-                          : "Save justification"}
+                          ? "Saved ✓"
+                          : "Save hours & justification"}
                     </button>
                     <span className="text-[11px] font-bold text-black/40">
-                      The review is decided, but the justification stays
-                      editable; saving updates the Unified DB record if this
-                      ship was already submitted.
+                      The review is decided, but the approved hours and the
+                      justification stay editable; saving adjusts the
+                      maker&apos;s bread by the hours difference and updates the
+                      Unified DB record if this ship was already submitted.
                     </span>
                     {justificationError ? (
                       <span className="text-[11px] font-black text-red-700">
@@ -1009,9 +1012,9 @@ export function ReviewWorkspace({
             <p className="mt-1 text-xs font-semibold text-black/45">
               The exact justification submitted with this ship to the Unified
               YSWS DB. It updates live as you change the approved hours and
-              justification above, plus the tracked time, recordings,
-              journals, and dates from the database; edit and save to freeze a
-              custom version for this project instead.
+              justification above, plus the tracked time, recordings, journals,
+              and dates from the database; edit and save to freeze a custom
+              version for this project instead.
             </p>
             <textarea
               value={templateText}

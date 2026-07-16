@@ -1,6 +1,6 @@
 "use server";
 
-import { and, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth/guards";
 import { audit } from "@/lib/audit";
@@ -789,15 +789,18 @@ export async function approveProject(
   });
 }
 
-// The unified justification can need correcting after the decision: a typo,
-// missing evidence, or spot-check feedback. Editing updates the stored note
-// and, when the ship already paid out (and therefore lives in the unified
-// pipeline), refreshes its Airtable row so the record matches.
+// The unified record can need correcting after the decision: a typo, missing
+// evidence, spot-check feedback, or a wrong approved-hours number. Editing
+// updates the stored note (and, when hours are passed, the approved hours,
+// with the maker's bread adjusted by the difference), then refreshes the
+// ship's Airtable row when it already paid out (and therefore lives in the
+// unified pipeline).
 export async function updateUnifiedJustification(
   submissionId: number,
   justification: string,
+  approvedHours?: number,
 ) {
-  await requireAdminSession();
+  const session = await requireAdminSession();
   const sid = Math.floor(Number(submissionId));
   if (!Number.isFinite(sid) || sid <= 0)
     throw new Error("Submission ID must be a positive number");
@@ -809,21 +812,116 @@ export async function updateUnifiedJustification(
     .where(eq(projectSubmissions.id, sid))
     .limit(1);
   if (!submission) throw new Error("Submission not found");
-  await db.transaction(async (tx) => {
+  const decided = ["approved", "fulfilled"].includes(submission.status);
+  const [project] = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.id, submission.projectId))
+    .limit(1);
+  if (!project) throw new Error("Project not found");
+
+  // Hours edits only make sense once the review is decided; before that the
+  // number flows through the approval itself.
+  const newHours =
+    approvedHours !== undefined && decided
+      ? normalizeHours(approvedHours)
+      : null;
+
+  const adjustment = await db.transaction(async (tx) => {
+    // Re-read inside the transaction so the bread delta is computed against
+    // committed state — a retried save recomputes a zero delta instead of
+    // double-applying.
+    const [fresh] = await tx
+      .select()
+      .from(projectSubmissions)
+      .where(eq(projectSubmissions.id, sid))
+      .for("update");
+    if (!fresh) throw new Error("Submission not found");
+    const oldHours = fresh.approvedHours ?? 0;
+    if (newHours === null || newHours === oldHours) {
+      await tx
+        .update(projectSubmissions)
+        .set({ internalNote: text, updatedAt: new Date() })
+        .where(eq(projectSubmissions.id, sid));
+      await tx
+        .update(projects)
+        .set({ overrideHoursSpentJustification: text, updatedAt: new Date() })
+        .where(eq(projects.id, submission.projectId));
+      return null;
+    }
+
+    // Only ships that actually paid carry bread; a kit materials approval has
+    // breadAmount 0 (it pays at demo), so its hours edit moves no bread.
+    const gold = isBuildShip(project);
+    const rate = gold ? GOLD_BREAD_PER_HOUR : BREAD_PER_HOUR;
+    const newBread =
+      fresh.breadAmount > 0 ? newHours * rate : fresh.breadAmount;
+    const breadDelta = newBread - fresh.breadAmount;
+
     await tx
       .update(projectSubmissions)
-      .set({ internalNote: text, updatedAt: new Date() })
+      .set({
+        internalNote: text,
+        approvedHours: newHours,
+        breadAmount: newBread,
+        updatedAt: new Date(),
+      })
       .where(eq(projectSubmissions.id, sid));
     await tx
       .update(projects)
-      .set({ overrideHoursSpentJustification: text, updatedAt: new Date() })
+      .set({
+        overrideHoursSpentJustification: text,
+        // overrideHoursSpent is the project's running total across ships, so
+        // it moves by the same difference as this ship.
+        overrideHoursSpent: sql`coalesce(${projects.overrideHoursSpent}, 0) + ${newHours - oldHours}`,
+        breadAmount: sql`${projects.breadAmount} + ${breadDelta}`,
+        updatedAt: new Date(),
+      })
       .where(eq(projects.id, submission.projectId));
+
+    if (breadDelta !== 0) {
+      const [credited] = await tx
+        .insert(userBread)
+        .values({
+          userId: fresh.userId,
+          balance: gold ? 0 : breadDelta,
+          goldBalance: gold ? breadDelta : 0,
+        })
+        .onConflictDoUpdate({
+          target: userBread.userId,
+          set: {
+            ...(gold
+              ? { goldBalance: sql`${userBread.goldBalance} + ${breadDelta}` }
+              : { balance: sql`${userBread.balance} + ${breadDelta}` }),
+            updatedAt: new Date(),
+          },
+        })
+        .returning({
+          balance: userBread.balance,
+          goldBalance: userBread.goldBalance,
+        });
+      await recordCurrencyTransaction(tx, {
+        userId: fresh.userId,
+        actorId: session.user.id,
+        type: "admin_adjustment",
+        currency: gold ? "gold" : "bread",
+        amount: breadDelta,
+        balanceAfter: gold
+          ? (credited?.goldBalance ?? null)
+          : (credited?.balance ?? null),
+        sourceEntityType: "submission",
+        sourceEntityId: String(sid),
+        note: `Approved hours adjusted ${oldHours}h -> ${newHours}h after review`,
+      });
+    }
+    return { oldHours, newHours, breadDelta };
   });
+
   await audit(
     "admin.review.update_justification",
     "project",
     String(submission.projectId),
-    { submissionId: sid },
+    { submissionId: sid, ...(adjustment ?? {}) },
   );
   // Only paid ships were pushed to the Unified YSWS DB. A kit materials
   // approval hasn't been (it pays at demo), recognizable by its zero
@@ -839,41 +937,56 @@ export async function updateUnifiedJustification(
 
 // The full Unified DB justification is normally composed from database facts
 // (src/lib/ysws/unified.ts). Saving a non-empty override here freezes the
-// exact text sent for this project's ships; saving an empty string reverts to
-// the live-composed template. Either way, a ship that already paid out gets
-// its Airtable row refreshed to match.
+// exact text sent for THIS ship; saving an empty string reverts it to the
+// live-composed template. Per ship, because the Unified DB treats every
+// update ship as its own submission with its own hours and justification
+// (docs.hackclub.com, "Duplicate and Updated Submissions") — a project-wide
+// freeze would stamp one ship's hours onto every row. If the ship already
+// paid out, its Airtable row is refreshed to match.
 export async function saveUnifiedTemplateOverride(
-  projectId: number,
+  submissionId: number,
   template: string,
 ) {
   await requireAdminSession();
-  const id = requirePositiveProjectId(projectId);
+  const sid = Math.floor(Number(submissionId));
+  if (!Number.isFinite(sid) || sid <= 0)
+    throw new Error("Submission ID must be a positive number");
   // The composed template runs long, so allow far more than the 2k cap on
   // ordinary review text. Airtable long-text fields top out at 100k.
   const text = template.trim();
   if (text.length > 50_000) throw new Error("Template is too long");
-  await getProjectOrThrow(id);
-  await db
-    .update(projects)
-    .set({ unifiedJustificationOverride: text, updatedAt: new Date() })
-    .where(eq(projects.id, id));
-  await audit("admin.review.unified_template_override", "project", String(id), {
-    cleared: text.length === 0,
-  });
-  const [paidShip] = await db
-    .select({ id: projectSubmissions.id })
+  const [submission] = await db
+    .select()
     .from(projectSubmissions)
-    .where(
-      and(
-        eq(projectSubmissions.projectId, id),
-        inArray(projectSubmissions.status, ["approved", "fulfilled"]),
-        gt(projectSubmissions.breadAmount, 0),
-      ),
-    )
-    .orderBy(desc(projectSubmissions.submittedAt))
+    .where(eq(projectSubmissions.id, sid))
     .limit(1);
-  if (paidShip) await pushShipToUnified(paidShip.id);
-  revalidateReviewViews(id);
+  if (!submission) throw new Error("Submission not found");
+  await db.transaction(async (tx) => {
+    await tx
+      .update(projectSubmissions)
+      .set({ unifiedJustificationOverride: text, updatedAt: new Date() })
+      .where(eq(projectSubmissions.id, sid));
+    // Any save through the per-ship path retires the legacy project-wide
+    // freeze — otherwise clearing a ship's override would resurrect stale
+    // project-level text through the fallback.
+    await tx
+      .update(projects)
+      .set({ unifiedJustificationOverride: "", updatedAt: new Date() })
+      .where(eq(projects.id, submission.projectId));
+  });
+  await audit(
+    "admin.review.unified_template_override",
+    "project",
+    String(submission.projectId),
+    { submissionId: sid, cleared: text.length === 0 },
+  );
+  if (
+    submission.breadAmount > 0 &&
+    ["approved", "fulfilled"].includes(submission.status)
+  ) {
+    await pushShipToUnified(sid);
+  }
+  revalidateReviewViews(submission.projectId);
 }
 
 // Reviewers sometimes need to reclassify a ship: a maker picks "build" but

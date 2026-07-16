@@ -167,7 +167,11 @@ async function loadShipRow(submissionId: number): Promise<ShipRow | null> {
 export async function unifiedJustificationForSubmission(submissionId: number) {
   const row = await loadShipRow(submissionId);
   if (!row) return null;
-  const override = row.project.unifiedJustificationOverride.trim();
+  // Per-ship override first; the project-level column is the legacy
+  // project-wide freeze, read only so old data keeps working.
+  const override =
+    row.submission.unifiedJustificationOverride.trim() ||
+    row.project.unifiedJustificationOverride.trim();
   if (override)
     return { text: override, overridden: true, parts: null } as const;
   const parts = await buildUnifiedJustificationParts(
@@ -201,7 +205,10 @@ export async function buildUnifiedJustificationParts(
   const [priorShips, feedbackRounds, reviewer, recordings, journals] =
     await Promise.all([
       db
-        .select({ count: sql<number>`count(*)::int` })
+        .select({
+          count: sql<number>`count(*)::int`,
+          hours: sql<number>`coalesce(sum(${projectSubmissions.approvedHours}), 0)::int`,
+        })
         .from(projectSubmissions)
         .where(
           and(
@@ -258,7 +265,9 @@ export async function buildUnifiedJustificationParts(
     .from(editorActivitySessions)
     .where(eq(editorActivitySessions.projectId, p.id));
 
-  const isUpdate = (priorShips[0]?.count ?? 0) > 0;
+  const priorCount = priorShips[0]?.count ?? 0;
+  const priorHours = priorShips[0]?.hours ?? 0;
+  const isUpdate = priorCount > 0;
   const shipKind =
     s.type === "demo"
       ? `the completed kit build (demo ship) of "${p.title}"`
@@ -267,6 +276,14 @@ export async function buildUnifiedJustificationParts(
         : isUpdate
           ? `update ship #${s.submissionNumber} of "${p.title}"`
           : `the first design ship of "${p.title}"`;
+  // The Unified DB's update-submission rule (docs.hackclub.com, "Duplicate and
+  // Updated Submissions"): an update record must say it's an update, reference
+  // the previously approved hours, and approve only the new work.
+  const updateContext = isUpdate
+    ? ` This is an update to a project previously submitted to this program: ${priorHours}h were already approved across ${priorCount} earlier ship${
+        priorCount === 1 ? "" : "s"
+      }, and this record approves only the hours for the new work since.`
+    : "";
 
   const evidence =
     s.submissionSource === "manual"
@@ -335,7 +352,7 @@ export async function buildUnifiedJustificationParts(
     : `This ship has not been approved yet${roundsPhrase}.`;
 
   return {
-    shipLine: `This is ${shipKind} for Breadboard. Submitted ${iso(s.submittedAt)}.`,
+    shipLine: `This is ${shipKind} for Breadboard. Submitted ${iso(s.submittedAt)}.${updateContext}`,
     evidence,
     links,
     approvalIntro,
@@ -406,7 +423,9 @@ export async function pushShipToUnified(submissionId: number) {
     set("Birthday", s.birthday || p.birthday);
     const hours = s.approvedHours ?? 0;
     if (hours > 0) fields["Optional - Override Hours Spent"] = hours;
-    const templateOverride = p.unifiedJustificationOverride.trim();
+    const templateOverride =
+      s.unifiedJustificationOverride.trim() ||
+      p.unifiedJustificationOverride.trim();
     set(
       "Optional - Override Hours Spent Justification",
       templateOverride ||

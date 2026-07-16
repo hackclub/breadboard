@@ -830,6 +830,15 @@ export const projectSubmissions = pgTable(
     editorVersionNumber: integer("editor_version_number"),
     approvedHours: integer("approved_hours"),
     internalNote: text("internal_note").notNull().default(""),
+    // Frozen Unified DB justification for this ship. Non-empty wins over the
+    // live-composed template on push. Per ship, because the Unified DB treats
+    // every update ship as its own submission with its own hours and
+    // justification (docs.hackclub.com, "Duplicate and Updated Submissions").
+    // The project-level column of the same name is the legacy project-wide
+    // freeze and only read as a fallback.
+    unifiedJustificationOverride: text("unified_justification_override")
+      .notNull()
+      .default(""),
     userComment: text("user_comment").notNull().default(""),
     breadAmount: integer("bread_amount").notNull().default(0),
     // The ship opted out of the cool-project quality bar: it earns bread for

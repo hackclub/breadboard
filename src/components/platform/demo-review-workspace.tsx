@@ -185,9 +185,10 @@ export function DemoReviewWorkspace({
 
   const locked = submitted || initial.status !== "pending_review";
 
-  // After the decision the review is locked, but the justification stays
-  // editable: corrections save directly and refresh the ship's Unified DB row
-  // if it was already pushed.
+  // After the decision the review is locked, but the justification and the
+  // approved hours stay editable: corrections save directly (bread moves by
+  // the hours difference) and refresh the ship's Unified DB row if it was
+  // already pushed.
   function saveJustification() {
     setJustificationError(null);
     startJustificationTransition(async () => {
@@ -195,6 +196,7 @@ export function DemoReviewWorkspace({
         await updateUnifiedJustification(
           initial.submissionId,
           internalJustification,
+          approvedHours,
         );
         setJustificationSaved(true);
         router.refresh();
@@ -332,13 +334,14 @@ export function DemoReviewWorkspace({
                     {justificationPending
                       ? "Saving…"
                       : justificationSaved
-                        ? "Justification saved ✓"
-                        : "Save justification"}
+                        ? "Saved ✓"
+                        : "Save hours & justification"}
                   </button>
                   <span className="text-[11px] font-bold text-black/40">
-                    The review is decided, but the justification stays
-                    editable; saving updates the Unified DB record if this
-                    ship was already submitted.
+                    The review is decided, but the approved hours and the
+                    justification stay editable; saving adjusts the maker&apos;s
+                    bread by the hours difference and updates the Unified DB
+                    record if this ship was already submitted.
                   </span>
                   {justificationError ? (
                     <span className="text-[11px] font-black text-red-700">

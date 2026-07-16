@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import Link from "next/link";
 import { HiArrowLeft } from "react-icons/hi2";
 import { LoginButton } from "@/components/shared/auth-buttons";
@@ -63,7 +63,10 @@ export default async function AdminDemoReviewPage({
       country: projectSubmissions.country,
       hoursSpent: projectSubmissions.hoursSpent,
       overrideHoursSpent: projects.overrideHoursSpent,
-      overrideHoursSpentJustification: projectSubmissions.internalNote,
+      // A fresh demo submission has no internalNote yet; fall back to the
+      // justification written at the materials approval so the demo review
+      // starts from what was already established.
+      overrideHoursSpentJustification: sql<string>`case when ${projectSubmissions.internalNote} <> '' then ${projectSubmissions.internalNote} else ${projects.overrideHoursSpentJustification} end`,
       status: projectSubmissions.status,
       projectStatus: projects.status,
       reviewNote: projectSubmissions.userComment,

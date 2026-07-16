@@ -1,6 +1,6 @@
 "use server";
 
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth/guards";
 import { audit } from "@/lib/audit";
@@ -19,6 +19,10 @@ import {
 import { isBuildShip, type ProjectType } from "@/lib/projects/project-type";
 import { recordCurrencyTransaction } from "@/lib/projects/ledger";
 import { notifyProjectStatus, notifyReviewDecision } from "@/lib/slack/tookle";
+import {
+  pushLatestApprovedShipToUnified,
+  pushShipToUnified,
+} from "@/lib/ysws/unified";
 
 const REVIEW_TEXT_LIMIT = 2000;
 
@@ -462,6 +466,9 @@ export async function approveProject(
       breadOnly: acceptBreadOnly,
     });
     revalidateReviewViews(id);
+    // Hours are verified and paid at demo approval, so this ship now belongs
+    // in the Unified YSWS DB (best-effort, see src/lib/ysws/unified.ts).
+    await pushShipToUnified(submission.id);
     await notifyReviewDecision(id, "demo", "accepted", {
       bread,
       note: reviewComment,
@@ -557,6 +564,9 @@ export async function approveProject(
       gold,
     });
     revalidateReviewViews(id);
+    // A build ship pays out right here, so its verified hours go to the
+    // Unified YSWS DB now (best-effort).
+    await pushShipToUnified(submission.id);
     await notifyReviewDecision(id, "materials", "accepted", {
       bread: gold,
       gold: true,
@@ -674,6 +684,9 @@ export async function approveProject(
       update: isUpdateShip,
     });
     revalidateReviewViews(id);
+    // Bread-only and update ships pay out at materials approval, so the
+    // verified hours go to the Unified YSWS DB now (best-effort).
+    await pushShipToUnified(submission.id);
     await notifyReviewDecision(id, "materials", "accepted", {
       bread,
       note: reviewComment,
@@ -774,6 +787,93 @@ export async function approveProject(
   await notifyReviewDecision(id, "materials", "accepted", {
     note: reviewComment,
   });
+}
+
+// The unified justification can need correcting after the decision: a typo,
+// missing evidence, or spot-check feedback. Editing updates the stored note
+// and, when the ship already paid out (and therefore lives in the unified
+// pipeline), refreshes its Airtable row so the record matches.
+export async function updateUnifiedJustification(
+  submissionId: number,
+  justification: string,
+) {
+  await requireAdminSession();
+  const sid = Math.floor(Number(submissionId));
+  if (!Number.isFinite(sid) || sid <= 0)
+    throw new Error("Submission ID must be a positive number");
+  const text = normalizeReviewText(justification, "Justification");
+  if (!text) throw new Error("Justification cannot be empty");
+  const [submission] = await db
+    .select()
+    .from(projectSubmissions)
+    .where(eq(projectSubmissions.id, sid))
+    .limit(1);
+  if (!submission) throw new Error("Submission not found");
+  await db.transaction(async (tx) => {
+    await tx
+      .update(projectSubmissions)
+      .set({ internalNote: text, updatedAt: new Date() })
+      .where(eq(projectSubmissions.id, sid));
+    await tx
+      .update(projects)
+      .set({ overrideHoursSpentJustification: text, updatedAt: new Date() })
+      .where(eq(projects.id, submission.projectId));
+  });
+  await audit(
+    "admin.review.update_justification",
+    "project",
+    String(submission.projectId),
+    { submissionId: sid },
+  );
+  // Only paid ships were pushed to the Unified YSWS DB. A kit materials
+  // approval hasn't been (it pays at demo), recognizable by its zero
+  // breadAmount, so editing it must not create a premature Airtable row.
+  if (
+    submission.breadAmount > 0 &&
+    ["approved", "fulfilled"].includes(submission.status)
+  ) {
+    await pushShipToUnified(sid);
+  }
+  revalidateReviewViews(submission.projectId);
+}
+
+// The full Unified DB justification is normally composed from database facts
+// (src/lib/ysws/unified.ts). Saving a non-empty override here freezes the
+// exact text sent for this project's ships; saving an empty string reverts to
+// the live-composed template. Either way, a ship that already paid out gets
+// its Airtable row refreshed to match.
+export async function saveUnifiedTemplateOverride(
+  projectId: number,
+  template: string,
+) {
+  await requireAdminSession();
+  const id = requirePositiveProjectId(projectId);
+  // The composed template runs long, so allow far more than the 2k cap on
+  // ordinary review text. Airtable long-text fields top out at 100k.
+  const text = template.trim();
+  if (text.length > 50_000) throw new Error("Template is too long");
+  await getProjectOrThrow(id);
+  await db
+    .update(projects)
+    .set({ unifiedJustificationOverride: text, updatedAt: new Date() })
+    .where(eq(projects.id, id));
+  await audit("admin.review.unified_template_override", "project", String(id), {
+    cleared: text.length === 0,
+  });
+  const [paidShip] = await db
+    .select({ id: projectSubmissions.id })
+    .from(projectSubmissions)
+    .where(
+      and(
+        eq(projectSubmissions.projectId, id),
+        inArray(projectSubmissions.status, ["approved", "fulfilled"]),
+        gt(projectSubmissions.breadAmount, 0),
+      ),
+    )
+    .orderBy(desc(projectSubmissions.submittedAt))
+    .limit(1);
+  if (paidShip) await pushShipToUnified(paidShip.id);
+  revalidateReviewViews(id);
 }
 
 // Reviewers sometimes need to reclassify a ship: a maker picks "build" but
@@ -908,6 +1008,9 @@ export async function payOutProject(projectId: number) {
   );
   await audit("admin.review.pay_out", "project", String(id), { hours });
   revalidateReviewViews(id);
+  // The legacy reviewed -> paid_out flow finalizes hours here; push the ship
+  // that just got paid to the Unified YSWS DB (best-effort).
+  await pushLatestApprovedShipToUnified(id);
   await notifyProjectStatus(id, "paid_out", { bread, gold: buildShip });
 }
 

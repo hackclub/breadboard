@@ -16,6 +16,7 @@ import {
   user,
 } from "@/lib/db/schema";
 import { ReviewWorkspace } from "@/components/platform/review-workspace";
+import { unifiedJustificationForSubmission } from "@/lib/ysws/unified";
 
 function toIso(value: Date | string | null | undefined) {
   if (!value) return null;
@@ -77,7 +78,10 @@ export default async function AdminReviewProjectPage({
       birthday: projectSubmissions.birthday,
       hoursSpent: projectSubmissions.hoursSpent,
       overrideHoursSpent: projectSubmissions.approvedHours,
-      overrideHoursSpentJustification: projectSubmissions.internalNote,
+      // A fresh submission has no internalNote yet; fall back to the
+      // justification written at the previous approval so re-reviews and
+      // update ships start from what was already established.
+      overrideHoursSpentJustification: sql<string>`case when ${projectSubmissions.internalNote} <> '' then ${projectSubmissions.internalNote} else ${projects.overrideHoursSpentJustification} end`,
       status: projectSubmissions.status,
       projectStatus: projects.status,
       reviewNote: projectSubmissions.userComment,
@@ -203,6 +207,12 @@ export default async function AdminReviewProjectPage({
     durationSeconds: entry.durationSeconds,
     recordedAt: toIso(entry.recordedAt),
   }));
+  // The full Unified DB record for this ship: the manual override when one is
+  // saved, otherwise the template composed live from review data.
+  const unifiedRecord = await unifiedJustificationForSubmission(
+    project.submissionId,
+  );
+
   const activity = activityRows[0];
   const screenEvidence = screenEvidenceRows[0];
   const recordingSeconds = timelapseRows.reduce(
@@ -236,6 +246,7 @@ export default async function AdminReviewProjectPage({
       </Link>
       <ReviewWorkspace
         project={project}
+        unifiedRecord={unifiedRecord}
         journals={journals}
         timelapses={timelapses}
         submissionHistory={submissionHistory}

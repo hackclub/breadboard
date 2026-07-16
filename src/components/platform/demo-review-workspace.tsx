@@ -20,6 +20,7 @@ import {
   approveProject,
   rejectProject,
   requestChanges,
+  updateUnifiedJustification,
 } from "@/actions/admin/review";
 import { BreadAmount, BreadIcon } from "@/components/shared/bread-amount";
 import { storageReadUrl } from "@/lib/storage/urls";
@@ -133,6 +134,11 @@ export function DemoReviewWorkspace({
   const [pending, startTransition] = useTransition();
   const [submitted, setSubmitted] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [justificationPending, startJustificationTransition] = useTransition();
+  const [justificationSaved, setJustificationSaved] = useState(false);
+  const [justificationError, setJustificationError] = useState<string | null>(
+    null,
+  );
   const router = useRouter();
   const [projectNotes, setProjectNotes] = useState(initialProjectNotes);
   const [userNotesState, setUserNotesState] = useState(initialUserNotes);
@@ -178,6 +184,27 @@ export function DemoReviewWorkspace({
   }
 
   const locked = submitted || initial.status !== "pending_review";
+
+  // After the decision the review is locked, but the justification stays
+  // editable: corrections save directly and refresh the ship's Unified DB row
+  // if it was already pushed.
+  function saveJustification() {
+    setJustificationError(null);
+    startJustificationTransition(async () => {
+      try {
+        await updateUnifiedJustification(
+          initial.submissionId,
+          internalJustification,
+        );
+        setJustificationSaved(true);
+        router.refresh();
+      } catch (error) {
+        setJustificationError(
+          error instanceof Error ? error.message : "Could not save",
+        );
+      }
+    });
+  }
 
   return (
     <article className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
@@ -279,16 +306,47 @@ export function DemoReviewWorkspace({
               </label>
               <label className="grid gap-1.5">
                 <span className="text-xs font-black tracking-[0.14em] text-black/40 uppercase">
-                  Review justification · internal only
+                  Hours justification · Unified YSWS DB
                 </span>
                 <textarea
                   value={internalJustification}
-                  onChange={(e) => setInternalJustification(e.target.value)}
+                  onChange={(e) => {
+                    setInternalJustification(e.target.value);
+                    setJustificationSaved(false);
+                  }}
                   rows={5}
-                  placeholder="Explain why the demo passes."
+                  placeholder="Commit count vs hours, submitter experience (with evidence), specific technical features, and why the approved hours fit — or what you deflated and why. Never shown to the maker; wrapped in the unified justification template (time evidence and dates are added automatically) and submitted to the Unified YSWS DB."
                   className="rounded-xl border border-black bg-white px-4 py-3 text-sm leading-relaxed"
                 />
               </label>
+              {locked ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={
+                      justificationPending || !internalJustification.trim()
+                    }
+                    onClick={saveJustification}
+                    className="rounded-xl border border-black bg-white px-4 py-2.5 text-xs font-black text-black hover:bg-black hover:text-white disabled:opacity-50"
+                  >
+                    {justificationPending
+                      ? "Saving…"
+                      : justificationSaved
+                        ? "Justification saved ✓"
+                        : "Save justification"}
+                  </button>
+                  <span className="text-[11px] font-bold text-black/40">
+                    The review is decided, but the justification stays
+                    editable; saving updates the Unified DB record if this
+                    ship was already submitted.
+                  </span>
+                  {justificationError ? (
+                    <span className="text-[11px] font-black text-red-700">
+                      {justificationError}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
               <label className="grid gap-1.5">
                 <span className="text-xs font-black tracking-[0.14em] text-black/40 uppercase">
                   Comment to user · optional
@@ -302,7 +360,12 @@ export function DemoReviewWorkspace({
               </label>
               <button
                 type="button"
-                disabled={pending || locked}
+                disabled={pending || locked || !internalJustification.trim()}
+                title={
+                  !internalJustification.trim()
+                    ? "Write the hours justification first — the Unified YSWS DB requires it."
+                    : undefined
+                }
                 onClick={() =>
                   run(() =>
                     approveProject(

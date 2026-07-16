@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import {
   HiArrowTopRightOnSquare,
   HiCheck,
@@ -24,12 +24,18 @@ import {
   approveProject,
   rejectProject,
   requestChanges,
+  saveUnifiedTemplateOverride,
   setProjectShipType,
+  updateUnifiedJustification,
 } from "@/actions/admin/review";
 import { BreadAmount, BreadIcon } from "@/components/shared/bread-amount";
 import { Markdown } from "@/components/shared/markdown";
 import { isBuildShip } from "@/lib/projects/project-type";
 import { storageReadUrl } from "@/lib/storage/urls";
+import {
+  type UnifiedJustificationParts,
+  composeUnifiedJustification,
+} from "@/lib/ysws/justificationTemplate";
 
 type ReviewProject = {
   id: number;
@@ -328,6 +334,7 @@ function CopyPingButtons({
 
 export function ReviewWorkspace({
   project: initial,
+  unifiedRecord,
   journals,
   timelapses,
   submissionHistory,
@@ -335,6 +342,11 @@ export function ReviewWorkspace({
   breadPerHour,
 }: {
   project: ReviewProject;
+  unifiedRecord: {
+    text: string;
+    overridden: boolean;
+    parts: UnifiedJustificationParts | null;
+  } | null;
   journals: Journal[];
   timelapses: Timelapse[];
   submissionHistory: SubmissionHistoryEntry[];
@@ -348,12 +360,46 @@ export function ReviewWorkspace({
     initial.overrideHoursSpent ?? initial.hoursSpent,
   );
   const [acceptBreadOnly, setAcceptBreadOnly] = useState(false);
+  // Reviewer-only hours justification. It's stored as the submission's
+  // internalNote and pushed to the Unified YSWS DB as "Optional - Override
+  // Hours Spent Justification" when the approval pays out. Prefilled from the
+  // materials review so the demo review starts from what was already written.
+  const [unifiedJustification, setUnifiedJustification] = useState(
+    initial.overrideHoursSpentJustification,
+  );
   const [userComment, setUserComment] = useState("");
   const [pending, startTransition] = useTransition();
   const [submitted, setSubmitted] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [typePending, startTypeTransition] = useTransition();
   const [typeError, setTypeError] = useState<string | null>(null);
+  const [justificationPending, startJustificationTransition] = useTransition();
+  const [justificationSaved, setJustificationSaved] = useState(false);
+  const [justificationError, setJustificationError] = useState<string | null>(
+    null,
+  );
+  const [templateText, setTemplateText] = useState(unifiedRecord?.text ?? "");
+  const [templateDirty, setTemplateDirty] = useState(false);
+  const [templatePending, startTemplateTransition] = useTransition();
+  const [templateStatus, setTemplateStatus] = useState<string | null>(null);
+  const [templateError, setTemplateError] = useState<string | null>(null);
+
+  // Live preview: recompose the template from the current form inputs so
+  // changing the approved hours or the justification updates the record box
+  // instantly, before anything commits. Overrides show their frozen text.
+  const generatedTemplate =
+    unifiedRecord && !unifiedRecord.overridden && unifiedRecord.parts
+      ? composeUnifiedJustification(
+          unifiedRecord.parts,
+          approvedHours,
+          unifiedJustification,
+        )
+      : (unifiedRecord?.text ?? "");
+
+  // Follow the live template unless the reviewer has unsaved edits in the box.
+  useEffect(() => {
+    if (!templateDirty) setTemplateText(generatedTemplate);
+  }, [generatedTemplate, templateDirty]);
   const router = useRouter();
   const isManual = initial.submissionSource === "manual";
   // Currency follows projectType, not submissionSource: an off-platform
@@ -422,6 +468,59 @@ export function ReviewWorkspace({
   const isUpdateShip = submissionHistory.some(
     (entry) => entry.status === "approved" || entry.status === "fulfilled",
   );
+
+  // Approvals that pay out (demo, build, bread-only, update) push the ship to
+  // the Unified YSWS DB, whose spot-checks require an hours justification. The
+  // kit materials approval doesn't pay yet, so there it's optional and carries
+  // forward as the demo review's starting point.
+  const paysOut =
+    initial.projectStatus === "demo_review" ||
+    isBuild ||
+    isUpdateShip ||
+    initial.breadOnly ||
+    acceptBreadOnly;
+  const missingJustification = paysOut && !unifiedJustification.trim();
+
+  // After the decision the review is locked, but the justification stays
+  // editable: corrections save directly and refresh the ship's Unified DB row
+  // if it was already pushed.
+  function saveJustification() {
+    setJustificationError(null);
+    startJustificationTransition(async () => {
+      try {
+        await updateUnifiedJustification(
+          initial.submissionId,
+          unifiedJustification,
+        );
+        setJustificationSaved(true);
+        router.refresh();
+      } catch (error) {
+        setJustificationError(
+          error instanceof Error ? error.message : "Could not save",
+        );
+      }
+    });
+  }
+
+  // Saving freezes the exact text as this project's Unified DB record;
+  // clearing goes back to the live-composed template. Both refresh the
+  // Airtable row when the ship already paid out.
+  function submitTemplate(text: string, statusMessage: string) {
+    setTemplateError(null);
+    setTemplateStatus(null);
+    startTemplateTransition(async () => {
+      try {
+        await saveUnifiedTemplateOverride(initial.id, text);
+        setTemplateDirty(false);
+        setTemplateStatus(statusMessage);
+        router.refresh();
+      } catch (error) {
+        setTemplateError(
+          error instanceof Error ? error.message : "Could not save",
+        );
+      }
+    });
+  }
 
   function changeShipType(next: "build" | "design") {
     setTypeError(null);
@@ -699,6 +798,58 @@ export function ReviewWorkspace({
                 </label>
                 <label className="grid gap-1.5">
                   <span className="text-xs font-black tracking-[0.14em] text-black/40 uppercase">
+                    Hours justification · Unified YSWS DB
+                  </span>
+                  <textarea
+                    value={unifiedJustification}
+                    onChange={(e) => {
+                      setUnifiedJustification(e.target.value);
+                      setJustificationSaved(false);
+                    }}
+                    rows={4}
+                    placeholder="Commit count vs hours, submitter experience (with evidence), specific technical features, and why the approved hours fit — or what you deflated and why. Never shown to the maker."
+                    className="rounded-xl border border-black bg-white px-4 py-3 text-sm leading-relaxed"
+                  />
+                  <span
+                    className={`text-[11px] font-bold ${
+                      missingJustification ? "text-[#BD0F32]" : "text-black/40"
+                    }`}
+                  >
+                    {paysOut
+                      ? "Required — this approval pays out. Your text is wrapped in the unified justification template (tracked time, recordings, journals, dates, deflation are added automatically) and submitted to the Unified YSWS DB."
+                      : "Optional for the kit approval; it prefills the demo review and joins the unified justification template when the demo pays out."}
+                  </span>
+                </label>
+                {locked ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={
+                        justificationPending || !unifiedJustification.trim()
+                      }
+                      onClick={saveJustification}
+                      className="rounded-xl border border-black bg-white px-4 py-2.5 text-xs font-black text-black hover:bg-black hover:text-white disabled:opacity-50"
+                    >
+                      {justificationPending
+                        ? "Saving…"
+                        : justificationSaved
+                          ? "Justification saved ✓"
+                          : "Save justification"}
+                    </button>
+                    <span className="text-[11px] font-bold text-black/40">
+                      The review is decided, but the justification stays
+                      editable; saving updates the Unified DB record if this
+                      ship was already submitted.
+                    </span>
+                    {justificationError ? (
+                      <span className="text-[11px] font-black text-red-700">
+                        {justificationError}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+                <label className="grid gap-1.5">
+                  <span className="text-xs font-black tracking-[0.14em] text-black/40 uppercase">
                     Comment to user
                   </span>
                   <textarea
@@ -742,13 +893,18 @@ export function ReviewWorkspace({
                 ) : null}
                 <button
                   type="button"
-                  disabled={pending || locked}
+                  disabled={pending || locked || missingJustification}
+                  title={
+                    missingJustification
+                      ? "Write the hours justification first — the Unified YSWS DB requires it."
+                      : undefined
+                  }
                   onClick={() =>
                     run(() =>
                       approveProject(
                         initial.id,
                         approvedHours,
-                        "",
+                        unifiedJustification,
                         userComment,
                         [],
                         initial.projectStatus === "demo_review"
@@ -831,6 +987,93 @@ export function ReviewWorkspace({
             ) : null}
           </div>
         </div>
+
+        {unifiedRecord ? (
+          <div className="border-t border-black/10 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-lg font-black text-black">
+                Unified YSWS record
+              </h3>
+              <span
+                className={`inline-flex items-center rounded-full border-2 px-3 py-1 text-xs font-black uppercase ${
+                  unifiedRecord.overridden
+                    ? "border-amber-400 bg-amber-50 text-amber-800"
+                    : "border-emerald-400 bg-emerald-50 text-emerald-800"
+                }`}
+              >
+                {unifiedRecord.overridden
+                  ? "Custom override"
+                  : "Generated from review data"}
+              </span>
+            </div>
+            <p className="mt-1 text-xs font-semibold text-black/45">
+              The exact justification submitted with this ship to the Unified
+              YSWS DB. It updates live as you change the approved hours and
+              justification above, plus the tracked time, recordings,
+              journals, and dates from the database; edit and save to freeze a
+              custom version for this project instead.
+            </p>
+            <textarea
+              value={templateText}
+              onChange={(e) => {
+                setTemplateText(e.target.value);
+                setTemplateDirty(true);
+                setTemplateStatus(null);
+              }}
+              rows={16}
+              className="mt-3 w-full rounded-xl border border-black bg-[#fffaf1] px-4 py-3 font-mono text-xs leading-relaxed"
+            />
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={templatePending || !templateText.trim()}
+                onClick={() =>
+                  submitTemplate(templateText, "Custom template saved.")
+                }
+                className="rounded-xl bg-black px-4 py-2.5 text-xs font-black text-white hover:bg-[#BD0F32] disabled:opacity-50"
+              >
+                {templatePending ? "Saving…" : "Save as custom template"}
+              </button>
+              {unifiedRecord.overridden ? (
+                <button
+                  type="button"
+                  disabled={templatePending}
+                  onClick={() =>
+                    submitTemplate("", "Back to the generated template.")
+                  }
+                  className="rounded-xl border border-black bg-white px-4 py-2.5 text-xs font-black text-black hover:bg-black hover:text-white disabled:opacity-50"
+                >
+                  Use generated template
+                </button>
+              ) : null}
+              {templateDirty ? (
+                <button
+                  type="button"
+                  disabled={templatePending}
+                  onClick={() => {
+                    setTemplateText(generatedTemplate);
+                    setTemplateDirty(false);
+                    setTemplateStatus(null);
+                    setTemplateError(null);
+                  }}
+                  className="rounded-xl border border-black bg-white px-4 py-2.5 text-xs font-black text-black hover:bg-black hover:text-white disabled:opacity-50"
+                >
+                  Discard edits
+                </button>
+              ) : null}
+              {templateStatus ? (
+                <span className="text-[11px] font-black text-green-700">
+                  {templateStatus}
+                </span>
+              ) : null}
+              {templateError ? (
+                <span className="text-[11px] font-black text-red-700">
+                  {templateError}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <aside className="space-y-4">

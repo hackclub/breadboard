@@ -14,15 +14,22 @@
  * DATABASE_URL (loaded from .env.local by Bun). Imports app modules that use
  * Next's "server-only" marker, so run it with the stub preload:
  *
- *   bun --preload ./scripts/_stub-server-only.ts ./scripts/backfill-loops.ts [--dry-run]
+ *   bun --preload ./scripts/_stub-server-only.ts ./scripts/backfill-loops.ts [--dry-run] [--slack-budget=N]
  *
- *   --dry-run   compute and report the breakdown, write nothing
+ *   --dry-run          compute and report the breakdown, write nothing
+ *   --slack-budget=N   look up at most N missing Slack IDs this run (default 25).
+ *                      Needs SLACK_BOT_TOKEN with users:read.email; pass a number
+ *                      larger than the backlog (e.g. 200) to clear it in one go.
  */
 
 import { airtableEnabled } from "@/lib/loops/airtable";
 import { collectAllContacts, syncAllToLoops } from "@/lib/loops/sync";
 
 const dryRun = process.argv.includes("--dry-run");
+const slackBudgetArg = process.argv
+  .find((a) => a.startsWith("--slack-budget="))
+  ?.split("=")[1];
+const slackBudget = slackBudgetArg ? Number(slackBudgetArg) : undefined;
 
 async function main() {
   if (!dryRun && !airtableEnabled()) {
@@ -47,12 +54,20 @@ async function main() {
     process.exit(0);
   }
 
-  const result = await syncAllToLoops();
+  const result = await syncAllToLoops({
+    slackLookupBudget: slackBudget,
+    // Backfill runs aren't racing a request timeout, so pace the lookups to
+    // stay under Slack's rate limit instead of silently dropping the tail.
+    slackLookupThrottleMs: 1250,
+  });
   console.log(
     `Contacts: ${result.total} total — submitted=${result.submitted}, started=${result.started}, signedUp=${result.signedUp} (${result.waitlist} from waitlist)`,
   );
   console.log(
     `Done. created=${result.created} updated=${result.updated} skipped=${result.skipped}`,
+  );
+  console.log(
+    `Slack IDs: filled=${result.slackFilled} remaining=${result.slackRemaining}`,
   );
   process.exit(0);
 }

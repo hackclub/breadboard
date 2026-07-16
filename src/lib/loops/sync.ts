@@ -8,6 +8,7 @@ import {
   projects,
   user,
 } from "@/lib/db/schema";
+import { getHackClubClaims } from "@/lib/auth/hackclub";
 import {
   type ContactRecord,
   airtableEnabled,
@@ -66,6 +67,28 @@ async function resolveAndPersistSlackId(userId: string, email: string) {
   return found;
 }
 
+// The verified address from the user's stored Hack Club Auth tokens, shaped
+// for ContactRecord. Empty (so the upsert sends nothing) when the user hasn't
+// linked HCA yet — on the very first sign-in the account row may not exist at
+// user-create time, in which case the next sync event picks the address up.
+// Errors also resolve empty: no address must never block a Loops sync.
+async function addressFromHackClub(
+  userId: string,
+): Promise<Partial<ContactRecord>> {
+  try {
+    const address = (await getHackClubClaims(userId)).address ?? {};
+    return {
+      addressLine1: address.street_address,
+      city: address.locality,
+      state: address.region,
+      zip: address.postal_code,
+      country: address.country,
+    };
+  } catch {
+    return {};
+  }
+}
+
 async function upsertSafely(records: ContactRecord[]) {
   if (!airtableEnabled() || records.length === 0) return;
   try {
@@ -96,6 +119,7 @@ export async function syncUserToLoops(userId: string) {
     const slackId =
       row.slackId ?? (await resolveAndPersistSlackId(userId, row.email));
     const milestones = await computeMilestonesForUser(userId);
+    const address = await addressFromHackClub(userId);
     const { firstName, lastName } = splitName(row.name);
     await upsertSafely([
       {
@@ -105,6 +129,7 @@ export async function syncUserToLoops(userId: string) {
         firstName,
         lastName,
         ...milestones,
+        ...address,
       },
     ]);
   } catch (error) {
@@ -211,13 +236,20 @@ export async function collectAllContacts(): Promise<{
   return { records, counts };
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * Fill user.slackId for up to `budget` accounts that don't have one, by looking
  * each up in Slack by email and caching the result. Keep `budget` small so the
  * whole thing finishes well inside a request; repeated runs chip away at any
  * remainder. No-op when Slack isn't configured.
+ *
+ * `throttleMs` spaces out the lookups. The endpoint leaves it at 0 (its batches
+ * are small enough to ride Slack's burst allowance), but big backfill runs need
+ * ~1250ms to stay under users.lookupByEmail's Tier 3 limit — rate-limited
+ * lookups fail silently and would leave gaps.
  */
-async function enrichMissingSlackIds(budget: number) {
+async function enrichMissingSlackIds(budget: number, throttleMs = 0) {
   const slackConfigured =
     process.env.SLACK_USER_TOKEN?.trim() || process.env.SLACK_BOT_TOKEN?.trim();
   if (!slackConfigured || budget <= 0) {
@@ -236,6 +268,7 @@ async function enrichMissingSlackIds(budget: number) {
       await db.update(user).set({ slackId: found }).where(eq(user.id, u.id));
       filled++;
     }
+    if (throttleMs > 0) await sleep(throttleMs);
   }
   return { filled, remaining: Math.max(0, missing.length - batch.length) };
 }
@@ -245,10 +278,16 @@ async function enrichMissingSlackIds(budget: number) {
  * Loops upsert runs first so it always completes; a small batch of missing
  * Slack IDs is resolved afterward (see enrichMissingSlackIds).
  */
-export async function syncAllToLoops(options?: { slackLookupBudget?: number }) {
+export async function syncAllToLoops(options?: {
+  slackLookupBudget?: number;
+  slackLookupThrottleMs?: number;
+}) {
   const { records, counts } = await collectAllContacts();
   const { created, updated, skipped } = await upsertContacts(records);
-  const slack = await enrichMissingSlackIds(options?.slackLookupBudget ?? 25);
+  const slack = await enrichMissingSlackIds(
+    options?.slackLookupBudget ?? 25,
+    options?.slackLookupThrottleMs ?? 0,
+  );
   return {
     ...counts,
     created,

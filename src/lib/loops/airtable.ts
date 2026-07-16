@@ -36,6 +36,16 @@ const LAST_NAME_FIELD = "Last Name";
 const SLACK_ID_FIELD = "Slack ID";
 const CREATED_PROJECT_FIELD = "Loops - breadboardCreatedProjectAt";
 const SUBMITTED_PROJECT_FIELD = "Loops - breadboardSubmittedProjectAt";
+// Shipping address, sourced from Hack Club Auth's verified address claim. The
+// table's "Loops - Special - setFullAddress" formula assembles these. Plain
+// columns (no "Loops - " prefix) so the internal tool doesn't turn each part
+// into its own Loops property.
+const ADDRESS_LINE1_FIELD = "Address Line 1";
+const ADDRESS_LINE2_FIELD = "Address Line 2";
+const CITY_FIELD = "City";
+const STATE_FIELD = "State";
+const ZIP_FIELD = "ZIP";
+const COUNTRY_FIELD = "Country";
 
 export type ContactRecord = {
   email: string;
@@ -43,6 +53,12 @@ export type ContactRecord = {
   firstName?: string | null;
   lastName?: string | null;
   slackId?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+  country?: string | null;
   // ISO 8601 timestamps. Omit or null to leave a field untouched — we never
   // clear a milestone once it's set.
   createdProjectAt?: string | null;
@@ -87,6 +103,18 @@ function toFields(record: ContactRecord) {
   if (last) fields[LAST_NAME_FIELD] = last;
   const slackId = record.slackId?.trim();
   if (slackId) fields[SLACK_ID_FIELD] = slackId;
+  const addressLine1 = record.addressLine1?.trim();
+  if (addressLine1) fields[ADDRESS_LINE1_FIELD] = addressLine1;
+  const addressLine2 = record.addressLine2?.trim();
+  if (addressLine2) fields[ADDRESS_LINE2_FIELD] = addressLine2;
+  const city = record.city?.trim();
+  if (city) fields[CITY_FIELD] = city;
+  const state = record.state?.trim();
+  if (state) fields[STATE_FIELD] = state;
+  const zip = record.zip?.trim();
+  if (zip) fields[ZIP_FIELD] = zip;
+  const country = record.country?.trim();
+  if (country) fields[COUNTRY_FIELD] = country;
   // Only send a milestone when we have one, so a sync never clears a timestamp.
   if (record.createdProjectAt)
     fields[CREATED_PROJECT_FIELD] = record.createdProjectAt;

@@ -197,6 +197,25 @@ function traceDetailed(
     }
   }
 
+  // Seated on a breadboard with no wire on this pin: follow the breadboard
+  // strip the pin is plugged into. Without this, a part simply pushed into the
+  // board (buzzer, button, LED) never resolves a driving pin — the wire walk
+  // above only sees parts that are explicitly wired. Example: a buzzer whose
+  // "+" is in hole F32 reaches D8 through the J32-to-D8 wire on the same strip.
+  const self = state.components.find((c) => c.id === fromId);
+  const seatHole = self?.attachedTo?.pinMap?.[fromPin];
+  if (self?.attachedTo && seatHole) {
+    const bbId = self.attachedTo.breadboardId;
+    const bb = state.components.find((c) => c.id === bbId);
+    if (bb && isBreadboard(bb.metadataId)) {
+      const nowActive = activeSeen || isActiveDevice(self.metadataId);
+      for (const otherPin of getBreadboardConnectedPins(bb.metadataId, seatHole)) {
+        const result = traceDetailed(state, bbId, otherPin, depth + 1, nowActive);
+        if (result.arduinoPin !== null) return result;
+      }
+    }
+  }
+
   // No board pin reachable. Fall back to a custom-chip pin on this net so the
   // chip can still drive / read it through the synthetic-pin PinManager key.
   if (chipNeighbour) {

@@ -56,6 +56,10 @@ export interface VlxPayload {
     activeFileGroupId: string;
     languageMode?: string;
     serialBaudRate?: number;
+    /** Last compiled firmware (Intel HEX text or base64 binary). Present only
+     *  when the source still matches this build and it's small enough to embed,
+     *  so a shared/reopened project runs without recompiling. */
+    compiledProgram?: string;
   }>;
   fileGroups: Record<string, Array<{ name: string; content: string }>>;
   components: Component[];
@@ -64,8 +68,14 @@ export interface VlxPayload {
   ignoreStock?: boolean;
 }
 
-function serialisableBoard(b: BoardInstance) {
-  return {
+// Cap on an embedded compiled program. AVR / kit-board hex is a few KB of Intel
+// HEX, which keeps the whole editorData payload under MAX_EDITOR_BYTES (5MB) on
+// the autosave PUT. Larger images (a 4MB ESP32 flash binary base64s past the
+// cap) are dropped and fall back to recompiling on Run.
+const MAX_EMBEDDED_PROGRAM_BYTES = 1_500_000;
+
+function serialisableBoard(b: BoardInstance, includeProgram: boolean) {
+  const board: VlxPayload["boards"][number] = {
     id: b.id,
     name: b.name,
     boardKind: b.boardKind,
@@ -75,6 +85,21 @@ function serialisableBoard(b: BoardInstance) {
     languageMode: b.languageMode,
     serialBaudRate: b.serialBaudRate,
   };
+  // Ship the last compiled firmware so a shared or reopened project runs
+  // without a fresh backend compile. This is what lets sketch-driven output
+  // (a buzzer, LEDs, serial) work for signed-out /share visitors, who can no
+  // longer recompile. Guarded two ways: only when the source still matches
+  // this build (includeProgram), so we never boot a stale hex, and only when
+  // it fits the size cap.
+  if (
+    includeProgram &&
+    typeof b.compiledProgram === "string" &&
+    b.compiledProgram.length > 0 &&
+    b.compiledProgram.length <= MAX_EMBEDDED_PROGRAM_BYTES
+  ) {
+    board.compiledProgram = b.compiledProgram;
+  }
+  return board;
 }
 
 /**
@@ -109,7 +134,11 @@ export function buildVlxPayload(opts: { name?: string } = {}): VlxPayload {
     version: VLX_VERSION,
     exportedAt: new Date().toISOString(),
     name: opts.name,
-    boards: sim.boards.map(serialisableBoard),
+    // Embed firmware only when the source still matches the last compile, so a
+    // shared project never boots a hex that's stale relative to its code.
+    boards: sim.boards.map((b) =>
+      serialisableBoard(b, !editor.codeChangedSinceLastCompile),
+    ),
     fileGroups,
     components: sim.components,
     wires: sim.wires,

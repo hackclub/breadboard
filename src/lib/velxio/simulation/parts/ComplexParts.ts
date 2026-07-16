@@ -10,6 +10,8 @@ import {
   registerSensorUpdate,
   unregisterSensorUpdate,
 } from "@/lib/velxio/simulation/SensorUpdateRegistry";
+import { useSimulatorStore } from "@/services/velxio/store/useSimulatorStore";
+import { useElectricalStore } from "@/services/velxio/store/useElectricalStore";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -555,18 +557,35 @@ PartSimulationRegistry.register("buzzer", {
       getArduinoPinHelper("+") ??
       getArduinoPinHelper("POS");
     const pinManager = (avrSimulator as any).pinManager;
-    // PWM tracking still needs the integer pin number; resolver doesn't
-    // expose duty. The HIGH/LOW path migrates to PinResolver below.
-    const useResolver = typeof getPinResolver === "function";
-    const sigResolver = useResolver
-      ? (getPinResolver!("1") ?? getPinResolver!("+") ?? getPinResolver!("POS"))
-      : null;
+    // getPinResolver is intentionally not used here: its default resolver
+    // doesn't deliver edges for a plain GPIO connection, so the buzzer reads
+    // the PinManager (digital/PWM) and the electrical solve (powered) directly.
+    void getPinResolver;
 
     let audioCtx: AudioContext | null = null;
     let oscillator: OscillatorNode | null = null;
     let gainNode: GainNode | null = null;
     let isSounding = false;
+    // Which path started the current tone, so the pin-driven and powered
+    // (electrical) paths never silence each other — each only stops its own.
+    let toneOwner: "pin" | "power" | null = null;
     const el = element as any;
+
+    // Active buzzers self-oscillate whenever they're powered; passive buzzers
+    // need an AC drive signal. The variant is lost when the registry collapses
+    // buzzer-active / buzzer-passive to the base "buzzer" handler, so recover
+    // it from the component's metadataId. Anything not explicitly "passive" is
+    // treated as active (rings on DC), which matches the kit buzzer and user
+    // expectation that a buzzer wired across a supply makes sound.
+    const buzzerMetaId =
+      useSimulatorStore
+        .getState()
+        .components.find((c) => c.id === _componentId)?.metadataId ?? "";
+    const isPassiveBuzzer = /passive/i.test(buzzerMetaId);
+    // Representative self-oscillation frequency for an active buzzer, and the
+    // terminal voltage above which we consider it energized.
+    const ACTIVE_BUZZER_FREQ = 2400;
+    const ACTIVE_BUZZER_MIN_VOLTS = 2.0;
 
     // Timer2 register addresses
     const OCR2A = 0xb3;
@@ -625,6 +644,7 @@ PartSimulationRegistry.register("buzzer", {
         oscillator = null;
       }
       isSounding = false;
+      toneOwner = null;
       if (el.playing !== undefined) el.playing = false;
       el.active = false;
     }
@@ -632,46 +652,116 @@ PartSimulationRegistry.register("buzzer", {
     // Poll via PWM duty cycle on the buzzer pin
     const unsubscribers: (() => void)[] = [];
 
+    // Digital / PWM / tone() drive: the sketch drives the signal pin — steady
+    // HIGH (digitalWrite, or an active buzzer switched on), a PWM duty
+    // (analogWrite), or a square wave (tone()). Sound while it's driven and go
+    // quiet when it stops.
+    //
+    // We subscribe to the PinManager directly rather than through
+    // getPinResolver: the default resolver does not deliver edges for a plain
+    // GPIO connection, which left every pin-driven buzzer (a passive buzzer on
+    // tone(), an active buzzer on digitalWrite) silent.
     if (pinSIG !== null && pinManager) {
+      let pinLevel = false;
+      let pwmDuty = 0;
+      let lastEdgeMs = 0;
+      const TONE_IDLE_MS = 90;
+      const freqNow = (): number => {
+        const cpu = (avrSimulator as any).cpu;
+        const f = cpu ? getFrequency(cpu) : 440;
+        return Math.max(20, Math.min(20000, f));
+      };
+      // `retarget` lets the periodic re-check follow a changing tone()
+      // frequency without re-triggering Web Audio on every one of the (up to
+      // thousands per second) pin edges.
+      const evaluate = (retarget: boolean) => {
+        const toggling = Date.now() - lastEdgeMs < TONE_IDLE_MS;
+        const shouldSound = pwmDuty > 0 || pinLevel || toggling;
+        if (shouldSound) {
+          if (!isSounding) {
+            startTone(freqNow());
+            toneOwner = "pin";
+          } else if (retarget && toneOwner === "pin") {
+            startTone(freqNow());
+          }
+        } else if (isSounding && toneOwner === "pin") {
+          stopTone();
+        }
+      };
       unsubscribers.push(
         pinManager.onPwmChange(pinSIG, (_: number, dc: number) => {
-          const cpu = (avrSimulator as any).cpu;
-          if (dc > 0) {
-            const freq = cpu ? getFrequency(cpu) : 440;
-            startTone(Math.max(20, Math.min(20000, freq)));
-          } else {
-            stopTone();
-          }
+          pwmDuty = dc;
+          evaluate(false);
         }),
       );
+      unsubscribers.push(
+        pinManager.onPinChange(pinSIG, (_: number, state: boolean) => {
+          pinLevel = state;
+          lastEdgeMs = Date.now();
+          evaluate(false);
+        }),
+      );
+      // tone() emits no "stopped" event — the pin just stops toggling — so a
+      // watchdog re-checks and falls silent shortly after edges cease, and
+      // tracks frequency changes while it plays.
+      const watchdog = setInterval(() => evaluate(true), TONE_IDLE_MS);
+      unsubscribers.push(() => clearInterval(watchdog));
+    }
 
-      // Also respond to digital HIGH/LOW (tone() toggles the pin).
-      // Prefer the resolver — a buzzer driven through a transistor sees
-      // the real collector voltage and threshold-converts via the board
-      // logic family.
-      if (sigResolver) {
-        unsubscribers.push(
-          sigResolver.onChange((state) => {
-            if (!isSounding && state === "HIGH") {
-              const cpu = (avrSimulator as any).cpu;
-              const freq = cpu ? getFrequency(cpu) : 440;
-              startTone(Math.max(20, Math.min(20000, freq)));
-            }
-            // tone() produces a square wave — don't stop on every LOW;
-            // stop only when duty drops to 0 via onPwmChange.
-          }),
-        );
-      } else {
-        unsubscribers.push(
-          pinManager.onPinChange(pinSIG, (_: number, state: boolean) => {
-            if (!isSounding && state) {
-              const cpu = (avrSimulator as any).cpu;
-              const freq = cpu ? getFrequency(cpu) : 440;
-              startTone(Math.max(20, Math.min(20000, freq)));
-            }
-          }),
-        );
-      }
+    // Active buzzers also ring whenever their terminals are simply powered,
+    // with no MCU pin toggling them (e.g. + wired to 5V and - to GND). Watch
+    // the SPICE solve: when the voltage across the + / - terminals is high
+    // enough, sound a fixed tone. This coexists with the pin-driven path above
+    // via toneOwner — it only starts when nothing else is sounding and only
+    // stops a tone it started itself.
+    if (!isPassiveBuzzer) {
+      const readAcrossVolts = (): number => {
+        const { pinNetMap, nodeVoltages } = useElectricalStore.getState();
+        const plusNet =
+          pinNetMap.get(`${_componentId}:+`) ??
+          pinNetMap.get(`${_componentId}:VCC`) ??
+          pinNetMap.get(`${_componentId}:1`);
+        const minusNet =
+          pinNetMap.get(`${_componentId}:-`) ??
+          pinNetMap.get(`${_componentId}:GND`) ??
+          pinNetMap.get(`${_componentId}:2`);
+        const vPlus = plusNet ? (nodeVoltages[plusNet] ?? 0) : 0;
+        const vMinus = minusNet ? (nodeVoltages[minusNet] ?? 0) : 0;
+        return Math.abs(vPlus - vMinus);
+      };
+      // Only ring while the simulation is actually running. The electrical
+      // solver also runs during editing (to preview LED brightness etc.), so
+      // without this the buzzer would blare the moment it's wired to power,
+      // before the user ever clicks Run.
+      const simRunning = (): boolean => {
+        const s = useSimulatorStore.getState();
+        return s.running || s.boards.some((b) => b.running);
+      };
+      const evaluatePower = () => {
+        if (simRunning() && readAcrossVolts() >= ACTIVE_BUZZER_MIN_VOLTS) {
+          if (!isSounding) {
+            startTone(ACTIVE_BUZZER_FREQ);
+            toneOwner = "power";
+          }
+        } else if (toneOwner === "power") {
+          stopTone();
+        }
+      };
+      unsubscribers.push(
+        useElectricalStore.subscribe((state, prev) => {
+          if (state.nodeVoltages !== prev.nodeVoltages) evaluatePower();
+        }),
+      );
+      // Re-check on Run/Stop so it starts when the user runs a powered circuit
+      // and goes quiet the moment they stop.
+      unsubscribers.push(
+        useSimulatorStore.subscribe((state, prev) => {
+          if (state.running !== prev.running || state.boards !== prev.boards)
+            evaluatePower();
+        }),
+      );
+      // The circuit may already be solved and running by the time this attaches.
+      evaluatePower();
     }
 
     return () => {

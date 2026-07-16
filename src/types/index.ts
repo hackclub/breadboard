@@ -136,5 +136,5 @@ export type SignupState = {
   success?: boolean;
   message?: string;
   email?: string;
-  existingUser?: boolean;
+  promptLogin?: boolean;
 };

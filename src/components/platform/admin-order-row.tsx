@@ -61,9 +61,7 @@ export function OrderRow({
       <div className="grid gap-3 border-b border-black bg-[#f4f4f4] px-5 py-4 sm:grid-cols-[1fr_auto] sm:items-center">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-lg font-semibold text-black">
-              Order #{orderId}
-            </p>
+            <p className="text-lg font-semibold text-black">Order #{orderId}</p>
             {yswsHold ? (
               <span className="rounded-full border border-red-700 bg-red-50 px-3 py-1 text-xs font-black text-red-800 uppercase">
                 Not YSWS eligible yet

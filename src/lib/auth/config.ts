@@ -77,9 +77,7 @@ export const auth = betterAuth({
             // also exempt a specific account from the admin users page.
             if (
               !eligible &&
-              !isUnder19(
-                typeof raw.birthdate === "string" ? raw.birthdate : "",
-              )
+              !isUnder19(typeof raw.birthdate === "string" ? raw.birthdate : "")
             ) {
               const [existing] = email
                 ? await db

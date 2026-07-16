@@ -9,10 +9,7 @@
  */
 
 import { eq } from "drizzle-orm";
-import {
-  assertHackClubYswsEligible,
-  isUnder19,
-} from "@/lib/auth/hackclub";
+import { assertHackClubYswsEligible, isUnder19 } from "@/lib/auth/hackclub";
 import { db, pool } from "@/lib/db/db";
 import { account, user } from "@/lib/db/schema";
 
@@ -89,20 +86,23 @@ async function main() {
   });
 
   await setClaims(null);
-  check("no claims, no exemption -> blocked", (await gateResult()) === "blocked");
+  check(
+    "no claims, no exemption -> blocked",
+    (await gateResult()) === "blocked",
+  );
 
-  await db
-    .update(user)
-    .set({ yswsExempt: true })
-    .where(eq(user.id, USER_ID));
-  check("no claims, admin exemption -> allowed", (await gateResult()) === "allowed");
-  await db
-    .update(user)
-    .set({ yswsExempt: false })
-    .where(eq(user.id, USER_ID));
+  await db.update(user).set({ yswsExempt: true }).where(eq(user.id, USER_ID));
+  check(
+    "no claims, admin exemption -> allowed",
+    (await gateResult()) === "allowed",
+  );
+  await db.update(user).set({ yswsExempt: false }).where(eq(user.id, USER_ID));
 
   await setClaims({ ysws_eligible: false, birthdate: `${year - 15}-01-01` });
-  check("not eligible but under 19 -> allowed", (await gateResult()) === "allowed");
+  check(
+    "not eligible but under 19 -> allowed",
+    (await gateResult()) === "allowed",
+  );
   check("under-19 pass leaves cache false", (await cachedEligible()) === false);
 
   await setClaims({ ysws_eligible: true, birthdate: "1990-01-01" });
@@ -110,16 +110,24 @@ async function main() {
   check("eligible pass sets cache true", (await cachedEligible()) === true);
 
   await setClaims({ ysws_eligible: false, birthdate: "1990-01-01" });
-  check("not eligible and over 19 -> blocked", (await gateResult()) === "blocked");
+  check(
+    "not eligible and over 19 -> blocked",
+    (await gateResult()) === "blocked",
+  );
   check("revoked eligibility resets cache", (await cachedEligible()) === false);
 
   await setClaims({ ysws_eligible: true });
-  check("eligible with no birthdate -> allowed", (await gateResult()) === "allowed");
+  check(
+    "eligible with no birthdate -> allowed",
+    (await gateResult()) === "allowed",
+  );
 
   // Cleanup (account cascades with the user).
   await db.delete(user).where(eq(user.id, USER_ID));
 
-  console.log(failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`);
+  console.log(
+    failures === 0 ? "\nAll checks passed." : `\n${failures} check(s) FAILED.`,
+  );
   await pool.end();
   process.exit(failures === 0 ? 0 : 1);
 }

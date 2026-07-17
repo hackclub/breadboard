@@ -6,10 +6,10 @@ import { type FocusEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Confetti } from "@/components/shared/confetti";
 import { SlidingNumber } from "@/components/shared/sliding-number";
 
-// July 16, 2026 11:59 PM America/New_York (EDT, UTC-4) -> 2026-07-17T03:59:00Z.
+// July 17, 2026 11:59 PM America/New_York (EDT, UTC-4) -> 2026-07-18T03:59:00Z.
 // Hard-coded UTC instant so the countdown is correct regardless of viewer locale.
 // Source of truth for the deadline shown across the site (see /faq).
-export const SUBMISSION_DEADLINE = new Date("2026-07-17T03:59:00Z");
+export const SUBMISSION_DEADLINE = new Date("2026-07-18T03:59:00Z");
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const ONE_DAY_MS = 24 * ONE_HOUR_MS;

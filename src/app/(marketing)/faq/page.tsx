@@ -89,7 +89,7 @@ export default function FaqPage() {
 
         <h2>When is the deadline?</h2>
         <p>
-          <strong>July 16th, 2026 at 11:59 PM EDT.</strong> Your design
+          <strong>July 17th, 2026 at 11:59 PM EDT.</strong> Your design
           submission needs to be in by then. Don&apos;t wait until the last
           minute! Build submissions get an extension past this date, since you
           can&apos;t control when your kit arrives. Just build and submit

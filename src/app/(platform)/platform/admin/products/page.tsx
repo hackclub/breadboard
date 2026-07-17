@@ -6,6 +6,7 @@ import { db } from "@/lib/db/db";
 import { products } from "@/lib/db/schema";
 import {
   AddProductForm,
+  ExportProductsButton,
   ProductAdminCard,
 } from "@/components/platform/admin-products";
 
@@ -44,6 +45,23 @@ export default async function AdminProductsPage() {
           >
             Dashboard
           </Link>
+          <ExportProductsButton
+            products={allProducts.map((p) => ({
+              id: p.id,
+              categoryId: p.categoryId,
+              sku: p.sku,
+              name: p.name,
+              description: p.description,
+              imageUrl: p.imageUrl,
+              price: p.price,
+              goldPrice: p.goldPrice,
+              estimatedPriceCents: p.estimatedPriceCents,
+              stock: p.stock,
+              active: p.active,
+              metadata: p.metadata,
+              createdAt: p.createdAt.toISOString(),
+            }))}
+          />
         </div>
       </PageHero>
 

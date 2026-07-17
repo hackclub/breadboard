@@ -241,6 +241,114 @@ function ProductFields({
   );
 }
 
+export type ExportableProduct = {
+  id: number;
+  categoryId: number | null;
+  sku: string;
+  name: string;
+  description: string;
+  imageUrl: string;
+  price: number;
+  goldPrice: number | null;
+  estimatedPriceCents: number | null;
+  stock: number | null;
+  active: boolean;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+};
+
+function csvCell(value: unknown) {
+  if (value === null || value === undefined) return "";
+  const text = typeof value === "string" ? value : String(value);
+  if (/[",\n\r]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+// The full clickable URL for a product image, resolved the same way the shop
+// renders it, with relative paths absolutized against the current origin.
+function imageLink(imageUrl: string) {
+  const resolved = safeImageUrl(imageUrl) ?? imageUrl;
+  if (!resolved) return null;
+  return resolved.startsWith("/")
+    ? `${window.location.origin}${resolved}`
+    : resolved;
+}
+
+// The exact stock text shown on the shop card.
+function shopStockLabel(stock: number | null) {
+  if (stock === null) return "In stock";
+  return stock > 0 ? `Only ${stock} left` : "Out of stock";
+}
+
+export function ExportProductsButton({
+  products,
+}: {
+  products: ExportableProduct[];
+}) {
+  const exportCsv = () => {
+    const headers = [
+      "id",
+      "categoryId",
+      "sku",
+      "name",
+      "description",
+      "imageUrl",
+      "imageLink",
+      "price",
+      "goldPrice",
+      "estimatedPriceCents",
+      "estimatedPriceUsd",
+      "stock",
+      "shopStockLabel",
+      "active",
+      "metadata",
+      "createdAt",
+    ];
+    const rows = products.map((p) => [
+      p.id,
+      p.categoryId,
+      p.sku,
+      p.name,
+      p.description,
+      p.imageUrl,
+      imageLink(p.imageUrl),
+      p.price,
+      p.goldPrice,
+      p.estimatedPriceCents,
+      p.estimatedPriceCents === null
+        ? null
+        : (p.estimatedPriceCents / 100).toFixed(2),
+      p.stock,
+      shopStockLabel(p.stock),
+      p.active,
+      p.metadata === null ? null : JSON.stringify(p.metadata),
+      p.createdAt,
+    ]);
+    const csv = [headers, ...rows]
+      .map((row) => row.map(csvCell).join(","))
+      .join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `shop-products-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={exportCsv}
+      className="rounded border border-black bg-white px-4 py-2 text-sm font-semibold text-black transition hover:bg-black hover:text-white"
+    >
+      Export CSV
+    </button>
+  );
+}
+
 export function AddProductForm() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<ProductFormState>(emptyProduct);

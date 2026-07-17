@@ -46,6 +46,11 @@ let hasConfirmedHeartbeat = false;
 let screenShareTracking = false;
 let snapshotsEnabled = false;
 let externalTracking = false;
+// True while the journal block is up but the server is still crediting the
+// session (the blocked payload carries a session id). Writing the entry is
+// tracked work, so timelapse snapshots keep capturing for reviewer evidence
+// even though the status reads "blocked".
+let journalBlockCounting = false;
 // When true, heartbeats keep firing regardless of recent input, so tracking
 // never auto-pauses on inactivity. Used by off-platform tracking, where the
 // builder is often working away from the computer.
@@ -53,6 +58,7 @@ let ignoreInactivity = false;
 type ActivityStatus = {
   projectId?: number;
   status: "active" | "idle" | "blocked" | "error";
+  paused?: boolean;
   activeSeconds: number;
   totalTrackedSeconds?: number;
   warning?: string;
@@ -73,6 +79,7 @@ export function setActivityStatusListener(fn: (s: ActivityStatus) => void) {
   fn({
     projectId: projectId || undefined,
     status: active ? "active" : "idle",
+    paused,
     activeSeconds,
     totalTrackedSeconds,
     warning: currentWarning() || undefined,
@@ -88,6 +95,7 @@ function emit(statusProjectId = projectId) {
   const status = {
     projectId: statusProjectId || undefined,
     status: active ? "active" : "idle",
+    paused,
     activeSeconds,
     totalTrackedSeconds,
     warning: currentWarning() || undefined,
@@ -113,6 +121,7 @@ function emitBlocked(
   const status = {
     projectId: projectId || undefined,
     status: "blocked",
+    paused,
     activeSeconds,
     totalTrackedSeconds,
     warning: currentWarning() || undefined,
@@ -131,6 +140,7 @@ function emitError(reason: string) {
   const status = {
     projectId: projectId || undefined,
     status: "error",
+    paused,
     activeSeconds,
     totalTrackedSeconds,
     warning: currentWarning() || undefined,
@@ -212,6 +222,7 @@ export async function startActivityTracking(
   hasConfirmedHeartbeat = false;
   heartbeatWarning = "";
   snapshotWarning = "";
+  journalBlockCounting = false;
   lastSnapshotValidatedAt = 0;
   const generation = ++trackingGeneration;
   const trackedProjectId = pid;
@@ -235,7 +246,7 @@ export async function startActivityTracking(
     snapshotTimer = setInterval(() => {
       if (
         generation === trackingGeneration &&
-        active &&
+        (active || journalBlockCounting) &&
         sessionId > 0 &&
         canCaptureEditorSnapshot()
       ) {
@@ -271,7 +282,7 @@ export async function startActivityTracking(
     }
     if (
       snapshotsEnabled &&
-      active &&
+      (active || journalBlockCounting) &&
       canCaptureEditorSnapshot() &&
       !snapshotWarning &&
       now - (lastSnapshotValidatedAt || trackingStartedAt) > HEARTBEAT_STALE_MS
@@ -405,6 +416,12 @@ async function runHeartbeat(generation = trackingGeneration) {
       if (typeof result.sessionId === "number" && result.sessionId > 0) {
         sessionId = result.sessionId;
       }
+      // A journal block with a session id means the server is still crediting
+      // the writing time, so keep the timelapse rolling for reviewers.
+      journalBlockCounting =
+        result.needsJournal &&
+        typeof result.sessionId === "number" &&
+        result.sessionId > 0;
       lastValidatedAt = Date.now();
       heartbeatStaleReported = false;
       emitBlocked(
@@ -416,6 +433,7 @@ async function runHeartbeat(generation = trackingGeneration) {
       );
       return result;
     }
+    journalBlockCounting = false;
     sessionId = result.sessionId;
     activeSeconds = result.activeSeconds;
     unjournaledSeconds = result.unjournaledSeconds;
@@ -538,6 +556,7 @@ export function stopActivityTracking() {
   screenShareTracking = false;
   snapshotsEnabled = false;
   externalTracking = false;
+  journalBlockCounting = false;
   projectId = 0;
   sessionId = 0;
   activeSeconds = 0;

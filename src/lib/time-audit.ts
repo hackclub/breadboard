@@ -82,11 +82,79 @@ export function timeAuditRangesOverlap(
   );
 }
 
+// The audit "tape": all sessions laid end to end as one continuous run of
+// tracked time, the same shape as fallout's timelapse video where the camera
+// only rolls while work happens. Positions on the tape are seconds of counted
+// time; each session occupies its counted share and gaps between sessions
+// take no space. This is what lets the segment editor speak in plain minutes
+// exactly like fallout's, while segments are stored as wall-clock ranges.
+export type TimeAuditTape = {
+  spans: {
+    startMs: number;
+    endMs: number;
+    tapeStart: number;
+    tapeSeconds: number;
+  }[];
+  totalSeconds: number;
+};
+
+export function buildTimeAuditTape(
+  sessions: TimeAuditSessionWindow[],
+): TimeAuditTape {
+  const spans: TimeAuditTape["spans"] = [];
+  let cursor = 0;
+  const ordered = [...sessions].sort(
+    (left, right) => toMs(left.startedAt) - toMs(right.startedAt),
+  );
+  for (const session of ordered) {
+    const startMs = toMs(session.startedAt);
+    const endMs = toMs(session.endedAt ?? session.lastActivityAt);
+    const wallSeconds = (endMs - startMs) / 1000;
+    const spanSeconds = Math.max(wallSeconds, session.activeSeconds, 1);
+    // Same density formula as countedSecondsInRange, so a tape range always
+    // measures exactly the counted time a wall-clock range would deduct.
+    const tapeSeconds = (wallSeconds / spanSeconds) * session.activeSeconds;
+    if (tapeSeconds <= 0) continue;
+    spans.push({ startMs, endMs, tapeStart: cursor, tapeSeconds });
+    cursor += tapeSeconds;
+  }
+  return { spans, totalSeconds: cursor };
+}
+
+export function tapeSecondsToDate(tape: TimeAuditTape, seconds: number): Date {
+  const clamped = Math.min(Math.max(seconds, 0), tape.totalSeconds);
+  for (const span of tape.spans) {
+    if (clamped <= span.tapeStart + span.tapeSeconds) {
+      const ratio = (clamped - span.tapeStart) / span.tapeSeconds;
+      return new Date(
+        Math.round(span.startMs + ratio * (span.endMs - span.startMs)),
+      );
+    }
+  }
+  const last = tape.spans.at(-1);
+  return new Date(last ? last.endMs : 0);
+}
+
+export function dateToTapeSeconds(
+  tape: TimeAuditTape,
+  value: string | Date,
+): number {
+  const ms = toMs(value);
+  for (const span of tape.spans) {
+    if (ms < span.startMs) return span.tapeStart;
+    if (ms <= span.endMs) {
+      const ratio = (ms - span.startMs) / (span.endMs - span.startMs);
+      return span.tapeStart + ratio * span.tapeSeconds;
+    }
+  }
+  return tape.totalSeconds;
+}
+
 export const TIME_AUDIT_REMOVED_REASONS = [
   "AFK / idle screen",
   "Non-project activity",
   "Duplicate session",
-  "Editor left open doing nothing",
+  "Unrelated browsing",
   "Other",
 ];
 

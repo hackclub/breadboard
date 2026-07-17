@@ -15,9 +15,11 @@ import {
   Monitor,
   Pause,
   Play,
+  Plus,
   RefreshCw,
   RotateCcw,
   Scissors,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -29,9 +31,11 @@ import {
 import { VelxioSnapshotViewer } from "@/components/velxio/VelxioSnapshotViewer";
 import type { EditorSnapshotState } from "@/lib/editor/captureState";
 import {
-  countedSecondsInRange,
+  buildTimeAuditTape,
+  dateToTapeSeconds,
   TIME_AUDIT_DEFLATED_REASONS,
   TIME_AUDIT_REMOVED_REASONS,
+  tapeSecondsToDate,
   type TimeAuditKind,
   timeAuditRangesOverlap,
 } from "@/lib/time-audit";
@@ -207,50 +211,66 @@ function SourcePill({ frame }: { frame: TimelineFrame }) {
   );
 }
 
+// Positions in the segment editor are seconds on the audit tape: all
+// sessions laid end to end as one continuous run of tracked time, the same
+// shape as fallout's timelapse video time.
 type AuditFormState = {
   kind: TimeAuditKind;
-  startAt: string;
-  endAt: string;
+  startSec: number;
+  endSec: number;
   reason: string;
   deflatedPercent: number;
 };
 
-// Linked "keeps X min ≈ Y %" inputs (fallout's model): minutes and percent
-// describe what REMAINS after deflation; the field being typed in is never
-// rewritten by the other. Remount (via key) when the audited range changes.
+// fallout's video-time stamp: minutes:seconds, minutes may exceed 60.
+function fmtTapeStamp(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(total / 60);
+  const remainder = total % 60;
+  return `${minutes}:${String(remainder).padStart(2, "0")}`;
+}
+
+// fallout's DeflationInputs: minutes is the source of truth, percentage is
+// derived, and both describe what REMAINS after deflation. Typing in one
+// field updates the other live; the field being typed in is never rewritten.
+// Remount (via key) when the range changes.
 function AuditDeflationInputs({
-  countedSeconds,
+  rangeMin,
   deflatedPercent,
   onChange,
 }: {
-  countedSeconds: number;
+  rangeMin: number;
   deflatedPercent: number;
   onChange: (deflatedPercent: number) => void;
 }) {
-  const countedMinutes = countedSeconds / 60;
-  const [minText, setMinText] = useState(
-    String(Math.round(countedMinutes * (100 - deflatedPercent)) / 100),
+  const initRemaining =
+    Math.round(((rangeMin * (100 - deflatedPercent)) / 100) * 100) / 100;
+  const [minText, setMinText] = useState(String(initRemaining));
+  const [pctText, setPctText] = useState(
+    String(Math.round((100 - deflatedPercent) * 100) / 100),
   );
-  const [pctText, setPctText] = useState(String(100 - deflatedPercent));
 
-  const clampPercent = (value: number) => Math.min(100, Math.max(0, value));
-
-  const handleMinutes = (value: string) => {
+  const handleMinChange = (value: string) => {
     setMinText(value);
-    const minutes = Number(value);
-    if (!Number.isFinite(minutes) || countedMinutes <= 0) return;
-    const remainPct = clampPercent((minutes / countedMinutes) * 100);
-    setPctText(String(Math.round(remainPct * 100) / 100));
-    onChange(Math.round(100 - remainPct));
+    const mins = Number(value);
+    if (!Number.isNaN(mins) && rangeMin > 0) {
+      const remainPct =
+        Math.round(Math.min(100, Math.max(0, (mins / rangeMin) * 100)) * 100) /
+        100;
+      setPctText(String(remainPct));
+      onChange(Math.round((100 - remainPct) * 100) / 100);
+    }
   };
 
-  const handlePercent = (value: string) => {
+  const handlePctChange = (value: string) => {
     setPctText(value);
     const pct = Number(value);
-    if (!Number.isFinite(pct)) return;
-    const remainPct = clampPercent(pct);
-    setMinText(String(Math.round(countedMinutes * remainPct) / 100));
-    onChange(Math.round(100 - remainPct));
+    if (!Number.isNaN(pct)) {
+      const remainPct = Math.min(100, Math.max(0, pct));
+      const mins = Math.round(((rangeMin * remainPct) / 100) * 100) / 100;
+      setMinText(String(mins));
+      onChange(Math.round((100 - remainPct) * 100) / 100);
+    }
   };
 
   return (
@@ -263,9 +283,9 @@ function AuditDeflationInputs({
           <input
             type="number"
             min={0}
-            step={1}
+            step={0.5}
             value={minText}
-            onChange={(event) => handleMinutes(event.currentTarget.value)}
+            onChange={(event) => handleMinChange(event.currentTarget.value)}
             className="w-full border border-[#4a4a4a] bg-[#1c1c1c] px-2 py-1.5 text-sm font-bold text-white"
           />
           <span className="shrink-0 text-xs text-zinc-400">min</span>
@@ -274,7 +294,7 @@ function AuditDeflationInputs({
       <span className="pb-2 text-zinc-500">≈</span>
       <label className="min-w-0 flex-1">
         <span className="text-[10px] font-black tracking-[0.08em] text-zinc-500 uppercase">
-          Keeps
+          Percentage
         </span>
         <span className="mt-1 flex items-center gap-1">
           <input
@@ -282,12 +302,69 @@ function AuditDeflationInputs({
             min={0}
             max={100}
             value={pctText}
-            onChange={(event) => handlePercent(event.currentTarget.value)}
+            onChange={(event) => handlePctChange(event.currentTarget.value)}
             className="w-full border border-[#4a4a4a] bg-[#1c1c1c] px-2 py-1.5 text-sm font-bold text-white"
           />
           <span className="shrink-0 text-xs text-zinc-400">%</span>
         </span>
       </label>
+    </div>
+  );
+}
+
+// fallout's reason field: free text with a preset dropdown behind the
+// sparkles button that fills the input.
+function AuditReasonInput({
+  kind,
+  value,
+  onChange,
+}: {
+  kind: TimeAuditKind;
+  value: string;
+  onChange: (reason: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const presets =
+    kind === "removed"
+      ? TIME_AUDIT_REMOVED_REASONS
+      : TIME_AUDIT_DEFLATED_REASONS;
+
+  return (
+    <div className="relative flex items-center gap-1">
+      <input
+        type="text"
+        value={value}
+        onChange={(event) => onChange(event.currentTarget.value)}
+        placeholder="Reason..."
+        className="min-w-0 flex-1 border border-[#4a4a4a] bg-[#141414] px-2 py-1.5 text-sm font-bold text-white placeholder:text-zinc-600"
+      />
+      <button
+        type="button"
+        onClick={() => setOpen((state) => !state)}
+        title="Preset reasons"
+        aria-label="Preset reasons"
+        aria-expanded={open}
+        className="grid size-8 shrink-0 place-items-center border border-[#4a4a4a] text-zinc-400 transition hover:border-white hover:text-white"
+      >
+        <Sparkles className="size-3.5" />
+      </button>
+      {open ? (
+        <div className="absolute top-full right-0 z-20 mt-1 w-56 border border-[#4a4a4a] bg-[#242424] shadow-[4px_4px_0_#000]">
+          {presets.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => {
+                onChange(preset);
+                setOpen(false);
+              }}
+              className="block w-full px-3 py-2 text-left text-xs font-bold text-zinc-300 transition hover:bg-[#363636] hover:text-white"
+            >
+              {preset}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -635,7 +712,7 @@ export function TimelapseViewer({
     [stopTimer],
   );
 
-  // --- Time audit (fallout-style remove / deflate) ---
+  // --- Time audit (fallout's remove / deflate model) ---
 
   const removedDeductedSeconds = auditSegments
     .filter((segment) => segment.kind === "removed")
@@ -646,22 +723,39 @@ export function TimelapseViewer({
   const totalDeductedSeconds = removedDeductedSeconds + deflatedDeductedSeconds;
   const auditedSeconds = Math.max(0, totalActive - totalDeductedSeconds);
 
-  const auditFormCountedSeconds = auditForm
-    ? countedSecondsInRange(sessions, auditForm)
+  // The segment editor works in tape time, fallout's video-time equivalent:
+  // all sessions laid end to end as one continuous run of tracked minutes.
+  const auditTape = useMemo(() => buildTimeAuditTape(sessions), [sessions]);
+  const auditTotalMin = Math.round((auditTape.totalSeconds / 60) * 10) / 10;
+  const currentTapeSec = current
+    ? dateToTapeSeconds(auditTape, current.capturedAt)
     : 0;
+
+  // fallout's snap points: range ends default to the next boundary — a
+  // session edge or an existing segment — after the playhead.
+  const auditSnapPoints = useMemo(() => {
+    const points = new Set<number>([0, auditTape.totalSeconds]);
+    for (const span of auditTape.spans) {
+      points.add(span.tapeStart);
+      points.add(span.tapeStart + span.tapeSeconds);
+    }
+    for (const segment of auditSegments) {
+      points.add(dateToTapeSeconds(auditTape, segment.startAt));
+      points.add(dateToTapeSeconds(auditTape, segment.endAt));
+    }
+    return [...points].sort((left, right) => left - right);
+  }, [auditTape, auditSegments]);
+
+  const auditFormRange = auditForm
+    ? {
+        startAt: tapeSecondsToDate(auditTape, auditForm.startSec).toISOString(),
+        endAt: tapeSecondsToDate(auditTape, auditForm.endSec).toISOString(),
+      }
+    : null;
   const auditFormValid = Boolean(
     auditForm &&
-      new Date(auditForm.endAt).getTime() >
-        new Date(auditForm.startAt).getTime() &&
       auditForm.reason.trim().length > 0 &&
-      (auditForm.kind === "removed" ||
-        (auditForm.deflatedPercent >= 1 && auditForm.deflatedPercent <= 100)),
-  );
-  const auditFormOverlaps = Boolean(
-    auditForm &&
-      auditSegments.some((segment) =>
-        timeAuditRangesOverlap(segment, auditForm),
-      ),
+      auditForm.startSec < auditForm.endSec,
   );
 
   // The scrubber is frame-index based, so time ranges map onto it through
@@ -691,46 +785,46 @@ export function TimelapseViewer({
 
   const openAuditForm = useCallback(
     (kind: TimeAuditKind) => {
-      if (!current) return;
       stopTimer();
       setPlaying(false);
       setAuditError(null);
-      // Default range: current frame to the end of its session, the natural
-      // unit reviewers scrub through. When the current frame IS the session
-      // end, span the session up to it instead so the range is never empty.
-      const sameSession = visibleFrames.filter(
-        (frame) => frame.sessionId === current.sessionId,
+      // fallout's defaults: start at the playhead, end at the next snap
+      // point after it (or the end of the tape).
+      const startSec = Math.min(
+        Math.round(currentTapeSec),
+        Math.max(0, Math.floor(auditTape.totalSeconds) - 1),
       );
-      let startAt = current.capturedAt;
-      let endAt =
-        sameSession.at(-1)?.capturedAt ??
-        visibleFrames.at(-1)?.capturedAt ??
-        current.capturedAt;
-      if (new Date(endAt).getTime() <= new Date(startAt).getTime()) {
-        startAt = sameSession[0]?.capturedAt ?? startAt;
-        endAt = current.capturedAt;
-      }
+      const next = auditSnapPoints.find((point) => point > startSec + 1);
       setAuditForm({
         kind,
-        startAt,
-        endAt,
+        startSec,
+        endSec: Math.round(next ?? auditTape.totalSeconds),
         reason: "",
         deflatedPercent: 50,
       });
     },
-    [current, stopTimer, visibleFrames],
+    [auditSnapPoints, auditTape, currentTapeSec, stopTimer],
   );
 
   const submitAuditSegment = useCallback(async () => {
-    if (!auditForm) return;
+    if (!auditForm || !auditFormRange) return;
+    // fallout validates overlap when Add is pressed, not by disabling it.
+    if (
+      auditSegments.some((segment) =>
+        timeAuditRangesOverlap(segment, auditFormRange),
+      )
+    ) {
+      setAuditError("This range overlaps with an existing segment.");
+      return;
+    }
     setAuditBusy(true);
     setAuditError(null);
     try {
       const segments = await addTimeAuditSegment(projectId, {
-        startAt: auditForm.startAt,
-        endAt: auditForm.endAt,
+        startAt: auditFormRange.startAt,
+        endAt: auditFormRange.endAt,
         kind: auditForm.kind,
-        deflatedPercent: auditForm.deflatedPercent,
+        deflatedPercent: Math.round(auditForm.deflatedPercent),
         reason: auditForm.reason.trim(),
       });
       setAuditSegments(segments);
@@ -742,7 +836,7 @@ export function TimelapseViewer({
     } finally {
       setAuditBusy(false);
     }
-  }, [auditForm, projectId]);
+  }, [auditForm, auditFormRange, auditSegments, projectId]);
 
   const removeAuditSegment = useCallback(
     async (segmentId: number) => {
@@ -1180,11 +1274,11 @@ export function TimelapseViewer({
                     />
                   );
                 })}
-                {auditForm
+                {auditForm && auditFormRange
                   ? (() => {
                       const band = bandForRange(
-                        auditForm.startAt,
-                        auditForm.endAt,
+                        auditFormRange.startAt,
+                        auditFormRange.endAt,
                       );
                       if (!band) return null;
                       return (
@@ -1288,104 +1382,146 @@ export function TimelapseViewer({
 
             {auditSegments.length > 0 ? (
               <div className="mt-3 divide-y divide-[#363636] border-y border-[#363636]">
-                {auditSegments.map((segment) => (
-                  <div
-                    key={segment.id}
-                    className="flex items-center gap-2 py-2 text-xs"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => jumpToTime(segment.startAt)}
-                      className="min-w-0 flex-1 text-left transition hover:text-white"
-                      title={`${segment.reason}${
-                        segment.reviewerName
-                          ? ` — by ${segment.reviewerName}`
-                          : ""
-                      }`}
+                {auditSegments.map((segment) => {
+                  const startTape = dateToTapeSeconds(
+                    auditTape,
+                    segment.startAt,
+                  );
+                  const endTape = dateToTapeSeconds(auditTape, segment.endAt);
+                  const rangeMin =
+                    Math.round(((endTape - startTape) / 60) * 10) / 10;
+                  const deflatedToMin =
+                    Math.round(
+                      ((rangeMin * (100 - segment.deflatedPercent)) / 100) * 10,
+                    ) / 10;
+                  return (
+                    <div
+                      key={segment.id}
+                      className="flex items-center gap-2 py-2 text-xs"
                     >
-                      <span
-                        className={`font-black ${
-                          segment.kind === "removed"
-                            ? "text-red-300"
-                            : "text-amber-300"
+                      <button
+                        type="button"
+                        onClick={() => jumpToTime(segment.startAt)}
+                        className="min-w-0 flex-1 text-left transition hover:text-white"
+                        title={`${fmtDateTime(segment.startAt)} – ${fmtDateTime(
+                          segment.endAt,
+                        )}${
+                          segment.reviewerName
+                            ? ` — by ${segment.reviewerName}`
+                            : ""
                         }`}
                       >
+                        <span
+                          className={`font-black capitalize ${
+                            segment.kind === "removed"
+                              ? "text-red-300"
+                              : "text-amber-300"
+                          }`}
+                        >
+                          {segment.kind}
+                        </span>
+                        <span className="ml-2 text-zinc-400 tabular-nums">
+                          {fmtTapeStamp(startTape)} – {fmtTapeStamp(endTape)}
+                        </span>
+                        <span className="mt-0.5 block truncate text-zinc-500">
+                          {segment.reason}
+                        </span>
+                      </button>
+                      <span className="shrink-0 font-black tabular-nums text-white">
                         {segment.kind === "removed"
-                          ? "Removed"
-                          : `Deflated ${segment.deflatedPercent}%`}
+                          ? `−${rangeMin}m`
+                          : `${rangeMin}m → ${deflatedToMin}m`}
                       </span>
-                      <span className="ml-2 text-zinc-400 tabular-nums">
-                        {fmtDateTime(segment.startAt)} –{" "}
-                        {fmtTime(segment.endAt)}
-                      </span>
-                      <span className="mt-0.5 block truncate text-zinc-500">
-                        {segment.reason}
-                      </span>
-                    </button>
-                    <span className="shrink-0 font-black tabular-nums text-white">
-                      −{fmtDuration(segment.deductedSeconds)}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => removeAuditSegment(segment.id)}
-                      disabled={auditBusy}
-                      title="Delete segment"
-                      aria-label="Delete segment"
-                      className="grid size-6 shrink-0 place-items-center text-zinc-500 transition hover:text-red-300 disabled:opacity-40"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  </div>
-                ))}
+                      <button
+                        type="button"
+                        onClick={() => removeAuditSegment(segment.id)}
+                        disabled={auditBusy}
+                        title="Delete segment"
+                        aria-label="Delete segment"
+                        className="grid size-6 shrink-0 place-items-center text-zinc-500 transition hover:text-red-300 disabled:opacity-40"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             ) : null}
 
             {auditForm ? (
               <div className="mt-3 space-y-3 border border-[#4a4a4a] bg-[#1c1c1c] p-3">
-                <p className="text-[10px] font-black tracking-[0.12em] text-zinc-400 uppercase">
+                <p className="flex items-center gap-1.5 text-[10px] font-black tracking-[0.12em] text-zinc-400 uppercase">
+                  <Plus className="size-3" />
                   {auditForm.kind === "removed" ? "Remove" : "Deflate"} time
                   range
                 </p>
-                {(
-                  [
-                    ["startAt", "Start"],
-                    ["endAt", "End"],
-                  ] as const
-                ).map(([field, label]) => (
-                  <div
-                    key={field}
-                    className="flex items-center justify-between gap-2 text-xs"
-                  >
-                    <span className="w-9 shrink-0 text-zinc-500">{label}</span>
-                    <span className="min-w-0 flex-1 truncate text-right font-black tabular-nums text-white">
-                      {fmtDateTime(auditForm[field])} ·{" "}
-                      {fmtTime(auditForm[field])}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!current) return;
-                        setAuditForm({
-                          ...auditForm,
-                          [field]: current.capturedAt,
-                        });
-                      }}
-                      title="Set to the frame currently on screen"
-                      className="grid size-7 shrink-0 place-items-center border border-[#4a4a4a] text-zinc-400 transition hover:border-white hover:text-white"
-                    >
-                      <Crosshair className="size-3.5" />
-                    </button>
-                  </div>
-                ))}
-                <p className="text-xs text-zinc-500">
-                  {fmtDuration(auditFormCountedSeconds)} of confirmed time in
-                  this range. Scrub the timelapse, then use the crosshairs to
-                  pin the bounds.
-                </p>
+                <div className="flex items-end gap-2">
+                  {(
+                    [
+                      ["startSec", "Start (min)"],
+                      ["endSec", "End (min)"],
+                    ] as const
+                  ).map(([field, label], index) => (
+                    <div key={field} className="contents">
+                      {index === 1 ? (
+                        <span className="pb-2 text-zinc-500">–</span>
+                      ) : null}
+                      <label className="min-w-0 flex-1">
+                        <span className="text-[10px] font-black tracking-[0.08em] text-zinc-500 uppercase">
+                          {label}
+                        </span>
+                        <span className="mt-1 flex items-center gap-1">
+                          <input
+                            type="number"
+                            min={0}
+                            max={auditTotalMin}
+                            step={0.5}
+                            value={Math.round(auditForm[field] / 6) / 10}
+                            onChange={(event) => {
+                              const minutes = Number(event.currentTarget.value);
+                              if (!Number.isFinite(minutes)) return;
+                              setAuditError(null);
+                              setAuditForm({
+                                ...auditForm,
+                                [field]: Math.min(
+                                  Math.max(minutes * 60, 0),
+                                  auditTape.totalSeconds,
+                                ),
+                              });
+                            }}
+                            className="w-full border border-[#4a4a4a] bg-[#141414] px-2 py-1.5 text-sm font-bold text-white"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAuditError(null);
+                              setAuditForm({
+                                ...auditForm,
+                                [field]: Math.round(currentTapeSec * 10) / 10,
+                              });
+                            }}
+                            title="Set to current playback time"
+                            aria-label={`Set ${label} to current playback time`}
+                            className="grid size-8 shrink-0 place-items-center border border-[#4a4a4a] text-zinc-400 transition hover:border-white hover:text-white"
+                          >
+                            <Crosshair className="size-3.5" />
+                          </button>
+                        </span>
+                      </label>
+                    </div>
+                  ))}
+                </div>
+                <AuditReasonInput
+                  kind={auditForm.kind}
+                  value={auditForm.reason}
+                  onChange={(reason) => setAuditForm({ ...auditForm, reason })}
+                />
                 {auditForm.kind === "deflated" ? (
                   <AuditDeflationInputs
-                    key={`${auditForm.startAt}-${auditForm.endAt}`}
-                    countedSeconds={auditFormCountedSeconds}
+                    key={`${auditForm.startSec}-${auditForm.endSec}`}
+                    rangeMin={
+                      Math.max(auditForm.endSec - auditForm.startSec, 60) / 60
+                    }
                     deflatedPercent={auditForm.deflatedPercent}
                     onChange={(deflatedPercent) =>
                       setAuditForm((form) =>
@@ -1393,34 +1529,6 @@ export function TimelapseViewer({
                       )
                     }
                   />
-                ) : null}
-                <div>
-                  <input
-                    type="text"
-                    value={auditForm.reason}
-                    onChange={(event) =>
-                      setAuditForm({
-                        ...auditForm,
-                        reason: event.currentTarget.value,
-                      })
-                    }
-                    placeholder="Reason (shown to other reviewers)..."
-                    list={`time-audit-reasons-${auditForm.kind}`}
-                    className="w-full border border-[#4a4a4a] bg-[#141414] px-2 py-1.5 text-sm font-bold text-white placeholder:text-zinc-600"
-                  />
-                  <datalist id={`time-audit-reasons-${auditForm.kind}`}>
-                    {(auditForm.kind === "removed"
-                      ? TIME_AUDIT_REMOVED_REASONS
-                      : TIME_AUDIT_DEFLATED_REASONS
-                    ).map((reasonOption) => (
-                      <option key={reasonOption} value={reasonOption} />
-                    ))}
-                  </datalist>
-                </div>
-                {auditFormOverlaps ? (
-                  <p className="border-l-2 border-red-400 pl-2 text-xs text-red-200">
-                    This range overlaps an existing audit segment.
-                  </p>
                 ) : null}
                 {auditError ? (
                   <p className="border-l-2 border-red-400 pl-2 text-xs text-red-200">
@@ -1431,14 +1539,10 @@ export function TimelapseViewer({
                   <button
                     type="button"
                     onClick={submitAuditSegment}
-                    disabled={!auditFormValid || auditFormOverlaps || auditBusy}
+                    disabled={!auditFormValid || auditBusy}
                     className="bg-[#BD0F32] px-3 py-1.5 text-xs font-black text-white transition hover:bg-[#d71943] disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    {auditBusy
-                      ? "Saving..."
-                      : auditForm.kind === "removed"
-                        ? "Remove time"
-                        : "Deflate time"}
+                    {auditBusy ? "Saving..." : "Add"}
                   </button>
                   <button
                     type="button"

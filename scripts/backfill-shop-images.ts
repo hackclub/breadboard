@@ -5,9 +5,10 @@
  * pulled from official/reputable vendor CDNs (Adafruit, Waveshare, Pine64,
  * Seeed, Niimbot) and committed so nothing hotlinks or rots.
  *
- * Only products whose imageUrl is still the bred.png placeholder (or empty)
- * are touched, so it will never clobber a real photo (e.g. the existing
- * pine64.com Pinecil shot). Products are matched by name, with the prod
+ * Products are touched only when their imageUrl is the bred.png placeholder,
+ * empty, or a dead hc-cdn.hel1.your-objectstorage.com upload (that CDN expires
+ * files, so those URLs 404). A live external photo (e.g. the pine64.com Pinecil
+ * shot) is never clobbered. Products are matched by name, with the prod
  * spellings ("Digital Multimeter", "3D Printer Filament") listed alongside
  * the sheet names. Safe to re-run anywhere.
  *
@@ -24,6 +25,15 @@ import { products } from "@/lib/db/schema";
 const dryRun = process.argv.includes("--dry-run");
 
 const PLACEHOLDER_IMAGE = "/assets/bred.png";
+
+// hc-cdn (Hack Club's Slack CDN) expires uploads, so these URLs now 404.
+// Treat them like a placeholder: replace with a vendored copy when we have one.
+const DEAD_HOST = "hc-cdn.hel1.your-objectstorage.com";
+
+function isReplaceable(imageUrl: string | null): boolean {
+  if (!imageUrl || imageUrl === PLACEHOLDER_IMAGE) return true;
+  return imageUrl.includes(DEAD_HOST);
+}
 
 // product name(s) -> file in public/assets/shop
 const IMAGES: [string[], string][] = [
@@ -90,14 +100,13 @@ async function main() {
 
   for (const product of existing) {
     const file = fileByName.get(normalizeName(product.name));
-    const isPlaceholder =
-      !product.imageUrl || product.imageUrl === PLACEHOLDER_IMAGE;
+    const replaceable = isReplaceable(product.imageUrl);
 
     if (!file) {
-      if (isPlaceholder) stillPlaceholder.push(product.name);
+      if (replaceable) stillPlaceholder.push(product.name);
       continue;
     }
-    if (!isPlaceholder) {
+    if (!replaceable) {
       skipped++;
       continue;
     }

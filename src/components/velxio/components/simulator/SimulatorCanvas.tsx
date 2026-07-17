@@ -1503,7 +1503,13 @@ export const SimulatorCanvas = ({
     return () => unsubs.forEach((u) => u());
   }, [boards, pinManager]);
 
-  // ESP32 input components: forward button presses and potentiometer values to QEMU
+  // ESP32 input components: forward potentiometer values to QEMU.
+  // Pushbuttons are NOT handled here — PartSimulationRegistry ("pushbutton"
+  // in BasicParts.ts) already forwards press/release through the board's
+  // bridge shim with active-LOW polarity and an idle-HIGH seed. A second
+  // listener here used to send the OPPOSITE levels (press=HIGH); whichever
+  // listener attached last won, so after every click the pin latched LOW
+  // and the firmware saw the button held down forever.
   useEffect(() => {
     const cleanups: (() => void)[] = [];
 
@@ -1535,18 +1541,6 @@ export const SimulatorCanvas = ({
           const el = document.getElementById(component.id);
           if (!el) return;
           const tag = el.tagName.toLowerCase();
-
-          // Push-button: forward press/release as GPIO level changes
-          if (tag === "wokwi-pushbutton") {
-            const onPress = () => bridge.sendPinEvent(gpioPin, true);
-            const onRelease = () => bridge.sendPinEvent(gpioPin, false);
-            el.addEventListener("button-press", onPress);
-            el.addEventListener("button-release", onRelease);
-            cleanups.push(() => {
-              el.removeEventListener("button-press", onPress);
-              el.removeEventListener("button-release", onRelease);
-            });
-          }
 
           // Potentiometer: forward analog value as ADC millivolts
           if (tag === "wokwi-potentiometer" && selfEndpoint.pinName === "SIG") {

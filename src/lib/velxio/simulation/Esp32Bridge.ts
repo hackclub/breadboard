@@ -226,6 +226,13 @@ export class Esp32Bridge {
   private _pendingFirmware: string | null = null;
   private _pendingSensors: Array<Record<string, unknown>> = [];
 
+  // Latest externally-driven level per GPIO pin, replayed on every "booted"
+  // event. Input parts seed their idle level when they attach (e.g. an
+  // INPUT_PULLUP button seeds HIGH — QEMU doesn't model internal pull-ups),
+  // but attach usually happens before the worker exists, so _send drops the
+  // seed and the pin boots reading 0 = "button held down".
+  private _pinLevels = new Map<number, boolean>();
+
   // MicroPython REPL injection — 4-stage state machine
   //   idle → banner_seen → prompt_seen → raw_repl_entered → done
   // Each stage waits for a specific string in the serial buffer before
@@ -573,6 +580,18 @@ export class Esp32Bridge {
           if (evt === "crash") {
             this.onCrash?.(msg.data);
           }
+          if (evt === "booted" || evt === "reboot") {
+            // Replay externally-driven pin levels: seeds sent before the
+            // worker existed were dropped by _send, and a reboot resets
+            // QEMU's GPIO inputs to 0 while the canvas parts still hold
+            // their old levels.
+            for (const [pin, state] of this._pinLevels) {
+              this._send({
+                type: "esp32_gpio_in",
+                data: { pin, state: state ? 1 : 0 },
+              });
+            }
+          }
           this.onSystemEvent?.(evt, msg.data);
           break;
         }
@@ -687,6 +706,7 @@ export class Esp32Bridge {
 
   /** Drive a GPIO pin from an external source (e.g. connected Arduino) */
   sendPinEvent(gpioPin: number, state: boolean): void {
+    this._pinLevels.set(gpioPin, state);
     this._send({
       type: "esp32_gpio_in",
       data: { pin: gpioPin, state: state ? 1 : 0 },

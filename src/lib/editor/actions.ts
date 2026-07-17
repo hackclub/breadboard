@@ -29,6 +29,13 @@ const SCREEN_SHARE_INACTIVITY_TIMEOUT_SECONDS = 120;
 const SCREEN_SHARE_MAX_HEARTBEAT_CREDIT_SECONDS = 120;
 const JOURNAL_REMINDER_SECONDS = 50 * 60;
 const JOURNAL_BLOCK_SECONDS = 60 * 60;
+// The journal block pauses editing, not the clock. Writing the entry is real
+// on-platform work, so heartbeats keep crediting and the session stays alive
+// while the modal is up. The blocked payload still carries the session id so
+// timelapse snapshots keep flowing and the whole stretch stays visible to
+// reviewers; the submitted entry then covers it like any other tracked time.
+const JOURNAL_BLOCK_REASON =
+  "Write a journal entry before tracking more time.";
 
 function formatDuration(seconds: number) {
   const total = Math.max(0, Math.floor(seconds));
@@ -142,16 +149,7 @@ export async function sendHeartbeat(
     projectId,
     session.user.id,
   );
-  if (unjournaledSeconds >= JOURNAL_BLOCK_SECONDS) {
-    return {
-      blocked: true,
-      reason: "Write a journal entry before tracking more time.",
-      needsJournal: true,
-      unjournaledSeconds,
-      activeSeconds: unjournaledSeconds,
-      totalTrackedSeconds,
-    };
-  }
+  const journalBlocked = unjournaledSeconds >= JOURNAL_BLOCK_SECONDS;
 
   const now = new Date();
   const existing = await db
@@ -191,8 +189,14 @@ export async function sendHeartbeat(
     canUseScreenShareGrace &&
     elapsedSinceLastHeartbeat > allowedHeartbeatGapSeconds;
 
+  // While the journal block is up the evidence gate steps aside: the person is
+  // journaling on the Breadboard tab, which is focused, so no outside-site
+  // frames can arrive by design. The time still counts and the entry (plus the
+  // frames that did upload) is what the reviewer judges; deflating padded
+  // hours is the reviewer's call, not the tracker's.
   if (
     screenEvidenceRequired &&
+    !journalBlocked &&
     existing[0] &&
     !existing[0].endedAt &&
     !canUseScreenShareGrace
@@ -232,6 +236,17 @@ export async function sendHeartbeat(
   ) {
     const elapsedSeconds = elapsedSinceLastHeartbeat;
     if (elapsedSeconds < MIN_HEARTBEAT_GAP_SECONDS) {
+      if (journalBlocked) {
+        return {
+          blocked: true,
+          reason: JOURNAL_BLOCK_REASON,
+          needsJournal: true,
+          sessionId: existing[0].id,
+          activeSeconds: unjournaledSeconds,
+          unjournaledSeconds,
+          totalTrackedSeconds,
+        };
+      }
       return {
         sessionId: existing[0].id,
         activeSeconds: existing[0].activeSeconds,
@@ -273,6 +288,18 @@ export async function sendHeartbeat(
         projectId,
         session.user.id,
       );
+      if (journalBlocked) {
+        return {
+          blocked: true,
+          reason: JOURNAL_BLOCK_REASON,
+          needsJournal: true,
+          sessionId: existing[0].id,
+          activeSeconds: unjournaledSeconds,
+          unjournaledSeconds,
+          totalTrackedSeconds: currentTrackedSeconds,
+          trackingWarning,
+        };
+      }
       return {
         sessionId: existing[0].id,
         activeSeconds: existing[0].activeSeconds,
@@ -311,6 +338,19 @@ export async function sendHeartbeat(
 
   const nextUnjournaledSeconds = unjournaledSeconds + activeSecondsAdded;
   const persistedTrackedSeconds = totalTrackedSeconds + activeSecondsAdded;
+
+  if (journalBlocked) {
+    return {
+      blocked: true,
+      reason: JOURNAL_BLOCK_REASON,
+      needsJournal: true,
+      sessionId: activeSession.id,
+      activeSeconds: nextUnjournaledSeconds,
+      unjournaledSeconds: nextUnjournaledSeconds,
+      totalTrackedSeconds: persistedTrackedSeconds,
+      trackingWarning,
+    };
+  }
 
   return {
     sessionId: activeSession.id,

@@ -382,18 +382,27 @@ export function VelxioNextEditor({
           !TRACKING_BLOCKED_PROJECT_STATUSES.has(data.project.status);
 
         if (trackTime) {
-          startActivityTracking(projectId, () =>
-            serializeEditorSnapshot(
-              captureEditorState(
-                modules.useEditorStore,
-                modules.useSimulatorStore,
-                modules.useProjectStore,
-                modules.useCompileLogsStore,
-                modules.useOscilloscopeStore,
-                modules.useElectricalStore,
-                modules.useVfsStore,
+          startActivityTracking(
+            projectId,
+            () =>
+              serializeEditorSnapshot(
+                captureEditorState(
+                  modules.useEditorStore,
+                  modules.useSimulatorStore,
+                  modules.useProjectStore,
+                  modules.useCompileLogsStore,
+                  modules.useOscilloscopeStore,
+                  modules.useElectricalStore,
+                  modules.useVfsStore,
+                ),
               ),
-            ),
+            {
+              // Editor time records continuously until the user pauses or the
+              // tab closes. Hands-off stretches (compiles, watching a sim,
+              // thinking) are not auto-trimmed; the timelapse keeps capturing
+              // and deflating padded hours is the reviewer's job.
+              ignoreInactivity: true,
+            },
           );
         }
 

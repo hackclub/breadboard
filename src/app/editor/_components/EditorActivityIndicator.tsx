@@ -1,11 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Clock, PanelRightClose, PanelRightOpen, Pencil } from "lucide-react";
+import {
+  Clock,
+  PanelRightClose,
+  PanelRightOpen,
+  Pause,
+  Pencil,
+  Play,
+} from "lucide-react";
 import { Markdown } from "@/components/shared/markdown";
 import {
   refreshActivityTracking,
   setActivityStatusListener,
+  setActivityTrackingPaused,
 } from "@/lib/editor/activityTracker";
 
 const JOURNAL_MIN_SECONDS = 10 * 60;
@@ -52,6 +60,7 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
   const [now, setNow] = useState(() => Date.now());
   const [reason, setReason] = useState("");
   const [needsJournal, setNeedsJournal] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [showJournalToast, setShowJournalToast] = useState(false);
   const [journalToastDismissed, setJournalToastDismissed] = useState(false);
   const [open, setOpen] = useState(false);
@@ -114,6 +123,7 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
       setNow(Date.now());
       setReason(s.reason ?? (s.needsJournal ? "Journal due" : ""));
       setNeedsJournal(Boolean(s.needsJournal));
+      setPaused(Boolean(s.paused));
     });
   }, [projectId]);
 
@@ -323,6 +333,20 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
     );
   }
 
+  if (paused) {
+    return (
+      <button
+        type="button"
+        onClick={() => setActivityTrackingPaused(false)}
+        className="flex items-center gap-1 rounded bg-purple-950 px-2 py-1 text-xs font-semibold text-purple-200 hover:bg-purple-900"
+        title="Time tracking is paused. Click to resume."
+      >
+        <Play className="size-3" />
+        Paused · Resume
+      </button>
+    );
+  }
+
   if (displayStatus === "blocked") {
     if (!needsJournal) {
       return (
@@ -442,6 +466,15 @@ export function EditorActivityIndicator({ projectId }: { projectId: number }) {
         </span>
         Active
       </span>
+      <button
+        type="button"
+        onClick={() => setActivityTrackingPaused(true)}
+        className="rounded bg-[#2a2a2a] p-1 text-[#aaa] hover:bg-[#3a3a3a] hover:text-white"
+        title="Pause time tracking. Time records until you pause or close the tab."
+        aria-label="Pause time tracking"
+      >
+        <Pause className="size-3" />
+      </button>
       <button
         type="button"
         onClick={() => setOpen(true)}

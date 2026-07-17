@@ -487,6 +487,10 @@ export function ScreenShareTracker({
       if (status.projectId !== projectId) return;
       setTrackingStatus(status.status);
       setTrackingReason(status.reason ?? "");
+      // Pause can also be toggled from the activity indicator; mirror the
+      // tracker's state so both controls agree. Convergent, so no loop with
+      // the effect that pushes this component's paused state back down.
+      setPaused(Boolean(status.paused));
       setDisplaySeconds((current) =>
         Math.max(current, status.totalTrackedSeconds ?? status.activeSeconds),
       );

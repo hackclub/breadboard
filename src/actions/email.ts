@@ -34,7 +34,7 @@ export async function subscribe(
         success: true,
         message: "You already have an account. Taking you to login...",
         email: "",
-        existingUser: true,
+        promptLogin: true,
       };
     }
 
@@ -42,8 +42,9 @@ export async function subscribe(
     await syncWaitlistEmailToLoops(email);
     return {
       success: true,
-      message: "Thanks! We'll email you with more details soon.",
+      message: "You're in! Taking you to login...",
       email: "",
+      promptLogin: true,
     };
   } catch (error) {
     console.error("Failed to save email signup", error);

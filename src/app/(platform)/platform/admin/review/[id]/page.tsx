@@ -12,6 +12,7 @@ import {
   editorScreenEvidenceFrames,
   projectJournals,
   projects,
+  projectTimeAuditSegments,
   projectTimelapses,
   user,
 } from "@/lib/db/schema";
@@ -139,6 +140,7 @@ export default async function AdminReviewProjectPage({
     screenEvidenceRows,
     journalTimeRows,
     submissionHistoryRows,
+    timeAuditRows,
   ] = await Promise.all([
     db
       .select()
@@ -198,6 +200,14 @@ export default async function AdminReviewProjectPage({
         ),
       )
       .orderBy(desc(projectSubmissions.submissionNumber)),
+    db
+      .select({
+        segmentCount: sql<number>`count(${projectTimeAuditSegments.id})::int`,
+        removedSeconds: sql<number>`coalesce(sum(${projectTimeAuditSegments.deductedSeconds}) filter (where ${projectTimeAuditSegments.kind} = 'removed'), 0)::int`,
+        deflatedSeconds: sql<number>`coalesce(sum(${projectTimeAuditSegments.deductedSeconds}) filter (where ${projectTimeAuditSegments.kind} = 'deflated'), 0)::int`,
+      })
+      .from(projectTimeAuditSegments)
+      .where(eq(projectTimeAuditSegments.projectId, projectId)),
   ]);
   const timelapses = timelapseRows.map((entry) => ({
     id: entry.id,
@@ -258,6 +268,11 @@ export default async function AdminReviewProjectPage({
           recordingSeconds,
           measuredSeconds: (activity?.trackedSeconds ?? 0) + recordingSeconds,
           journaledSeconds: journalTime?.journaledSeconds ?? 0,
+        }}
+        timeAudit={{
+          segmentCount: timeAuditRows[0]?.segmentCount ?? 0,
+          removedSeconds: timeAuditRows[0]?.removedSeconds ?? 0,
+          deflatedSeconds: timeAuditRows[0]?.deflatedSeconds ?? 0,
         }}
         breadPerHour={
           isBuildShip(project) ? GOLD_BREAD_PER_HOUR : BREAD_PER_HOUR

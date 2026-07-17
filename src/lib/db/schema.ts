@@ -213,6 +213,9 @@ export const products = pgTable("products", {
   // gold price set; gold bread buys items at a discount, so this is usually
   // lower than `price`.
   goldPrice: integer("gold_price"),
+  // Estimated real-world cost of the item in USD cents. Admin-only reference,
+  // never shown in the shop.
+  estimatedPriceCents: integer("estimated_price_cents"),
   stock: integer("stock"),
   active: boolean("active").notNull().default(true),
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),
@@ -1529,3 +1532,53 @@ export const projectTimelapses = pgTable(
 );
 
 export type ProjectTimelapse = typeof projectTimelapses.$inferSelect;
+
+export const timeAuditSegmentKindEnum = pgEnum("time_audit_segment_kind", [
+  "removed",
+  "deflated",
+]);
+
+// Reviewer annotations from the timelapse time audit (fallout's model): a
+// wall-clock range whose tracked time is removed outright or deflated by a
+// percentage. deductedSeconds snapshots the counted overlap at annotation
+// time so downstream review surfaces don't recompute against live sessions.
+export const projectTimeAuditSegments = pgTable(
+  "project_time_audit_segments",
+  {
+    id: serial("id").primaryKey(),
+    projectId: integer("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    reviewerId: text("reviewer_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    startAt: timestamp("start_at", { withTimezone: true }).notNull(),
+    endAt: timestamp("end_at", { withTimezone: true }).notNull(),
+    kind: timeAuditSegmentKindEnum("kind").notNull(),
+    // Portion of the counted time deducted. Removal stores 100.
+    deflatedPercent: integer("deflated_percent").notNull().default(100),
+    reason: text("reason").notNull(),
+    deductedSeconds: integer("deducted_seconds").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("time_audit_segments_project_id_idx").on(table.projectId),
+    check(
+      "time_audit_segments_range_valid",
+      sql`${table.endAt} > ${table.startAt}`,
+    ),
+    check(
+      "time_audit_segments_percent_valid",
+      sql`${table.deflatedPercent} between 1 and 100`,
+    ),
+    check(
+      "time_audit_segments_deducted_non_negative",
+      sql`${table.deductedSeconds} >= 0`,
+    ),
+  ],
+);
+
+export type ProjectTimeAuditSegment =
+  typeof projectTimeAuditSegments.$inferSelect;

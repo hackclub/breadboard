@@ -116,7 +116,7 @@ function SignupForm() {
   const [loginError, setLoginError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!state.existingUser) return;
+    if (!state.promptLogin) return;
 
     let cancelled = false;
     setLoginError(null);
@@ -131,7 +131,7 @@ function SignupForm() {
     return () => {
       cancelled = true;
     };
-  }, [state.existingUser]);
+  }, [state.promptLogin]);
 
   return (
     <div className="w-full max-w-120 rounded-md border border-black bg-[#BD0F32] p-5 shadow-[4px_4px_0_#000] lg:justify-self-center">

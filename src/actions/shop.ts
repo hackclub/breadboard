@@ -40,6 +40,7 @@ type ProductInput = {
   imageUrl: string;
   price: number;
   goldPrice?: number | null;
+  estimatedPriceCents?: number | null;
   stock?: number | null;
   active?: boolean;
 };
@@ -105,6 +106,11 @@ function normalizeProductInput(data: ProductInput) {
       data.goldPrice === null || data.goldPrice === undefined
         ? null
         : requirePositiveInt(data.goldPrice, "Gold price"),
+    estimatedPriceCents:
+      data.estimatedPriceCents === null ||
+      data.estimatedPriceCents === undefined
+        ? null
+        : requirePositiveInt(data.estimatedPriceCents, "Estimated price"),
     stock:
       data.stock === null || data.stock === undefined
         ? null
@@ -739,6 +745,7 @@ export async function addProduct(data: {
   imageUrl: string;
   price: number;
   goldPrice?: number | null;
+  estimatedPriceCents?: number | null;
   stock?: number | null;
 }) {
   await requireAdminSession();
@@ -755,6 +762,7 @@ export async function updateProduct(
     imageUrl: string;
     price: number;
     goldPrice?: number | null;
+    estimatedPriceCents?: number | null;
     stock: number | null;
     active: boolean;
   },

@@ -105,6 +105,14 @@ type TrackingSummary = {
   lastScreenEvidenceAt: string | null;
 };
 
+// Aggregate of the reviewer time-audit segments marked on the timelapse
+// (removed or deflated ranges, fallout-style).
+type TimeAuditSummary = {
+  segmentCount: number;
+  removedSeconds: number;
+  deflatedSeconds: number;
+};
+
 type SubmissionHistoryEntry = {
   id: number;
   submissionNumber: number;
@@ -339,6 +347,7 @@ export function ReviewWorkspace({
   timelapses,
   submissionHistory,
   tracking,
+  timeAudit,
   breadPerHour,
 }: {
   project: ReviewProject;
@@ -351,6 +360,7 @@ export function ReviewWorkspace({
   timelapses: Timelapse[];
   submissionHistory: SubmissionHistoryEntry[];
   tracking: TrackingSummary;
+  timeAudit?: TimeAuditSummary;
   breadPerHour: number;
 }) {
   const [verdict, setVerdict] = useState<"approve" | "changes" | "reject">(
@@ -425,6 +435,14 @@ export function ReviewWorkspace({
     : null;
   const approvedBread =
     Math.max(0, Math.floor(approvedHours || 0)) * breadPerHour;
+  const auditDeductedSeconds =
+    (timeAudit?.removedSeconds ?? 0) + (timeAudit?.deflatedSeconds ?? 0);
+  const auditedSeconds = Math.max(
+    0,
+    tracking.measuredSeconds - auditDeductedSeconds,
+  );
+  const auditedHours = Math.floor(auditedSeconds / 3600);
+  const hasTimeAudit = (timeAudit?.segmentCount ?? 0) > 0;
 
   const statusTone =
     initial.status === "pending_review"
@@ -797,6 +815,17 @@ export function ReviewWorkspace({
                     {isBuild ? "gold bread " : ""}({approvedHours || 0}h ×{" "}
                     {breadPerHour})
                   </span>
+                  {hasTimeAudit && approvedHours !== auditedHours ? (
+                    <button
+                      type="button"
+                      onClick={() => setApprovedHours(auditedHours)}
+                      className="justify-self-start rounded-lg border border-black bg-emerald-100 px-3 py-1.5 text-xs font-black text-black hover:bg-emerald-200"
+                    >
+                      Use audited total: {auditedHours}h (measured −{" "}
+                      {formatExactDuration(auditDeductedSeconds)} audit
+                      deductions)
+                    </button>
+                  ) : null}
                 </label>
                 <label className="grid gap-1.5">
                   <span className="text-xs font-black tracking-[0.14em] text-black/40 uppercase">
@@ -1163,6 +1192,42 @@ export function ReviewWorkspace({
                 {formatExactDuration(tracking.measuredSeconds)}
               </span>
             </div>
+            {hasTimeAudit && timeAudit ? (
+              <>
+                {timeAudit.removedSeconds > 0 ? (
+                  <div className="flex justify-between gap-3">
+                    <span>Time audit · removed</span>
+                    <span className="font-black text-red-600">
+                      −{formatExactDuration(timeAudit.removedSeconds)}
+                    </span>
+                  </div>
+                ) : null}
+                {timeAudit.deflatedSeconds > 0 ? (
+                  <div className="flex justify-between gap-3">
+                    <span>Time audit · deflated</span>
+                    <span className="font-black text-amber-600">
+                      −{formatExactDuration(timeAudit.deflatedSeconds)}
+                    </span>
+                  </div>
+                ) : null}
+                <div className="flex justify-between gap-3">
+                  <span>
+                    Audited total ({timeAudit.segmentCount} segment
+                    {timeAudit.segmentCount === 1 ? "" : "s"})
+                  </span>
+                  <span className="font-black text-emerald-700">
+                    {formatExactDuration(auditedSeconds)}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div className="flex justify-between gap-3 text-xs">
+                <span>Time audit</span>
+                <span className="font-semibold text-black/40">
+                  None yet — mark segments in the timelapse
+                </span>
+              </div>
+            )}
             <div className="flex justify-between gap-3 border-t border-black/10 pt-2 text-xs">
               <span>Activity sessions</span>
               <span className="font-black text-black">

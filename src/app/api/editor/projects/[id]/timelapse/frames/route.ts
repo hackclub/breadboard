@@ -6,7 +6,9 @@ import {
   editorActivitySessions,
   editorScreenEvidenceFrames,
   editorTimelapseSnapshots,
+  projectTimeAuditSegments,
   projects,
+  user,
 } from "@/lib/db/schema";
 
 const MAX_STITCHED_FRAMES = 600;
@@ -71,51 +73,68 @@ export async function GET(
     }
 
     const sessionIds = sessions.map((session) => session.id);
-    const [newestSnapshots, newestScreenFrames] = await Promise.all([
-      db
-        .select({
-          id: editorTimelapseSnapshots.id,
-          sessionId: editorTimelapseSnapshots.sessionId,
-          capturedAt: editorTimelapseSnapshots.capturedAt,
-          stateData: editorTimelapseSnapshots.stateData,
-        })
-        .from(editorTimelapseSnapshots)
-        .where(
-          until
-            ? and(
-                inArray(editorTimelapseSnapshots.sessionId, sessionIds),
-                lte(editorTimelapseSnapshots.capturedAt, until),
-              )
-            : inArray(editorTimelapseSnapshots.sessionId, sessionIds),
-        )
-        .orderBy(desc(editorTimelapseSnapshots.capturedAt))
-        .limit(MAX_STITCHED_FRAMES),
-      db
-        .select({
-          id: editorScreenEvidenceFrames.id,
-          sessionId: editorScreenEvidenceFrames.sessionId,
-          // Client capture clocks are useful for local ordering but not trusted
-          // review evidence. The review timeline uses the server receipt time.
-          capturedAt: editorScreenEvidenceFrames.receivedAt,
-          imageUrl: sql<string>`case when ${editorScreenEvidenceFrames.imageKey} = '' then '' else '/api/editor/projects/' || ${projectId} || '/timelapse/screen-frame/' || ${editorScreenEvidenceFrames.id} end`,
-          pixelChanged: editorScreenEvidenceFrames.pixelChanged,
-          diffScore: editorScreenEvidenceFrames.diffScore,
-          screenWidth: editorScreenEvidenceFrames.screenWidth,
-          screenHeight: editorScreenEvidenceFrames.screenHeight,
-          paused: editorScreenEvidenceFrames.paused,
-        })
-        .from(editorScreenEvidenceFrames)
-        .where(
-          until
-            ? and(
-                inArray(editorScreenEvidenceFrames.sessionId, sessionIds),
-                lte(editorScreenEvidenceFrames.receivedAt, until),
-              )
-            : inArray(editorScreenEvidenceFrames.sessionId, sessionIds),
-        )
-        .orderBy(desc(editorScreenEvidenceFrames.receivedAt))
-        .limit(MAX_STITCHED_FRAMES),
-    ]);
+    const [newestSnapshots, newestScreenFrames, auditSegments] =
+      await Promise.all([
+        db
+          .select({
+            id: editorTimelapseSnapshots.id,
+            sessionId: editorTimelapseSnapshots.sessionId,
+            capturedAt: editorTimelapseSnapshots.capturedAt,
+            stateData: editorTimelapseSnapshots.stateData,
+          })
+          .from(editorTimelapseSnapshots)
+          .where(
+            until
+              ? and(
+                  inArray(editorTimelapseSnapshots.sessionId, sessionIds),
+                  lte(editorTimelapseSnapshots.capturedAt, until),
+                )
+              : inArray(editorTimelapseSnapshots.sessionId, sessionIds),
+          )
+          .orderBy(desc(editorTimelapseSnapshots.capturedAt))
+          .limit(MAX_STITCHED_FRAMES),
+        db
+          .select({
+            id: editorScreenEvidenceFrames.id,
+            sessionId: editorScreenEvidenceFrames.sessionId,
+            // Client capture clocks are useful for local ordering but not trusted
+            // review evidence. The review timeline uses the server receipt time.
+            capturedAt: editorScreenEvidenceFrames.receivedAt,
+            imageUrl: sql<string>`case when ${editorScreenEvidenceFrames.imageKey} = '' then '' else '/api/editor/projects/' || ${projectId} || '/timelapse/screen-frame/' || ${editorScreenEvidenceFrames.id} end`,
+            pixelChanged: editorScreenEvidenceFrames.pixelChanged,
+            diffScore: editorScreenEvidenceFrames.diffScore,
+            screenWidth: editorScreenEvidenceFrames.screenWidth,
+            screenHeight: editorScreenEvidenceFrames.screenHeight,
+            paused: editorScreenEvidenceFrames.paused,
+          })
+          .from(editorScreenEvidenceFrames)
+          .where(
+            until
+              ? and(
+                  inArray(editorScreenEvidenceFrames.sessionId, sessionIds),
+                  lte(editorScreenEvidenceFrames.receivedAt, until),
+                )
+              : inArray(editorScreenEvidenceFrames.sessionId, sessionIds),
+          )
+          .orderBy(desc(editorScreenEvidenceFrames.receivedAt))
+          .limit(MAX_STITCHED_FRAMES),
+        db
+          .select({
+            id: projectTimeAuditSegments.id,
+            startAt: projectTimeAuditSegments.startAt,
+            endAt: projectTimeAuditSegments.endAt,
+            kind: projectTimeAuditSegments.kind,
+            deflatedPercent: projectTimeAuditSegments.deflatedPercent,
+            reason: projectTimeAuditSegments.reason,
+            deductedSeconds: projectTimeAuditSegments.deductedSeconds,
+            reviewerName: sql<string>`coalesce(${user.name}, '')`,
+            createdAt: projectTimeAuditSegments.createdAt,
+          })
+          .from(projectTimeAuditSegments)
+          .leftJoin(user, eq(projectTimeAuditSegments.reviewerId, user.id))
+          .where(eq(projectTimeAuditSegments.projectId, projectId))
+          .orderBy(asc(projectTimeAuditSegments.startAt)),
+      ]);
     const snapshots = newestSnapshots.toReversed();
     const screenFrames = newestScreenFrames.toReversed();
 
@@ -123,6 +142,7 @@ export async function GET(
       sessions,
       snapshots,
       screenFrames,
+      auditSegments,
       truncated:
         newestSnapshots.length === MAX_STITCHED_FRAMES ||
         newestScreenFrames.length === MAX_STITCHED_FRAMES,

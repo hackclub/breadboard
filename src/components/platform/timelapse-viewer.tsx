@@ -180,11 +180,15 @@ function fmtTime(value: string): string {
   });
 }
 
-function gapLabel(previous: string, next: string): string | null {
+function gapLabel(
+  previous: string,
+  next: string,
+  thresholdSeconds = 300,
+): string | null {
   const diff = Math.floor(
     (new Date(next).getTime() - new Date(previous).getTime()) / 1000,
   );
-  return diff >= 300 ? fmtDuration(diff) : null;
+  return diff >= thresholdSeconds ? fmtDuration(diff) : null;
 }
 
 function sourceLabel(frame: TimelineFrame) {
@@ -381,6 +385,7 @@ export function TimelapseViewer({
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [allFrames, setAllFrames] = useState<TimelineFrame[]>([]);
   const [truncated, setTruncated] = useState(false);
+  const [totalCaptures, setTotalCaptures] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -388,6 +393,7 @@ export function TimelapseViewer({
   const [selectedFrameKey, setSelectedFrameKey] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(4);
+  const [customSpeedText, setCustomSpeedText] = useState("");
   const [auditSegments, setAuditSegments] = useState<TimeAuditSegmentDto[]>([]);
   const [auditForm, setAuditForm] = useState<AuditFormState | null>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
@@ -463,6 +469,10 @@ export function TimelapseViewer({
         setAuditError(null);
         setAllFrames(timeline);
         setTruncated(Boolean(data.truncated));
+        setTotalCaptures(
+          (Number(data.totalSnapshots) || 0) +
+            (Number(data.totalScreenFrames) || 0),
+        );
         const latest = timeline.at(-1);
         const latestKey = latest ? frameKey(latest) : null;
         selectedFrameKeyRef.current = latestKey;
@@ -609,7 +619,8 @@ export function TimelapseViewer({
         selectedFrameKeyRef.current = nextKey;
         setSelectedFrameKey(nextKey);
       },
-      Math.max(80, 700 / speed),
+      // 16ms floor (~60fps) so custom multipliers beyond 8x still speed up.
+      Math.max(16, 700 / speed),
     );
   }, [speed, stopTimer]);
 
@@ -646,14 +657,36 @@ export function TimelapseViewer({
   const estimatedInactiveSeconds =
     inactiveFrameCount * SCREEN_FRAME_INTERVAL_SECONDS;
 
+  // On long histories the API evenly samples frames, which stretches the
+  // normal spacing between consecutive captures. Scale the gap threshold off
+  // the median spacing so sampling artifacts aren't flagged as capture gaps.
+  const gapThresholdSeconds = useMemo(() => {
+    const spacings = allFrames
+      .slice(1)
+      .map(
+        (frame, index) =>
+          (new Date(frame.capturedAt).getTime() -
+            new Date(allFrames[index].capturedAt).getTime()) /
+          1000,
+      )
+      .filter((value) => value > 0)
+      .sort((left, right) => left - right);
+    const median = spacings[Math.floor(spacings.length / 2)] ?? 0;
+    return Math.max(300, median * 5);
+  }, [allFrames]);
+
   const gapEvents = useMemo<GapEvent[]>(
     () =>
       allFrames.slice(1).flatMap((frame, index) => {
         const previous = allFrames[index];
-        const duration = gapLabel(previous.capturedAt, frame.capturedAt);
+        const duration = gapLabel(
+          previous.capturedAt,
+          frame.capturedAt,
+          gapThresholdSeconds,
+        );
         return duration ? [{ frame, previous, duration }] : [];
       }),
-    [allFrames],
+    [allFrames, gapThresholdSeconds],
   );
 
   const sessionSummaries = useMemo<SessionSummary[]>(
@@ -682,7 +715,7 @@ export function TimelapseViewer({
   const previous = currentIndex > 0 ? visibleFrames[currentIndex - 1] : null;
   const gapBeforeCurrent =
     previous && current
-      ? gapLabel(previous.capturedAt, current.capturedAt)
+      ? gapLabel(previous.capturedAt, current.capturedAt, gapThresholdSeconds)
       : null;
 
   const jumpToSession = useCallback(
@@ -1172,16 +1205,21 @@ export function TimelapseViewer({
                 <ChevronRight className="size-4" />
               </button>
 
-              <fieldset className="ml-1 flex border border-[#4b4b4b] bg-[#191919] p-0.5">
+              <fieldset className="ml-1 flex items-stretch border border-[#4b4b4b] bg-[#191919] p-0.5">
                 <legend className="sr-only">Replay speed</legend>
                 {SPEEDS.map((value) => (
                   <button
                     key={value}
                     type="button"
-                    onClick={() => setSpeed(value)}
-                    aria-pressed={speed === value}
+                    onClick={() => {
+                      setCustomSpeedText("");
+                      setSpeed(value);
+                    }}
+                    aria-pressed={
+                      speed === value && customSpeedText.length === 0
+                    }
                     className={`min-w-8 px-1.5 py-1 text-[11px] font-black transition ${
-                      speed === value
+                      speed === value && customSpeedText.length === 0
                         ? "bg-[#BD0F32] text-white"
                         : "text-zinc-400 hover:bg-[#363636] hover:text-white"
                     }`}
@@ -1189,6 +1227,30 @@ export function TimelapseViewer({
                     {value}x
                   </button>
                 ))}
+                <label className="flex items-center">
+                  <span className="sr-only">Custom replay speed</span>
+                  <input
+                    type="number"
+                    min={0.1}
+                    max={100}
+                    step={0.5}
+                    value={customSpeedText}
+                    placeholder="?x"
+                    onChange={(event) => {
+                      const text = event.currentTarget.value;
+                      setCustomSpeedText(text);
+                      const parsed = Number(text);
+                      if (Number.isFinite(parsed) && parsed > 0) {
+                        setSpeed(Math.min(parsed, 100));
+                      }
+                    }}
+                    className={`w-14 [appearance:textfield] px-1.5 py-1 text-center text-[11px] font-black transition placeholder:text-zinc-600 focus:outline-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${
+                      customSpeedText.length > 0
+                        ? "bg-[#BD0F32] text-white placeholder:text-red-200"
+                        : "bg-transparent text-zinc-400 hover:bg-[#363636]"
+                    }`}
+                  />
+                </label>
               </fieldset>
 
               <span className="ml-auto text-right text-[11px] tabular-nums text-zinc-400">
@@ -1231,6 +1293,7 @@ export function TimelapseViewer({
                   const duration = gapLabel(
                     visibleFrames[frameIndex - 1].capturedAt,
                     frame.capturedAt,
+                    gapThresholdSeconds,
                   );
                   if (!duration) return null;
                   return (
@@ -1345,7 +1408,9 @@ export function TimelapseViewer({
             </div>
             {truncated ? (
               <p className="mt-3 border-l-2 border-amber-300 pl-2 text-xs leading-5 text-amber-100">
-                Showing the most recent 600 captures from each source.
+                Long history: showing {allFrames.length.toLocaleString()} of{" "}
+                {totalCaptures.toLocaleString()} captures, sampled evenly
+                across the full timeline.
               </p>
             ) : null}
           </section>

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
@@ -12,6 +12,24 @@ import {
 } from "@/lib/db/schema";
 
 const MAX_STITCHED_FRAMES = 600;
+
+// Evenly sample rows down to `max`, always keeping the first and last, so a
+// long history spans the whole timeline at lower density instead of losing
+// its oldest frames to a newest-N cutoff.
+function sampleEvenly<T>(rows: T[], max: number): T[] {
+  if (rows.length <= max) return rows;
+  const step = (rows.length - 1) / (max - 1);
+  const sampled: T[] = [];
+  let lastIndex = -1;
+  for (let position = 0; position < max; position += 1) {
+    const index = Math.round(position * step);
+    if (index !== lastIndex) {
+      sampled.push(rows[index]);
+      lastIndex = index;
+    }
+  }
+  return sampled;
+}
 
 export async function GET(
   request: Request,
@@ -73,70 +91,83 @@ export async function GET(
     }
 
     const sessionIds = sessions.map((session) => session.id);
-    const [newestSnapshots, newestScreenFrames, auditSegments] =
-      await Promise.all([
-        db
-          .select({
-            id: editorTimelapseSnapshots.id,
-            sessionId: editorTimelapseSnapshots.sessionId,
-            capturedAt: editorTimelapseSnapshots.capturedAt,
-            stateData: editorTimelapseSnapshots.stateData,
-          })
-          .from(editorTimelapseSnapshots)
-          .where(
-            until
-              ? and(
-                  inArray(editorTimelapseSnapshots.sessionId, sessionIds),
-                  lte(editorTimelapseSnapshots.capturedAt, until),
-                )
-              : inArray(editorTimelapseSnapshots.sessionId, sessionIds),
-          )
-          .orderBy(desc(editorTimelapseSnapshots.capturedAt))
-          .limit(MAX_STITCHED_FRAMES),
-        db
-          .select({
-            id: editorScreenEvidenceFrames.id,
-            sessionId: editorScreenEvidenceFrames.sessionId,
-            // Client capture clocks are useful for local ordering but not trusted
-            // review evidence. The review timeline uses the server receipt time.
-            capturedAt: editorScreenEvidenceFrames.receivedAt,
-            imageUrl: sql<string>`case when ${editorScreenEvidenceFrames.imageKey} = '' then '' else '/api/editor/projects/' || ${projectId} || '/timelapse/screen-frame/' || ${editorScreenEvidenceFrames.id} end`,
-            pixelChanged: editorScreenEvidenceFrames.pixelChanged,
-            diffScore: editorScreenEvidenceFrames.diffScore,
-            screenWidth: editorScreenEvidenceFrames.screenWidth,
-            screenHeight: editorScreenEvidenceFrames.screenHeight,
-            paused: editorScreenEvidenceFrames.paused,
-          })
-          .from(editorScreenEvidenceFrames)
-          .where(
-            until
-              ? and(
-                  inArray(editorScreenEvidenceFrames.sessionId, sessionIds),
-                  lte(editorScreenEvidenceFrames.receivedAt, until),
-                )
-              : inArray(editorScreenEvidenceFrames.sessionId, sessionIds),
-          )
-          .orderBy(desc(editorScreenEvidenceFrames.receivedAt))
-          .limit(MAX_STITCHED_FRAMES),
-        db
-          .select({
-            id: projectTimeAuditSegments.id,
-            startAt: projectTimeAuditSegments.startAt,
-            endAt: projectTimeAuditSegments.endAt,
-            kind: projectTimeAuditSegments.kind,
-            deflatedPercent: projectTimeAuditSegments.deflatedPercent,
-            reason: projectTimeAuditSegments.reason,
-            deductedSeconds: projectTimeAuditSegments.deductedSeconds,
-            reviewerName: sql<string>`coalesce(${user.name}, '')`,
-            createdAt: projectTimeAuditSegments.createdAt,
-          })
-          .from(projectTimeAuditSegments)
-          .leftJoin(user, eq(projectTimeAuditSegments.reviewerId, user.id))
-          .where(eq(projectTimeAuditSegments.projectId, projectId))
-          .orderBy(asc(projectTimeAuditSegments.startAt)),
-      ]);
-    const snapshots = newestSnapshots.toReversed();
-    const screenFrames = newestScreenFrames.toReversed();
+    // Snapshot rows carry the full editor state JSON, so sampling happens on
+    // a lightweight id index first and only the sampled rows are fetched in
+    // full. Screen frame rows are metadata only (the image is served by a
+    // separate endpoint), so those sample in memory directly.
+    const [snapshotIndex, allScreenFrames, auditSegments] = await Promise.all([
+      db
+        .select({ id: editorTimelapseSnapshots.id })
+        .from(editorTimelapseSnapshots)
+        .where(
+          until
+            ? and(
+                inArray(editorTimelapseSnapshots.sessionId, sessionIds),
+                lte(editorTimelapseSnapshots.capturedAt, until),
+              )
+            : inArray(editorTimelapseSnapshots.sessionId, sessionIds),
+        )
+        .orderBy(asc(editorTimelapseSnapshots.capturedAt)),
+      db
+        .select({
+          id: editorScreenEvidenceFrames.id,
+          sessionId: editorScreenEvidenceFrames.sessionId,
+          // Client capture clocks are useful for local ordering but not trusted
+          // review evidence. The review timeline uses the server receipt time.
+          capturedAt: editorScreenEvidenceFrames.receivedAt,
+          imageUrl: sql<string>`case when ${editorScreenEvidenceFrames.imageKey} = '' then '' else '/api/editor/projects/' || ${projectId} || '/timelapse/screen-frame/' || ${editorScreenEvidenceFrames.id} end`,
+          pixelChanged: editorScreenEvidenceFrames.pixelChanged,
+          diffScore: editorScreenEvidenceFrames.diffScore,
+          screenWidth: editorScreenEvidenceFrames.screenWidth,
+          screenHeight: editorScreenEvidenceFrames.screenHeight,
+          paused: editorScreenEvidenceFrames.paused,
+        })
+        .from(editorScreenEvidenceFrames)
+        .where(
+          until
+            ? and(
+                inArray(editorScreenEvidenceFrames.sessionId, sessionIds),
+                lte(editorScreenEvidenceFrames.receivedAt, until),
+              )
+            : inArray(editorScreenEvidenceFrames.sessionId, sessionIds),
+        )
+        .orderBy(asc(editorScreenEvidenceFrames.receivedAt)),
+      db
+        .select({
+          id: projectTimeAuditSegments.id,
+          startAt: projectTimeAuditSegments.startAt,
+          endAt: projectTimeAuditSegments.endAt,
+          kind: projectTimeAuditSegments.kind,
+          deflatedPercent: projectTimeAuditSegments.deflatedPercent,
+          reason: projectTimeAuditSegments.reason,
+          deductedSeconds: projectTimeAuditSegments.deductedSeconds,
+          reviewerName: sql<string>`coalesce(${user.name}, '')`,
+          createdAt: projectTimeAuditSegments.createdAt,
+        })
+        .from(projectTimeAuditSegments)
+        .leftJoin(user, eq(projectTimeAuditSegments.reviewerId, user.id))
+        .where(eq(projectTimeAuditSegments.projectId, projectId))
+        .orderBy(asc(projectTimeAuditSegments.startAt)),
+    ]);
+
+    const sampledSnapshotIds = sampleEvenly(
+      snapshotIndex,
+      MAX_STITCHED_FRAMES,
+    ).map((row) => row.id);
+    const snapshots =
+      sampledSnapshotIds.length > 0
+        ? await db
+            .select({
+              id: editorTimelapseSnapshots.id,
+              sessionId: editorTimelapseSnapshots.sessionId,
+              capturedAt: editorTimelapseSnapshots.capturedAt,
+              stateData: editorTimelapseSnapshots.stateData,
+            })
+            .from(editorTimelapseSnapshots)
+            .where(inArray(editorTimelapseSnapshots.id, sampledSnapshotIds))
+            .orderBy(asc(editorTimelapseSnapshots.capturedAt))
+        : [];
+    const screenFrames = sampleEvenly(allScreenFrames, MAX_STITCHED_FRAMES);
 
     return NextResponse.json({
       sessions,
@@ -144,8 +175,10 @@ export async function GET(
       screenFrames,
       auditSegments,
       truncated:
-        newestSnapshots.length === MAX_STITCHED_FRAMES ||
-        newestScreenFrames.length === MAX_STITCHED_FRAMES,
+        snapshotIndex.length > MAX_STITCHED_FRAMES ||
+        allScreenFrames.length > MAX_STITCHED_FRAMES,
+      totalSnapshots: snapshotIndex.length,
+      totalScreenFrames: allScreenFrames.length,
     });
   }
 

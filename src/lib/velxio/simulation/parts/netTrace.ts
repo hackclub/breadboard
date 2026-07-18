@@ -164,7 +164,7 @@ export const POWER_PIN_REQUIREMENTS: Record<
   "stepper-motor": { vcc: ["+5V"] }, // unipolar common, no GND pin
   lcd1602: { vcc: ["VDD"], gnd: ["VSS"] },
   // Kit B (ESP32 starter kit)
-  "photoresistor-sensor": { vcc: ["VCC"], gnd: ["GND"] },
+  photoresistor: { vcc: ["VCC"], gnd: ["GND"] },
   "pir-motion-sensor": { vcc: ["VCC"], gnd: ["GND"] },
   "obstacle-avoidance-module": { vcc: ["VCC"], gnd: ["GND"] },
   "relay-2ch": { vcc: ["VCC"], gnd: ["GND"] },

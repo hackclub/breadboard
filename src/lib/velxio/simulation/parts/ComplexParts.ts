@@ -164,60 +164,55 @@ PartSimulationRegistry.register("slide-potentiometer", {
  * We inject a static mid-range voltage on the AO pin so analogRead()
  * returns a valid value. Users can modify the element's `value` attribute.
  */
-PartSimulationRegistry.register("photoresistor-sensor", {
+PartSimulationRegistry.register("photoresistor", {
   attachEvents: (element, avrSimulator, getArduinoPinHelper, componentId) => {
     const pinAO = getArduinoPinHelper("AO") ?? getArduinoPinHelper("A0");
     const pinDO = getArduinoPinHelper("DO") ?? getArduinoPinHelper("D0");
-    const pinManager = (avrSimulator as any).pinManager;
+    const el = element as any;
+    const is3v3Board =
+      avrSimulator instanceof RP2040Simulator ||
+      typeof (avrSimulator as any).setAdcVoltage === "function";
+    const referenceVoltage = is3v3Board ? 3.3 : 5.0;
 
     const unsubscribers: (() => void)[] = [];
+    el.ledPower = true;
 
-    // Inject initial mid-range voltage (simulate moderate light, ~500 lux)
-    if (pinAO !== null) {
-      setAdcVoltage(avrSimulator, pinAO, 2.5);
-    }
+    // The module's comparator is represented by a fixed midpoint threshold:
+    // bright light drives DO HIGH; dim light drives it LOW.
+    const setLightLevel = (lux: number) => {
+      const level = Math.max(0, Math.min(1000, Number(lux) || 0));
+      if (pinAO !== null) {
+        setAdcVoltage(avrSimulator, pinAO, (level / 1000) * referenceVoltage);
+      }
+      if (pinDO !== null) {
+        avrSimulator.setPinState(pinDO, level >= 500);
+      }
+      el.ledDO = level >= 500;
+      emitPropertyChange(componentId, "lux", level);
+    };
+
+    setLightLevel(500);
 
     // Watch element's 'input' events in case the element supports it
     const onInput = () => {
-      const val = (element as any).value;
+      const val = el.value;
       if (val !== undefined) {
-        if (pinAO !== null) {
-          const volts = (val / 1023.0) * 5.0;
-          setAdcVoltage(avrSimulator, pinAO, volts);
-        }
-        // Mirror to store — maps the slider 0-1023 back to lux 0-1000
-        // so the SPICE photoresistor handler re-computes its R_ldr.
-        emitPropertyChange(componentId, "lux", Math.round((val / 1023) * 1000));
+        // The Wokwi element exposes a 0–1023 slider; normalize it to lux.
+        setLightLevel((Number(val) / 1023) * 1000);
       }
     };
     element.addEventListener("input", onInput);
     unsubscribers.push(() => element.removeEventListener("input", onInput));
 
-    // DO (digital output) — if connected, update element's LED indicator
-    if (pinDO !== null && pinManager) {
-      unsubscribers.push(
-        pinManager.onPinChange(pinDO, (_: number, state: boolean) => {
-          (element as any).ledDO = state;
-        }),
-      );
-    }
-
-    // SensorControlPanel: lux 0–1000 → volts 0–5
+    // SensorControlPanel: lux 0–1000 maps to AO and the DO threshold.
     registerSensorUpdate(componentId, (values) => {
       if ("lux" in values) {
-        if (pinAO !== null) {
-          setAdcVoltage(
-            avrSimulator,
-            pinAO,
-            ((values.lux as number) / 1000) * 5.0,
-          );
-        }
-        emitPropertyChange(componentId, "lux", values.lux);
+        setLightLevel(values.lux as number);
       }
     });
 
     return () => {
-      unsubscribers.forEach((u) => u());
+      for (const unsubscribe of unsubscribers) unsubscribe();
       unregisterSensorUpdate(componentId);
     };
   },
@@ -578,9 +573,8 @@ PartSimulationRegistry.register("buzzer", {
     // treated as active (rings on DC), which matches the kit buzzer and user
     // expectation that a buzzer wired across a supply makes sound.
     const buzzerMetaId =
-      useSimulatorStore
-        .getState()
-        .components.find((c) => c.id === _componentId)?.metadataId ?? "";
+      useSimulatorStore.getState().components.find((c) => c.id === _componentId)
+        ?.metadataId ?? "";
     const isPassiveBuzzer = /passive/i.test(buzzerMetaId);
     // Representative self-oscillation frequency for an active buzzer, and the
     // terminal voltage above which we consider it energized.

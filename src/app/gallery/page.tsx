@@ -372,10 +372,7 @@ export default async function GalleryPage() {
         ) : (
           <>
             {approvedProjects.length > 0 ? (
-              <GallerySection
-                title="Approved"
-                blurb="Finished builds that passed demo review."
-              >
+              <GallerySection>
                 {approvedProjects.map((project) => (
                   <GalleryCard
                     key={project.projectId}
@@ -391,11 +388,7 @@ export default async function GalleryPage() {
             ) : null}
             {tiers.map((tier) =>
               tier.projects.length > 0 ? (
-                <GallerySection
-                  key={tier.key}
-                  title={tier.title}
-                  blurb={tier.blurb}
-                >
+                <GallerySection key={tier.key}>
                   {tier.projects.map((project) => (
                     <ProgressCard
                       key={project.projectId}
@@ -420,19 +413,9 @@ export default async function GalleryPage() {
   );
 }
 
-function GallerySection({
-  title,
-  blurb,
-  children,
-}: {
-  title: string;
-  blurb: string;
-  children: React.ReactNode;
-}) {
+function GallerySection({ children }: { children: React.ReactNode }) {
   return (
     <section className="mb-14">
-      <h2 className="text-3xl font-black text-black">{title}</h2>
-      <p className="mt-1 mb-6 text-base text-black/60">{blurb}</p>
       <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">{children}</div>
     </section>
   );

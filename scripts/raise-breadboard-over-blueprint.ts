@@ -80,7 +80,8 @@ async function main() {
     if (newEst !== (p.estimatedPriceCents ?? 0))
       parts.push(`est ${usd(p.estimatedPriceCents ?? 0)} -> ${usd(newEst)}`);
     if (newBread !== p.price) parts.push(`bread ${p.price} -> ${newBread}`);
-    if (newGold !== p.goldPrice) parts.push(`gold ${p.goldPrice} -> ${newGold}`);
+    if (newGold !== p.goldPrice)
+      parts.push(`gold ${p.goldPrice} -> ${newGold}`);
 
     if (parts.length === 0) {
       ok++;
@@ -93,7 +94,11 @@ async function main() {
     if (!dryRun) {
       await db
         .update(products)
-        .set({ estimatedPriceCents: newEst, price: newBread, goldPrice: newGold })
+        .set({
+          estimatedPriceCents: newEst,
+          price: newBread,
+          goldPrice: newGold,
+        })
         .where(eq(products.id, p.id));
     }
     changed++;

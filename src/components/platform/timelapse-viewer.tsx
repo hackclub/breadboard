@@ -1409,8 +1409,8 @@ export function TimelapseViewer({
             {truncated ? (
               <p className="mt-3 border-l-2 border-amber-300 pl-2 text-xs leading-5 text-amber-100">
                 Long history: showing {allFrames.length.toLocaleString()} of{" "}
-                {totalCaptures.toLocaleString()} captures, sampled evenly
-                across the full timeline.
+                {totalCaptures.toLocaleString()} captures, sampled evenly across
+                the full timeline.
               </p>
             ) : null}
           </section>

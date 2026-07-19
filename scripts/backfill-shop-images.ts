@@ -116,7 +116,10 @@ async function main() {
       `${dryRun ? "[dry-run] " : ""}update "${product.name}" (#${product.id}): ${product.imageUrl} -> ${imageUrl}`,
     );
     if (!dryRun) {
-      await db.update(products).set({ imageUrl }).where(eq(products.id, product.id));
+      await db
+        .update(products)
+        .set({ imageUrl })
+        .where(eq(products.id, product.id));
     }
     updated++;
   }

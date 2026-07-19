@@ -39,7 +39,9 @@ async function main() {
     .where(eq(products.name, NAME));
 
   if (existing.length > 0) {
-    console.log(`"${NAME}" already exists (#${existing[0].id}); nothing to do.`);
+    console.log(
+      `"${NAME}" already exists (#${existing[0].id}); nothing to do.`,
+    );
     return;
   }
 

@@ -146,6 +146,10 @@ export default async function PlatformShopPage() {
                       goldPrice={product.goldPrice}
                       stock={product.stock}
                       shopOpen={isShopOpen}
+                      donation={
+                        (product.metadata as Record<string, unknown> | null)
+                          ?.donation === true
+                      }
                     />
                   </div>
                 </div>

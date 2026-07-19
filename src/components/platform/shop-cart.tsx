@@ -25,6 +25,7 @@ type CartItem = {
   goldPrice: number | null;
   stock: number | null;
   quantity: number;
+  donation: boolean;
 };
 
 type Currency = "bread" | "gold";
@@ -69,6 +70,7 @@ function normalizeCart(value: unknown): CartItem[] {
           ? null
           : Number(item.stock),
       quantity: Math.max(1, Math.floor(Number(item?.quantity) || 1)),
+      donation: item?.donation === true,
     }))
     .filter(
       (item) =>
@@ -215,6 +217,8 @@ export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
     0,
   );
   const count = items.reduce((sum, item) => sum + item.quantity, 0);
+  // A donation ships nothing, so a cart of only donations skips the address.
+  const donationOnly = items.length > 0 && items.every((item) => item.donation);
 
   const setQuantity = (productId: number, quantity: number) => {
     const next = items
@@ -241,7 +245,10 @@ export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
   };
 
   const order = async () => {
-    if (!address.name || !address.line1 || !address.city || !address.country) {
+    if (
+      !donationOnly &&
+      (!address.name || !address.line1 || !address.city || !address.country)
+    ) {
       setMessage("Name, address, city, and country are required.");
       return;
     }
@@ -530,44 +537,56 @@ export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
                       ))}
                     </div>
                   </div>
-                  <div className="rounded-[18px] border-[1.5px] border-black bg-white p-5 shadow-[4px_4px_0_#000]">
-                    <p className="text-sm font-bold uppercase tracking-[0.16em] text-black/50">
-                      Shipping address
-                    </p>
-                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      {(
-                        [
-                          ["name", "Full name", "sm:col-span-2"],
-                          ["line1", "Address line 1", "sm:col-span-2"],
-                          ["line2", "Address line 2", "sm:col-span-2"],
-                          ["city", "City", ""],
-                          ["region", "Region/state", ""],
-                          ["postalCode", "Postal code", ""],
-                          ["country", "Country", ""],
-                        ] as const
-                      ).map(([key, label, className]) => (
-                        <label
-                          key={key}
-                          className={`flex flex-col gap-1 ${className}`}
-                        >
-                          <span className="text-xs font-bold text-black/60">
-                            {label}
-                          </span>
-                          <input
-                            type="text"
-                            value={address[key]}
-                            onChange={(event) =>
-                              setAddress({
-                                ...address,
-                                [key]: event.target.value,
-                              })
-                            }
-                            className="rounded-[10px] border border-black bg-[#f4f4f4] px-3 py-2 text-sm outline-none transition focus:bg-white focus:ring-4 focus:ring-[#BD0F32]/20"
-                          />
-                        </label>
-                      ))}
+                  {donationOnly ? (
+                    <div className="rounded-[18px] border-[1.5px] border-black bg-[#fffaf1] p-5 shadow-[4px_4px_0_#000]">
+                      <p className="text-sm font-bold uppercase tracking-[0.16em] text-black/50">
+                        No shipping needed
+                      </p>
+                      <p className="mt-2 text-sm font-semibold text-black/70">
+                        Donations go straight to Breadboard, so there's nothing
+                        to ship. Thanks for chipping in.
+                      </p>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="rounded-[18px] border-[1.5px] border-black bg-white p-5 shadow-[4px_4px_0_#000]">
+                      <p className="text-sm font-bold uppercase tracking-[0.16em] text-black/50">
+                        Shipping address
+                      </p>
+                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        {(
+                          [
+                            ["name", "Full name", "sm:col-span-2"],
+                            ["line1", "Address line 1", "sm:col-span-2"],
+                            ["line2", "Address line 2", "sm:col-span-2"],
+                            ["city", "City", ""],
+                            ["region", "Region/state", ""],
+                            ["postalCode", "Postal code", ""],
+                            ["country", "Country", ""],
+                          ] as const
+                        ).map(([key, label, className]) => (
+                          <label
+                            key={key}
+                            className={`flex flex-col gap-1 ${className}`}
+                          >
+                            <span className="text-xs font-bold text-black/60">
+                              {label}
+                            </span>
+                            <input
+                              type="text"
+                              value={address[key]}
+                              onChange={(event) =>
+                                setAddress({
+                                  ...address,
+                                  [key]: event.target.value,
+                                })
+                              }
+                              className="rounded-[10px] border border-black bg-[#f4f4f4] px-3 py-2 text-sm outline-none transition focus:bg-white focus:ring-4 focus:ring-[#BD0F32]/20"
+                            />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -681,6 +700,7 @@ export function AddToCartButton({
   goldPrice = null,
   stock,
   shopOpen = true,
+  donation = false,
 }: {
   productId: number;
   name: string;
@@ -689,6 +709,7 @@ export function AddToCartButton({
   goldPrice?: number | null;
   stock: number | null;
   shopOpen?: boolean;
+  donation?: boolean;
 }) {
   const [added, setAdded] = useState(false);
 
@@ -712,6 +733,7 @@ export function AddToCartButton({
                 ...item,
                 stock,
                 goldPrice: goldPrice === null ? null : Number(goldPrice),
+                donation,
                 quantity: Math.min(
                   stock ?? Number.POSITIVE_INFINITY,
                   item.quantity + 1,
@@ -729,6 +751,7 @@ export function AddToCartButton({
             goldPrice: goldPrice === null ? null : Number(goldPrice),
             stock,
             quantity: 1,
+            donation,
           },
         ];
 

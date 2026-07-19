@@ -138,6 +138,16 @@ function normalizeTrackingInfo(value: string | undefined) {
   throw new Error("Tracking URL must start with http:// or https://");
 }
 
+const BLANK_ADDRESS: ShippingAddress = {
+  name: "",
+  line1: "",
+  line2: "",
+  city: "",
+  region: "",
+  postalCode: "",
+  country: "",
+};
+
 function normalizeAddress(address: ShippingAddress): ShippingAddress {
   return {
     name: requiredText(address.name, "Name"),
@@ -216,7 +226,6 @@ export async function placeOrder(
     throw new Error("Invalid currency");
   }
   const payingGold = currency === "gold";
-  const shippingAddress = normalizeAddress(address);
 
   const normalizedItems = checkoutItems
     .map((item) => ({
@@ -234,6 +243,7 @@ export async function placeOrder(
       price: products.price,
       goldPrice: products.goldPrice,
       stock: products.stock,
+      metadata: products.metadata,
     })
     .from(products)
     .where(eq(products.active, true));
@@ -255,9 +265,13 @@ export async function placeOrder(
           `${product.productName} can't be bought with gold bread.`,
         );
       }
+      const isDonation =
+        !!product.metadata &&
+        (product.metadata as Record<string, unknown>).donation === true;
       return {
         ...product,
         unitPrice,
+        isDonation,
         quantity: quantityByProduct.get(product.productId) ?? 0,
       };
     });
@@ -279,6 +293,15 @@ export async function placeOrder(
     (sum, item) => sum + item.unitPrice * item.quantity,
     0,
   );
+
+  // Donations (products flagged `donation` in metadata) ship nothing, so they
+  // never need a shipping address and are booked as an already-sent order
+  // rather than a pending one that would clutter fulfillment. A mixed cart
+  // still needs an address for the shippable half.
+  const donationItems = items.filter((item) => item.isDonation);
+  const shippableItems = items.filter((item) => !item.isDonation);
+  const shippingAddress =
+    shippableItems.length > 0 ? normalizeAddress(address) : BLANK_ADDRESS;
 
   const result = await db.transaction(async (tx) => {
     for (const item of items) {
@@ -333,99 +356,141 @@ export async function placeOrder(
       amount: -totalCost,
       balanceAfter: updatedBalance.balance,
       sourceEntityType: "shop",
-      note: `Shop purchase of ${items.length} item(s)${
-        payingGold ? " (gold bread)" : ""
-      }`,
+      note:
+        shippableItems.length === 0
+          ? `Donation to Breadboard${payingGold ? " (gold bread)" : ""}`
+          : `Shop purchase of ${items.length} item(s)${
+              payingGold ? " (gold bread)" : ""
+            }`,
     });
 
-    // Orders are single-currency, so a gold purchase only merges into a
-    // pending gold order (and bread into bread).
-    const existingOrder = await tx
-      .select()
-      .from(orders)
-      .where(
-        and(
-          eq(orders.userId, session.user.id),
-          eq(orders.status, "pending"),
-          eq(orders.currency, currency),
-        ),
-      )
-      .orderBy(sql`${orders.createdAt} DESC`)
-      .limit(1);
+    // Shippable items go onto a pending order (merging into an existing one of
+    // the same currency). Orders are single-currency, so a gold purchase only
+    // merges into a pending gold order (and bread into bread).
+    let shippableOrderId: number | null = null;
+    let merged = false;
+    if (shippableItems.length > 0) {
+      const shippableTotal = shippableItems.reduce(
+        (sum, item) => sum + item.unitPrice * item.quantity,
+        0,
+      );
+      const existingOrder = await tx
+        .select()
+        .from(orders)
+        .where(
+          and(
+            eq(orders.userId, session.user.id),
+            eq(orders.status, "pending"),
+            eq(orders.currency, currency),
+          ),
+        )
+        .orderBy(sql`${orders.createdAt} DESC`)
+        .limit(1);
 
-    const pendingOrder = existingOrder[0];
+      const pendingOrder = existingOrder[0];
 
-    if (!pendingOrder) {
-      const [createdOrder] = await tx
+      if (!pendingOrder) {
+        const [createdOrder] = await tx
+          .insert(orders)
+          .values({
+            userId: session.user.id,
+            currency,
+            totalCost: shippableTotal,
+            shippingName: shippingAddress.name,
+            shippingLine1: shippingAddress.line1,
+            shippingLine2: shippingAddress.line2,
+            shippingCity: shippingAddress.city,
+            shippingRegion: shippingAddress.region,
+            shippingPostalCode: shippingAddress.postalCode,
+            shippingCountry: shippingAddress.country,
+          })
+          .returning();
+        shippableOrderId = createdOrder.id;
+      } else {
+        await tx
+          .update(orders)
+          .set({
+            totalCost: sql`${orders.totalCost} + ${shippableTotal}`,
+            shippingName: shippingAddress.name,
+            shippingLine1: shippingAddress.line1,
+            shippingLine2: shippingAddress.line2,
+            shippingCity: shippingAddress.city,
+            shippingRegion: shippingAddress.region,
+            shippingPostalCode: shippingAddress.postalCode,
+            shippingCountry: shippingAddress.country,
+            updatedAt: new Date(),
+          })
+          .where(eq(orders.id, pendingOrder.id));
+        shippableOrderId = pendingOrder.id;
+        merged = true;
+      }
+
+      for (const item of shippableItems) {
+        const existingOrderItem = await tx
+          .select()
+          .from(orderItems)
+          .where(
+            and(
+              eq(orderItems.orderId, shippableOrderId),
+              eq(orderItems.productId, item.productId),
+            ),
+          )
+          .limit(1);
+
+        if (existingOrderItem[0]) {
+          await tx
+            .update(orderItems)
+            .set({ quantity: sql`${orderItems.quantity} + ${item.quantity}` })
+            .where(eq(orderItems.id, existingOrderItem[0].id));
+        } else {
+          await tx.insert(orderItems).values({
+            orderId: shippableOrderId,
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+          });
+        }
+      }
+    }
+
+    // Donations have nothing to ship, so book them as their own already-sent
+    // order (never merged into a pending one) with no shipping address.
+    let donationOrderId: number | null = null;
+    if (donationItems.length > 0) {
+      const donationTotal = donationItems.reduce(
+        (sum, item) => sum + item.unitPrice * item.quantity,
+        0,
+      );
+      const [donationOrder] = await tx
         .insert(orders)
         .values({
           userId: session.user.id,
           currency,
-          totalCost,
-          shippingName: shippingAddress.name,
-          shippingLine1: shippingAddress.line1,
-          shippingLine2: shippingAddress.line2,
-          shippingCity: shippingAddress.city,
-          shippingRegion: shippingAddress.region,
-          shippingPostalCode: shippingAddress.postalCode,
-          shippingCountry: shippingAddress.country,
+          totalCost: donationTotal,
+          status: "sent",
+          sentAt: new Date(),
         })
         .returning();
+      donationOrderId = donationOrder.id;
 
-      for (const item of items) {
+      for (const item of donationItems) {
         await tx.insert(orderItems).values({
-          orderId: createdOrder.id,
-          productId: item.productId,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-        });
-      }
-
-      return { orderId: createdOrder.id, totalCost, currency, merged: false };
-    }
-
-    await tx
-      .update(orders)
-      .set({
-        totalCost: sql`${orders.totalCost} + ${totalCost}`,
-        shippingName: shippingAddress.name,
-        shippingLine1: shippingAddress.line1,
-        shippingLine2: shippingAddress.line2,
-        shippingCity: shippingAddress.city,
-        shippingRegion: shippingAddress.region,
-        shippingPostalCode: shippingAddress.postalCode,
-        shippingCountry: shippingAddress.country,
-        updatedAt: new Date(),
-      })
-      .where(eq(orders.id, pendingOrder.id));
-
-    for (const item of items) {
-      const existingOrderItem = await tx
-        .select()
-        .from(orderItems)
-        .where(
-          and(
-            eq(orderItems.orderId, pendingOrder.id),
-            eq(orderItems.productId, item.productId),
-          ),
-        )
-        .limit(1);
-
-      if (existingOrderItem[0]) {
-        await tx
-          .update(orderItems)
-          .set({ quantity: sql`${orderItems.quantity} + ${item.quantity}` })
-          .where(eq(orderItems.id, existingOrderItem[0].id));
-      } else {
-        await tx.insert(orderItems).values({
-          orderId: pendingOrder.id,
+          orderId: donationOrderId,
           productId: item.productId,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
         });
       }
     }
-    return { orderId: pendingOrder.id, totalCost, currency, merged: true };
+
+    const orderId = shippableOrderId ?? donationOrderId ?? 0;
+    return {
+      orderId,
+      totalCost,
+      currency,
+      merged,
+      donationOnly: shippableItems.length === 0,
+    };
   });
 
   revalidatePath("/platform/shop/orders");

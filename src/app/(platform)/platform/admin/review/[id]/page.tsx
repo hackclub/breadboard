@@ -3,7 +3,11 @@ import Link from "next/link";
 import { HiArrowLeft } from "react-icons/hi2";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
-import { BREAD_PER_HOUR, GOLD_BREAD_PER_HOUR } from "@/lib/constants";
+import {
+  BREAD_PER_HOUR,
+  GOLD_BREAD_PER_HOUR,
+  roundHours,
+} from "@/lib/constants";
 import { isBuildShip } from "@/lib/projects/project-type";
 import { db } from "@/lib/db/db";
 import {
@@ -230,6 +234,10 @@ export default async function AdminReviewProjectPage({
     (total, entry) => total + entry.durationSeconds,
     0,
   );
+  // The authoritative "time spent": server-tracked editor activity plus the
+  // attached Lapse recordings. This is what the workspace shows as the
+  // measured total and audits against.
+  const measuredSeconds = (activity?.trackedSeconds ?? 0) + recordingSeconds;
   const journalTime = journalTimeRows[0];
   const submissionHistory = submissionHistoryRows
     .filter((entry) => entry.id !== project.submissionId)
@@ -246,6 +254,24 @@ export default async function AdminReviewProjectPage({
       reviewedAt: toIso(entry.reviewedAt),
     }));
 
+  // The stored hoursSpent was pre-rounded when the submission shipped, and old
+  // rows used whole-hour ceil (3h 34m read as 4h). Recompute the default from
+  // the live measured total, minus what earlier approved ships already
+  // counted, kept to 0.1h. Falls back to the stored value for manual /
+  // off-platform submissions that carry no tracked time.
+  const priorApprovedFloor = submissionHistoryRows
+    .filter(
+      (entry) =>
+        entry.id !== project.submissionId &&
+        entry.submissionNumber < project.submissionNumber &&
+        (entry.status === "approved" || entry.status === "fulfilled"),
+    )
+    .reduce((max, entry) => Math.max(max, entry.trackedSeconds ?? 0), 0);
+  const hoursSpent =
+    measuredSeconds > 0
+      ? roundHours(Math.max(0, measuredSeconds - priorApprovedFloor) / 3600)
+      : project.hoursSpent;
+
   return (
     <main className="space-y-4">
       <Link
@@ -256,7 +282,7 @@ export default async function AdminReviewProjectPage({
         Back to gallery
       </Link>
       <ReviewWorkspace
-        project={project}
+        project={{ ...project, hoursSpent }}
         unifiedRecord={unifiedRecord}
         journals={journals}
         timelapses={timelapses}
@@ -267,7 +293,7 @@ export default async function AdminReviewProjectPage({
           lastTrackedAt: toIso(activity?.lastTrackedAt),
           lastScreenEvidenceAt: toIso(screenEvidence?.lastScreenEvidenceAt),
           recordingSeconds,
-          measuredSeconds: (activity?.trackedSeconds ?? 0) + recordingSeconds,
+          measuredSeconds,
           journaledSeconds: journalTime?.journaledSeconds ?? 0,
         }}
         timeAudit={{

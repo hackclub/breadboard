@@ -312,6 +312,9 @@ export function TimelapseViewer({
   const [auditForm, setAuditForm] = useState<AuditFormState | null>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
   const [auditBusy, setAuditBusy] = useState(false);
+  const [expandedJournalIds, setExpandedJournalIds] = useState<Set<number>>(
+    () => new Set(),
+  );
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const selectedFrameKeyRef = useRef<string | null>(null);
   const visibleFramesRef = useRef<TimelineFrame[]>([]);
@@ -858,6 +861,15 @@ export function TimelapseViewer({
     },
     [projectId],
   );
+
+  const toggleJournal = useCallback((id: number) => {
+    setExpandedJournalIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   const jumpToTime = useCallback(
     (iso: string) => {
@@ -1661,29 +1673,66 @@ export function TimelapseViewer({
             </div>
             {journals.length > 0 ? (
               <div className="mt-2 divide-y divide-[#363636] border-y border-[#363636]">
-                {journals.map((journal) => (
-                  <button
-                    key={journal.id}
-                    type="button"
-                    onClick={() => jumpToTime(journal.createdAt)}
-                    className="w-full px-0 py-2 text-left text-xs transition hover:text-sky-100"
-                    title={`Jump to ${fmtDateTime(journal.createdAt)}`}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-black tabular-nums text-sky-200">
-                        {fmtTapeStamp(
-                          dateToTapeSeconds(auditTape, journal.createdAt),
-                        )}
-                      </span>
-                      <span className="shrink-0 font-black tabular-nums text-white">
-                        covers {fmtDuration(journal.activeSecondsCovered)}
-                      </span>
+                {journals.map((journal) => {
+                  const expanded = expandedJournalIds.has(journal.id);
+                  return (
+                    <div key={journal.id} className="py-2 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => toggleJournal(journal.id)}
+                        aria-expanded={expanded}
+                        className="flex w-full items-start gap-2 px-0 text-left transition hover:text-sky-100"
+                        title={expanded ? "Collapse entry" : "Expand entry"}
+                      >
+                        <ChevronRight
+                          className={`mt-0.5 size-3.5 shrink-0 text-sky-300 transition-transform ${
+                            expanded ? "rotate-90" : ""
+                          }`}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center justify-between gap-3">
+                            <span className="font-black tabular-nums text-sky-200">
+                              {fmtTapeStamp(
+                                dateToTapeSeconds(auditTape, journal.createdAt),
+                              )}
+                            </span>
+                            <span className="shrink-0 font-black tabular-nums text-white">
+                              covers {fmtDuration(journal.activeSecondsCovered)}
+                            </span>
+                          </span>
+                          <span
+                            className={`mt-1 block whitespace-pre-wrap text-zinc-400 ${
+                              expanded ? "" : "line-clamp-2"
+                            }`}
+                          >
+                            {journal.content}
+                          </span>
+                        </span>
+                      </button>
+                      {expanded ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 pl-5.5 text-[10px] text-zinc-500">
+                          <span className="tabular-nums">
+                            {fmtDateTime(journal.createdAt)}
+                          </span>
+                          {journal.coversFrom && journal.coversTo ? (
+                            <span className="tabular-nums">
+                              {fmtTime(journal.coversFrom)} –{" "}
+                              {fmtTime(journal.coversTo)}
+                            </span>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => jumpToTime(journal.createdAt)}
+                            className="inline-flex items-center gap-1 font-black tracking-[0.08em] text-sky-300 uppercase transition hover:text-sky-100"
+                          >
+                            <Crosshair className="size-3" />
+                            Jump to moment
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
-                    <p className="mt-1 line-clamp-2 text-zinc-400">
-                      {journal.content}
-                    </p>
-                  </button>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <p className="mt-2 text-xs text-zinc-500">

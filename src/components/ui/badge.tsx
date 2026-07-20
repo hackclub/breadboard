@@ -1,12 +1,13 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-type BadgeTone = "ink" | "red" | "yellow" | "green" | "muted";
+type BadgeTone = "ink" | "red" | "yellow" | "orange" | "green" | "muted";
 
 const toneClass: Record<BadgeTone, string> = {
   ink: "border-black bg-black text-white",
   red: "border-black bg-[#BD0F32] text-white",
   yellow: "border-yellow-900/20 bg-yellow-100 text-yellow-950",
+  orange: "border-orange-900/20 bg-orange-100 text-orange-950",
   green: "border-green-900/20 bg-green-100 text-green-950",
   muted: "border-black/10 bg-zinc-100 text-zinc-700",
 };

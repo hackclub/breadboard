@@ -13,13 +13,13 @@ import {
   Layers3,
   MinusCircle,
   Monitor,
+  NotebookPen,
   Pause,
   Play,
   Plus,
   RefreshCw,
   RotateCcw,
   Scissors,
-  Sparkles,
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -28,13 +28,15 @@ import {
   deleteTimeAuditSegment,
   type TimeAuditSegmentDto,
 } from "@/actions/admin/time-audit";
+import {
+  AuditDeflationInputs,
+  AuditReasonInput,
+} from "@/components/platform/audit-inputs";
 import { VelxioSnapshotViewer } from "@/components/velxio/VelxioSnapshotViewer";
 import type { EditorSnapshotState } from "@/lib/editor/captureState";
 import {
   buildTimeAuditTape,
   dateToTapeSeconds,
-  TIME_AUDIT_DEFLATED_REASONS,
-  TIME_AUDIT_REMOVED_REASONS,
   tapeSecondsToDate,
   type TimeAuditKind,
   timeAuditRangesOverlap,
@@ -65,6 +67,15 @@ interface SessionInfo {
   endedAt: string | null;
   lastActivityAt: string;
   activeSeconds: number;
+}
+
+interface JournalEntry {
+  id: number;
+  createdAt: string;
+  activeSecondsCovered: number;
+  coversFrom: string | null;
+  coversTo: string | null;
+  content: string;
 }
 
 type ParsedSnapshot = Omit<Snapshot, "stateData"> & {
@@ -234,145 +245,6 @@ function fmtTapeStamp(seconds: number): string {
   return `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
-// fallout's DeflationInputs: minutes is the source of truth, percentage is
-// derived, and both describe what REMAINS after deflation. Typing in one
-// field updates the other live; the field being typed in is never rewritten.
-// Remount (via key) when the range changes.
-function AuditDeflationInputs({
-  rangeMin,
-  deflatedPercent,
-  onChange,
-}: {
-  rangeMin: number;
-  deflatedPercent: number;
-  onChange: (deflatedPercent: number) => void;
-}) {
-  const initRemaining =
-    Math.round(((rangeMin * (100 - deflatedPercent)) / 100) * 100) / 100;
-  const [minText, setMinText] = useState(String(initRemaining));
-  const [pctText, setPctText] = useState(
-    String(Math.round((100 - deflatedPercent) * 100) / 100),
-  );
-
-  const handleMinChange = (value: string) => {
-    setMinText(value);
-    const mins = Number(value);
-    if (!Number.isNaN(mins) && rangeMin > 0) {
-      const remainPct =
-        Math.round(Math.min(100, Math.max(0, (mins / rangeMin) * 100)) * 100) /
-        100;
-      setPctText(String(remainPct));
-      onChange(Math.round((100 - remainPct) * 100) / 100);
-    }
-  };
-
-  const handlePctChange = (value: string) => {
-    setPctText(value);
-    const pct = Number(value);
-    if (!Number.isNaN(pct)) {
-      const remainPct = Math.min(100, Math.max(0, pct));
-      const mins = Math.round(((rangeMin * remainPct) / 100) * 100) / 100;
-      setMinText(String(mins));
-      onChange(Math.round((100 - remainPct) * 100) / 100);
-    }
-  };
-
-  return (
-    <div className="flex items-end gap-2">
-      <label className="min-w-0 flex-1">
-        <span className="text-[10px] font-black tracking-[0.08em] text-zinc-500 uppercase">
-          Deflate to
-        </span>
-        <span className="mt-1 flex items-center gap-1">
-          <input
-            type="number"
-            min={0}
-            step={0.5}
-            value={minText}
-            onChange={(event) => handleMinChange(event.currentTarget.value)}
-            className="w-full border border-[#4a4a4a] bg-[#1c1c1c] px-2 py-1.5 text-sm font-bold text-white"
-          />
-          <span className="shrink-0 text-xs text-zinc-400">min</span>
-        </span>
-      </label>
-      <span className="pb-2 text-zinc-500">≈</span>
-      <label className="min-w-0 flex-1">
-        <span className="text-[10px] font-black tracking-[0.08em] text-zinc-500 uppercase">
-          Percentage
-        </span>
-        <span className="mt-1 flex items-center gap-1">
-          <input
-            type="number"
-            min={0}
-            max={100}
-            value={pctText}
-            onChange={(event) => handlePctChange(event.currentTarget.value)}
-            className="w-full border border-[#4a4a4a] bg-[#1c1c1c] px-2 py-1.5 text-sm font-bold text-white"
-          />
-          <span className="shrink-0 text-xs text-zinc-400">%</span>
-        </span>
-      </label>
-    </div>
-  );
-}
-
-// fallout's reason field: free text with a preset dropdown behind the
-// sparkles button that fills the input.
-function AuditReasonInput({
-  kind,
-  value,
-  onChange,
-}: {
-  kind: TimeAuditKind;
-  value: string;
-  onChange: (reason: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const presets =
-    kind === "removed"
-      ? TIME_AUDIT_REMOVED_REASONS
-      : TIME_AUDIT_DEFLATED_REASONS;
-
-  return (
-    <div className="relative flex items-center gap-1">
-      <input
-        type="text"
-        value={value}
-        onChange={(event) => onChange(event.currentTarget.value)}
-        placeholder="Reason..."
-        className="min-w-0 flex-1 border border-[#4a4a4a] bg-[#141414] px-2 py-1.5 text-sm font-bold text-white placeholder:text-zinc-600"
-      />
-      <button
-        type="button"
-        onClick={() => setOpen((state) => !state)}
-        title="Preset reasons"
-        aria-label="Preset reasons"
-        aria-expanded={open}
-        className="grid size-8 shrink-0 place-items-center border border-[#4a4a4a] text-zinc-400 transition hover:border-white hover:text-white"
-      >
-        <Sparkles className="size-3.5" />
-      </button>
-      {open ? (
-        <div className="absolute top-full right-0 z-20 mt-1 w-56 border border-[#4a4a4a] bg-[#242424] shadow-[4px_4px_0_#000]">
-          {presets.map((preset) => (
-            <button
-              key={preset}
-              type="button"
-              onClick={() => {
-                onChange(preset);
-                setOpen(false);
-              }}
-              className="block w-full px-3 py-2 text-left text-xs font-bold text-zinc-300 transition hover:bg-[#363636] hover:text-white"
-            >
-              {preset}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 export function TimelapseViewer({
   projectId,
   projectTitle,
@@ -383,6 +255,7 @@ export function TimelapseViewer({
   until?: string;
 }) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [journals, setJournals] = useState<JournalEntry[]>([]);
   const [allFrames, setAllFrames] = useState<TimelineFrame[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [totalCaptures, setTotalCaptures] = useState(0);
@@ -464,6 +337,7 @@ export function TimelapseViewer({
         );
 
         setSessions((data.sessions ?? []) as SessionInfo[]);
+        setJournals((data.journals ?? []) as JournalEntry[]);
         setAuditSegments((data.auditSegments ?? []) as TimeAuditSegmentDto[]);
         setAuditForm(null);
         setAuditError(null);
@@ -566,9 +440,6 @@ export function TimelapseViewer({
         ),
       )
     : 0;
-  const progressDivisor = Math.max(1, visibleFrames.length - 1);
-  const progress =
-    visibleFrames.length > 1 ? currentIndex / (visibleFrames.length - 1) : 0;
 
   const selectFrame = useCallback(
     (frame: TimelineFrame) => {
@@ -791,29 +662,54 @@ export function TimelapseViewer({
       auditForm.startSec < auditForm.endSec,
   );
 
-  // The scrubber is frame-index based, so time ranges map onto it through
-  // frame positions (same as the gap and idle markers).
+  // fallout's timeline speaks in tape seconds (its "video time"): all sessions
+  // laid end to end as one continuous run of tracked time. The playhead, every
+  // marker, and the scrubber map onto it linearly, so a position on the bar is
+  // a real point in time rather than a frame index — which is what made the
+  // old index-based scrubber disagree with the times the crosshair captured.
+  const tapeTotal = Math.max(1, auditTape.totalSeconds);
+  const tapePctFromIso = useCallback(
+    (iso: string) => (dateToTapeSeconds(auditTape, iso) / tapeTotal) * 100,
+    [auditTape, tapeTotal],
+  );
+
+  // The tape position of every visible frame, so seeking to a tape second can
+  // snap to the nearest frame we actually have an image/state for.
+  const visibleFrameTape = useMemo(
+    () =>
+      visibleFrames.map((frame) => ({
+        frame,
+        sec: dateToTapeSeconds(auditTape, frame.capturedAt),
+      })),
+    [auditTape, visibleFrames],
+  );
+
+  const seekToTapeSecond = useCallback(
+    (sec: number) => {
+      let best: TimelineFrame | null = null;
+      let bestDist = Number.POSITIVE_INFINITY;
+      for (const entry of visibleFrameTape) {
+        const dist = Math.abs(entry.sec - sec);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = entry.frame;
+        }
+      }
+      if (best) selectFrame(best);
+    },
+    [selectFrame, visibleFrameTape],
+  );
+
+  // Ranges (saved audit segments, the in-progress form) map onto the timeline
+  // by their tape-second span, the same domain as the playhead — so a marked
+  // band always sits exactly where its start/end times are.
   const bandForRange = useCallback(
     (startAt: string, endAt: string) => {
-      const startMs = new Date(startAt).getTime();
-      const endMs = new Date(endAt).getTime();
-      let startIndex = -1;
-      let endIndex = -1;
-      visibleFrames.forEach((frame, index) => {
-        const time = new Date(frame.capturedAt).getTime();
-        if (time >= startMs && startIndex === -1) startIndex = index;
-        if (time <= endMs) endIndex = index;
-      });
-      if (startIndex === -1 || endIndex < startIndex) return null;
-      return {
-        left: (startIndex / progressDivisor) * 100,
-        width: Math.max(
-          ((endIndex - startIndex) / progressDivisor) * 100,
-          0.75,
-        ),
-      };
+      const left = tapePctFromIso(startAt);
+      const right = tapePctFromIso(endAt);
+      return { left, width: Math.max(right - left, 0.75) };
     },
-    [progressDivisor, visibleFrames],
+    [tapePctFromIso],
   );
 
   const openAuditForm = useCallback(
@@ -1085,7 +981,10 @@ export function TimelapseViewer({
                 <p className="text-[10px] font-black tracking-[0.12em] text-zinc-400 uppercase">
                   Frame {currentIndex + 1} of {visibleFrames.length}
                 </p>
-                <p className="mt-0.5 text-xs font-black text-white">
+                <p className="mt-0.5 text-xs font-black tabular-nums text-white">
+                  {fmtTapeStamp(currentTapeSec)} / {fmtTapeStamp(tapeTotal)}
+                </p>
+                <p className="mt-0.5 text-[10px] font-bold text-zinc-400">
                   {current ? fmtTime(current.capturedAt) : ""}
                 </p>
               </div>
@@ -1262,29 +1161,33 @@ export function TimelapseViewer({
               <input
                 type="range"
                 min={0}
-                max={Math.max(0, visibleFrames.length - 1)}
-                value={currentIndex}
+                max={Math.round(tapeTotal)}
+                value={Math.round(currentTapeSec)}
                 onChange={(event) =>
-                  selectIndex(Number(event.currentTarget.value))
+                  seekToTapeSecond(Number(event.currentTarget.value))
                 }
                 aria-label="Seek timelapse"
+                aria-valuetext={`${fmtTapeStamp(currentTapeSec)} of ${fmtTapeStamp(tapeTotal)}`}
                 className="relative z-10 block h-3 w-full cursor-pointer accent-[#BD0F32]"
               />
               <div className="pointer-events-none absolute inset-x-1 top-2.5 h-1 bg-[#343434]">
                 <div
                   className="h-full bg-[#BD0F32]"
-                  style={{ width: `${progress * 100}%` }}
+                  style={{ width: `${(currentTapeSec / tapeTotal) * 100}%` }}
                 />
                 {sessions.slice(1).map((session) => {
-                  const boundary = visibleFrames.findIndex(
-                    (frame) => frame.sessionId === session.id,
+                  const startTape = dateToTapeSeconds(
+                    auditTape,
+                    session.startedAt,
                   );
-                  if (boundary <= 0) return null;
+                  const pct = (startTape / tapeTotal) * 100;
+                  if (pct <= 0 || pct >= 100) return null;
                   return (
                     <span
                       key={`session-${session.id}`}
                       className="absolute top-[-2px] h-2 w-px bg-white/70"
-                      style={{ left: `${(boundary / progressDivisor) * 100}%` }}
+                      title={`Session start: ${fmtTapeStamp(startTape)}`}
+                      style={{ left: `${pct}%` }}
                     />
                   );
                 })}
@@ -1302,26 +1205,39 @@ export function TimelapseViewer({
                       className="absolute top-[-2px] h-2 w-1 bg-amber-300"
                       title={`Capture gap: ${duration}`}
                       style={{
-                        left: `${(frameIndex / progressDivisor) * 100}%`,
+                        left: `${tapePctFromIso(frame.capturedAt)}%`,
                       }}
                     />
                   );
                 })}
-                {visibleFrames.map((frame, frameIndex) =>
+                {visibleFrames.map((frame) =>
                   frame.kind === "screen" && frame.likelyInactive ? (
                     <span
                       key={`inactive-${frame.id}`}
                       className="absolute top-[-2px] h-2 w-1 bg-violet-300"
                       title="Possible idle period"
                       style={{
-                        left: `${(frameIndex / progressDivisor) * 100}%`,
+                        left: `${tapePctFromIso(frame.capturedAt)}%`,
                       }}
                     />
                   ) : null,
                 )}
+                {journals.map((journal) => (
+                  <span
+                    key={`journal-${journal.id}`}
+                    className="absolute -top-1.5 h-4 w-0.5 bg-sky-400 shadow-[0_0_0_1px_rgba(0,0,0,0.6)]"
+                    title={`Journal entered at ${fmtTapeStamp(
+                      dateToTapeSeconds(auditTape, journal.createdAt),
+                    )} — covers ${fmtDuration(journal.activeSecondsCovered)}`}
+                    style={{
+                      left: `${tapePctFromIso(journal.createdAt)}%`,
+                    }}
+                  >
+                    <span className="absolute -top-1 left-1/2 size-1.5 -translate-x-1/2 rounded-full bg-sky-300" />
+                  </span>
+                ))}
                 {auditSegments.map((segment) => {
                   const band = bandForRange(segment.startAt, segment.endAt);
-                  if (!band) return null;
                   return (
                     <span
                       key={`audit-${segment.id}`}
@@ -1343,7 +1259,6 @@ export function TimelapseViewer({
                         auditFormRange.startAt,
                         auditFormRange.endAt,
                       );
-                      if (!band) return null;
                       return (
                         <span
                           className={`absolute -top-0.75 h-2.5 border border-dashed ${
@@ -1360,12 +1275,22 @@ export function TimelapseViewer({
                     })()
                   : null}
               </div>
+              {/* fallout-style ruler: 0:00 on the left to the full tracked
+                  duration on the right, so the timeline scale is explicit. */}
+              <div className="mt-1.5 flex justify-between text-[10px] font-black tabular-nums text-zinc-500">
+                {[0, 0.25, 0.5, 0.75, 1].map((frac) => (
+                  <span key={frac}>{fmtTapeStamp(tapeTotal * frac)}</span>
+                ))}
+              </div>
             </div>
 
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-black tracking-[0.06em] text-zinc-500 uppercase">
               <span>{visibleFrames.length} visible frames</span>
               <span className="text-amber-300">Amber: capture gap</span>
               <span className="text-violet-300">Violet: idle signal</span>
+              {journals.length > 0 ? (
+                <span className="text-sky-300">Sky: journal entry</span>
+              ) : null}
               {auditSegments.some((segment) => segment.kind === "removed") ? (
                 <span className="text-red-400">Red band: removed time</span>
               ) : null}
@@ -1648,6 +1573,49 @@ export function TimelapseViewer({
                 {auditError}
               </p>
             ) : null}
+          </section>
+
+          <section className="border-b border-[#3d3d3d] p-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-[10px] font-black tracking-[0.14em] text-zinc-500 uppercase">
+                <NotebookPen className="size-3.5" />
+                Journal entries
+              </div>
+              <span className="text-[10px] font-black text-sky-300">
+                {journals.length}
+              </span>
+            </div>
+            {journals.length > 0 ? (
+              <div className="mt-2 divide-y divide-[#363636] border-y border-[#363636]">
+                {journals.map((journal) => (
+                  <button
+                    key={journal.id}
+                    type="button"
+                    onClick={() => jumpToTime(journal.createdAt)}
+                    className="w-full px-0 py-2 text-left text-xs transition hover:text-sky-100"
+                    title={`Jump to ${fmtDateTime(journal.createdAt)}`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-black tabular-nums text-sky-200">
+                        {fmtTapeStamp(
+                          dateToTapeSeconds(auditTape, journal.createdAt),
+                        )}
+                      </span>
+                      <span className="shrink-0 font-black tabular-nums text-white">
+                        covers {fmtDuration(journal.activeSecondsCovered)}
+                      </span>
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-zinc-400">
+                      {journal.content}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-zinc-500">
+                No journal entries in this range.
+              </p>
+            )}
           </section>
 
           <section className="border-b border-[#3d3d3d] p-4">

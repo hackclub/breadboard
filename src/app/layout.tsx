@@ -25,7 +25,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${shareTechMono.variable} antialiased`}>
+    <html
+      lang="en"
+      className={`${shareTechMono.variable} antialiased`}
+      suppressHydrationWarning
+    >
       <body>
         <ClientEffects />
         {children}

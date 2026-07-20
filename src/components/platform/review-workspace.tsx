@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import {
@@ -16,6 +17,7 @@ import {
   HiPencilSquare,
   HiPhoto,
   HiPlay,
+  HiScissors,
   HiWrenchScrewdriver,
   HiXCircle,
 } from "react-icons/hi2";
@@ -26,10 +28,12 @@ import {
   requestChanges,
   saveUnifiedTemplateOverride,
   setProjectShipType,
+  setProjectSimulatorSketchy,
   updateUnifiedJustification,
 } from "@/actions/admin/review";
 import { BreadAmount, BreadIcon } from "@/components/shared/bread-amount";
 import { Markdown } from "@/components/shared/markdown";
+import { breadForHours, roundHours } from "@/lib/constants";
 import { isBuildShip } from "@/lib/projects/project-type";
 import { storageReadUrl } from "@/lib/storage/urls";
 import {
@@ -76,6 +80,7 @@ type ReviewProject = {
   kitType: string;
   submissionSource: string | null;
   breadOnly: boolean;
+  simulatorSketchy: boolean;
   projectType: string;
 };
 
@@ -393,6 +398,14 @@ export function ReviewWorkspace({
   const [templatePending, startTemplateTransition] = useTransition();
   const [templateStatus, setTemplateStatus] = useState<string | null>(null);
   const [templateError, setTemplateError] = useState<string | null>(null);
+  // Reviewer flag for the "approved · simulator sketchy" review-queue bucket.
+  // Persists on its own the moment it's toggled, decoupled from the approve
+  // decision, so flagging changes nothing about the payout or review flow.
+  const [simulatorSketchy, setSimulatorSketchy] = useState(
+    initial.simulatorSketchy,
+  );
+  const [sketchyPending, startSketchyTransition] = useTransition();
+  const [sketchyError, setSketchyError] = useState<string | null>(null);
 
   // Live preview: recompose the template from the current form inputs so
   // changing the approved hours or the justification updates the record box
@@ -433,15 +446,14 @@ export function ReviewWorkspace({
   const slackProfile = initial.userSlackId
     ? `https://hackclub.enterprise.slack.com/team/${initial.userSlackId}`
     : null;
-  const approvedBread =
-    Math.max(0, Math.floor(approvedHours || 0)) * breadPerHour;
+  const approvedBread = breadForHours(approvedHours || 0, breadPerHour);
   const auditDeductedSeconds =
     (timeAudit?.removedSeconds ?? 0) + (timeAudit?.deflatedSeconds ?? 0);
   const auditedSeconds = Math.max(
     0,
     tracking.measuredSeconds - auditDeductedSeconds,
   );
-  const auditedHours = Math.floor(auditedSeconds / 3600);
+  const auditedHours = roundHours(auditedSeconds / 3600);
   const hasTimeAudit = (timeAudit?.segmentCount ?? 0) > 0;
 
   const statusTone =
@@ -536,6 +548,23 @@ export function ReviewWorkspace({
         router.refresh();
       } catch (error) {
         setTemplateError(
+          error instanceof Error ? error.message : "Could not save",
+        );
+      }
+    });
+  }
+
+  function toggleSimulatorSketchy() {
+    const next = !simulatorSketchy;
+    setSketchyError(null);
+    setSimulatorSketchy(next);
+    startSketchyTransition(async () => {
+      try {
+        await setProjectSimulatorSketchy(initial.id, next);
+        router.refresh();
+      } catch (error) {
+        setSimulatorSketchy(!next);
+        setSketchyError(
           error instanceof Error ? error.message : "Could not save",
         );
       }
@@ -806,6 +835,7 @@ export function ReviewWorkspace({
                   <input
                     type="number"
                     min={0}
+                    step={0.1}
                     value={approvedHours}
                     onChange={(e) => setApprovedHours(Number(e.target.value))}
                     className="rounded-xl border border-black bg-white px-4 py-3 text-xl font-black"
@@ -923,6 +953,46 @@ export function ReviewWorkspace({
                     </span>
                   </button>
                 ) : null}
+                <div className="grid gap-1.5">
+                  <button
+                    type="button"
+                    aria-pressed={simulatorSketchy}
+                    disabled={sketchyPending}
+                    onClick={toggleSimulatorSketchy}
+                    className={`rounded-xl border px-4 py-3 text-left disabled:opacity-60 ${
+                      simulatorSketchy
+                        ? "border-orange-500 bg-orange-100"
+                        : "border-black bg-white hover:bg-zinc-50"
+                    }`}
+                  >
+                    <span
+                      className={`inline-flex items-center gap-1.5 text-sm font-black ${
+                        simulatorSketchy ? "text-orange-900" : "text-black"
+                      }`}
+                    >
+                      <HiExclamationTriangle className="size-4" />
+                      {simulatorSketchy
+                        ? "In “approved · simulator sketchy”"
+                        : "Send to “approved · simulator sketchy”"}
+                    </span>
+                    <span
+                      className={`mt-1 block text-xs font-semibold ${
+                        simulatorSketchy
+                          ? "text-orange-800/80"
+                          : "text-black/50"
+                      }`}
+                    >
+                      {simulatorSketchy
+                        ? "This project shows under the sketchy bucket in the review queue. Click to remove it."
+                        : "Flag an approved project whose simulator output looked questionable. Groups it in the review queue; nothing else changes."}
+                    </span>
+                  </button>
+                  {sketchyError ? (
+                    <span className="text-[11px] font-black text-red-700">
+                      {sketchyError}
+                    </span>
+                  ) : null}
+                </div>
                 <button
                   type="button"
                   disabled={pending || locked || missingJustification}
@@ -1357,6 +1427,15 @@ export function ReviewWorkspace({
                       </span>
                     </div>
                   </a>
+                  {entry.durationSeconds > 0 ? (
+                    <Link
+                      href={`/platform/admin/projects/${initial.id}/timelapse/recording/${entry.id}`}
+                      className="flex items-center justify-center gap-1.5 border-t border-black/10 bg-white px-2.5 py-2 text-xs font-black text-black/70 no-underline transition hover:bg-[#BD0F32] hover:text-white"
+                    >
+                      <HiScissors className="size-4" />
+                      Audit time
+                    </Link>
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -1388,7 +1467,7 @@ export function ReviewWorkspace({
             <p className="text-base font-black text-black/60">
               {initial.hoursSpent}h × {breadPerHour} ={" "}
               <BreadAmount
-                amount={initial.hoursSpent * breadPerHour}
+                amount={breadForHours(initial.hoursSpent, breadPerHour)}
                 gold={isBuild}
               />
             </p>

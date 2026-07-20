@@ -71,6 +71,7 @@ export default async function AdminDemoReviewPage({
       projectStatus: projects.status,
       reviewNote: projectSubmissions.userComment,
       breadAmount: projectSubmissions.breadAmount,
+      simulatorSketchy: projects.simulatorSketchy,
       shippedAt: projectSubmissions.submittedAt,
       updatedAt: projectSubmissions.updatedAt,
       createdAt: projects.createdAt,

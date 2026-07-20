@@ -150,6 +150,39 @@ export function dateToTapeSeconds(
   return tape.totalSeconds;
 }
 
+// Lapse recordings need no session tape: the video's duration counts 1:1
+// toward measured time, so a segment is a plain span of video seconds within
+// one recording. This is fallout's per-recording audit shape (with a ×1
+// multiplier, since breadboard already treats recording seconds as tracked
+// seconds rather than compressed video time).
+export type LapseAuditRange = {
+  startSeconds: number;
+  endSeconds: number;
+};
+
+export function lapseSegmentDeductionSeconds(
+  segment: LapseAuditRange & { kind: TimeAuditKind; deflatedPercent: number },
+): number {
+  const counted = Math.max(
+    0,
+    Math.round(segment.endSeconds - segment.startSeconds),
+  );
+  const percent =
+    segment.kind === "removed"
+      ? 100
+      : Math.min(100, Math.max(0, segment.deflatedPercent));
+  return Math.round((counted * percent) / 100);
+}
+
+export function lapseRangesOverlap(
+  left: LapseAuditRange,
+  right: LapseAuditRange,
+): boolean {
+  return (
+    left.startSeconds < right.endSeconds && right.startSeconds < left.endSeconds
+  );
+}
+
 export const TIME_AUDIT_REMOVED_REASONS = [
   "AFK / idle screen",
   "Non-project activity",

@@ -4,7 +4,12 @@ import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth/guards";
 import { audit } from "@/lib/audit";
-import { BREAD_PER_HOUR, GOLD_BREAD_PER_HOUR } from "@/lib/constants";
+import {
+  BREAD_PER_HOUR,
+  breadForHours,
+  GOLD_BREAD_PER_HOUR,
+  roundHours,
+} from "@/lib/constants";
 import { db } from "@/lib/db/db";
 import {
   orderItems,
@@ -85,8 +90,9 @@ function requirePositiveProjectId(value: number) {
   return projectId;
 }
 
+// Hours are kept to a tenth of an hour, never rounded to whole hours.
 function normalizeHours(value: number, fallback = 0) {
-  return Math.max(0, Math.floor(Number(value || fallback) || 0));
+  return roundHours(Number(value || fallback) || 0);
 }
 
 function normalizeReviewText(value: string, label: string) {
@@ -134,7 +140,7 @@ async function createReviewRecord(
         input.decision === "needs_changes"
           ? "changes_requested"
           : input.decision,
-      approvedSeconds: input.approvedHours * 3600,
+      approvedSeconds: Math.round(input.approvedHours * 3600),
       breadAmount: input.bread,
       publicComment: input.publicComment,
       internalComment: input.internalComment,
@@ -383,7 +389,7 @@ export async function approveProject(
   const acceptBreadOnly = breadOnly && !isBuildShip(project);
 
   if (target.phase === "demo") {
-    const bread = hours * BREAD_PER_HOUR;
+    const bread = breadForHours(hours, BREAD_PER_HOUR);
     const creditedUser = await db.transaction(async (tx) => {
       await createReviewRecord(tx, {
         projectId: id,
@@ -482,7 +488,7 @@ export async function approveProject(
   // it falls through to the normal design flow: a kit ships and it earns
   // regular bread.
   if (isBuildShip(project)) {
-    const gold = hours * GOLD_BREAD_PER_HOUR;
+    const gold = breadForHours(hours, GOLD_BREAD_PER_HOUR);
     const creditedUser = await db.transaction(async (tx) => {
       await createReviewRecord(tx, {
         projectId: id,
@@ -595,7 +601,7 @@ export async function approveProject(
   const isUpdateShip = Boolean(priorApproved);
 
   if (acceptBreadOnly || submission.breadOnly || isUpdateShip) {
-    const bread = hours * BREAD_PER_HOUR;
+    const bread = breadForHours(hours, BREAD_PER_HOUR);
     const creditedUser = await db.transaction(async (tx) => {
       await createReviewRecord(tx, {
         projectId: id,
@@ -855,7 +861,7 @@ export async function updateUnifiedJustification(
     const gold = isBuildShip(project);
     const rate = gold ? GOLD_BREAD_PER_HOUR : BREAD_PER_HOUR;
     const newBread =
-      fresh.breadAmount > 0 ? newHours * rate : fresh.breadAmount;
+      fresh.breadAmount > 0 ? breadForHours(newHours, rate) : fresh.breadAmount;
     const breadDelta = newBread - fresh.breadAmount;
 
     await tx
@@ -989,6 +995,28 @@ export async function saveUnifiedTemplateOverride(
   revalidateReviewViews(submission.projectId);
 }
 
+// Reviewer flag for the "approved · simulator sketchy" review-queue bucket.
+// It only sets a label on the project; it moves no bread, ships no kit, and
+// changes no review state. Reviewers toggle it from the approve panel so
+// approved projects with questionable simulator output can be grouped and
+// revisited later.
+export async function setProjectSimulatorSketchy(
+  projectId: number,
+  sketchy: boolean,
+) {
+  await requireAdminSession();
+  const id = requirePositiveProjectId(projectId);
+  await getProjectOrThrow(id);
+  await db
+    .update(projects)
+    .set({ simulatorSketchy: Boolean(sketchy), updatedAt: new Date() })
+    .where(eq(projects.id, id));
+  await audit("admin.review.set_simulator_sketchy", "project", String(id), {
+    sketchy: Boolean(sketchy),
+  });
+  revalidateReviewViews(id);
+}
+
 // Reviewers sometimes need to reclassify a ship: a maker picks "build" but
 // actually wants a kit, or submits a finished build under "design". The type
 // drives payout currency and kit fulfillment, so it can only change before the
@@ -1053,7 +1081,10 @@ export async function payOutProject(projectId: number) {
   // Build ships earn gold bread; everything else (including off-platform
   // design) earns regular bread.
   const buildShip = isBuildShip(project);
-  const bread = hours * (buildShip ? GOLD_BREAD_PER_HOUR : BREAD_PER_HOUR);
+  const bread = breadForHours(
+    hours,
+    buildShip ? GOLD_BREAD_PER_HOUR : BREAD_PER_HOUR,
+  );
   const creditedUser = await db.transaction(async (tx) => {
     const [updatedProject] = await tx
       .update(projects)

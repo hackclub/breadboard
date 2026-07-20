@@ -13,6 +13,7 @@ import {
   refreshGitHubReadme,
   resolvePublicOrigin,
 } from "@/lib/projects/githubReadme";
+import { roundHours } from "@/lib/constants";
 import { clean } from "@/lib/utils";
 import type {
   CustomShipInput,
@@ -93,8 +94,9 @@ export async function submitDemoForUser(
       );
     const demoHours = project.overrideHoursSpent ?? project.hoursSpent;
     const demoTrackedSeconds = project.overrideHoursSpent
-      ? project.overrideHoursSpent * 3600
-      : (demoTracked[0]?.activeSeconds ?? project.hoursSpent * 3600);
+      ? Math.round(project.overrideHoursSpent * 3600)
+      : (demoTracked[0]?.activeSeconds ??
+        Math.round(project.hoursSpent * 3600));
 
     await tx.insert(projectSubmissions).values({
       projectId,
@@ -278,8 +280,8 @@ export async function shipProjectForUser(
     }
     // The submission claims only the new hours; the project keeps the
     // cumulative total.
-    const hoursSpent = Math.max(0, Math.ceil(newSeconds / 3600));
-    const totalHours = Math.max(0, Math.ceil(activeSeconds / 3600));
+    const hoursSpent = roundHours(newSeconds / 3600);
+    const totalHours = roundHours(activeSeconds / 3600);
     const projectRows = await tx
       .select({ editorData: projects.editorData, codeUrl: projects.codeUrl })
       .from(projects)
@@ -384,8 +386,8 @@ export async function shipCustomProjectForUser(
       );
     // data.hoursSpent is the cumulative measured total; the submission claims
     // only what earlier approved ships haven't already covered.
-    const totalHours = Math.max(0, Math.floor(data.hoursSpent || 0));
-    const totalSeconds = totalHours * 3600;
+    const totalHours = roundHours(data.hoursSpent || 0);
+    const totalSeconds = Math.round(totalHours * 3600);
     const { countedSeconds, hasApprovedShip } = await approvedShipFloor(
       tx,
       projectId,
@@ -394,7 +396,7 @@ export async function shipCustomProjectForUser(
     if (hasApprovedShip && newSeconds <= 0) {
       throw new Error("Track new time before shipping an update.");
     }
-    const hoursSpent = Math.max(0, Math.ceil(newSeconds / 3600));
+    const hoursSpent = roundHours(newSeconds / 3600);
     const codeUrl = clean(data.gitUrl);
     if (!codeUrl)
       throw new Error("Git URL is required for custom submissions.");

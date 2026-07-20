@@ -52,3 +52,18 @@ export const SECONDS_PER_BREAD = 3600 / BREAD_PER_HOUR;
 export function estimateBreadFromSeconds(seconds: number): number {
   return Math.floor(Math.max(0, seconds) / SECONDS_PER_BREAD);
 }
+
+// Approved and measured time is tracked to a tenth of an hour. Whole-hour
+// rounding over-credits short sessions (2h 12m must not read as 3h), so hours
+// are always kept to one decimal.
+export function roundHours(value: number): number {
+  return Math.max(0, Math.round((Number(value) || 0) * 10) / 10);
+}
+
+// Bread is a whole number. Award the floor of hours (to a tenth) times the
+// rate, computed in integer tenths so float error can't drop an exact multiple
+// (0.6h × 5 must be 3, not floor(2.9999…) = 2).
+export function breadForHours(hours: number, rate: number): number {
+  const tenths = Math.max(0, Math.round((Number(hours) || 0) * 10));
+  return Math.floor((tenths * rate) / 10);
+}

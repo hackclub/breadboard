@@ -236,7 +236,8 @@ async function getProgressProjects(): Promise<ProgressProject[]> {
           (materialImageByProject.get(row.projectId) ?? ""),
         // Editor time is the live signal; self-reported hours cover off-platform
         // projects that never touch the editor.
-        secondsSpent: trackedSeconds > 0 ? trackedSeconds : hoursSpent * 3600,
+        secondsSpent:
+          trackedSeconds > 0 ? trackedSeconds : Math.round(hoursSpent * 3600),
         circuit: row.screenshotUrl ? null : parseCircuitSnapshot(editorData),
         shareable: editorData.length > 0,
       }))

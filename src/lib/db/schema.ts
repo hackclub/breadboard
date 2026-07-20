@@ -2,6 +2,7 @@ import { relations } from "drizzle-orm";
 import {
   boolean,
   check,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -635,8 +636,9 @@ export const projects = pgTable(
     kitId: integer("kit_id").references(() => kits.id, {
       onDelete: "set null",
     }),
-    hoursSpent: integer("hours_spent").notNull().default(0),
-    overrideHoursSpent: integer("override_hours_spent"),
+    // Hours are kept to a tenth of an hour, not whole hours (see roundHours).
+    hoursSpent: doublePrecision("hours_spent").notNull().default(0),
+    overrideHoursSpent: doublePrecision("override_hours_spent"),
     overrideHoursSpentJustification: text("override_hours_spent_justification")
       .notNull()
       .default(""),
@@ -670,6 +672,10 @@ export const projects = pgTable(
     // bread with no kit. Distinct from submissionSource, which only records
     // where the work was tracked (editor vs manual/off-platform).
     projectType: text("project_type").notNull().default("design"),
+    // Reviewer flag for the "approved · simulator sketchy" review-queue bucket:
+    // the project was approved but its simulator output looked questionable.
+    // Purely a review-queue label; it changes no payout or fulfillment behavior.
+    simulatorSketchy: boolean("simulator_sketchy").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -828,10 +834,10 @@ export const projectSubmissions = pgTable(
     birthday: text("birthday").notNull().default(""),
     firstName: text("first_name").notNull().default(""),
     lastName: text("last_name").notNull().default(""),
-    hoursSpent: integer("hours_spent").notNull().default(0),
+    hoursSpent: doublePrecision("hours_spent").notNull().default(0),
     trackedSeconds: integer("tracked_seconds").notNull().default(0),
     editorVersionNumber: integer("editor_version_number"),
-    approvedHours: integer("approved_hours"),
+    approvedHours: doublePrecision("approved_hours"),
     internalNote: text("internal_note").notNull().default(""),
     // Frozen Unified DB justification for this ship. Non-empty wins over the
     // live-composed template on push. Per ship, because the Unified DB treats
@@ -1539,9 +1545,17 @@ export const timeAuditSegmentKindEnum = pgEnum("time_audit_segment_kind", [
 ]);
 
 // Reviewer annotations from the timelapse time audit (fallout's model): a
-// wall-clock range whose tracked time is removed outright or deflated by a
-// percentage. deductedSeconds snapshots the counted overlap at annotation
-// time so downstream review surfaces don't recompute against live sessions.
+// range whose tracked time is removed outright or deflated by a percentage.
+// deductedSeconds snapshots the counted overlap at annotation time so
+// downstream review surfaces don't recompute against live sessions.
+//
+// A row is one of two shapes, discriminated by timelapseId:
+//   - Editor segment (timelapseId null): a wall-clock range (startAt/endAt)
+//     over the project's activity-session tape.
+//   - Lapse segment (timelapseId set): a video-second range
+//     (startSeconds/endSeconds) within one attached recording, whose duration
+//     counts 1:1 toward measured time. This mirrors fallout's per-recording
+//     audit where the reviewer scrubs the timelapse video itself.
 export const projectTimeAuditSegments = pgTable(
   "project_time_audit_segments",
   {
@@ -1552,8 +1566,17 @@ export const projectTimeAuditSegments = pgTable(
     reviewerId: text("reviewer_id").references(() => user.id, {
       onDelete: "set null",
     }),
-    startAt: timestamp("start_at", { withTimezone: true }).notNull(),
-    endAt: timestamp("end_at", { withTimezone: true }).notNull(),
+    // The recording a lapse segment scrubs. Null for editor segments.
+    timelapseId: integer("timelapse_id").references(
+      () => projectTimelapses.id,
+      { onDelete: "cascade" },
+    ),
+    // Editor segments: the wall-clock range. Null for lapse segments.
+    startAt: timestamp("start_at", { withTimezone: true }),
+    endAt: timestamp("end_at", { withTimezone: true }),
+    // Lapse segments: the range in video seconds. Null for editor segments.
+    startSeconds: integer("start_seconds"),
+    endSeconds: integer("end_seconds"),
     kind: timeAuditSegmentKindEnum("kind").notNull(),
     // Portion of the counted time deducted. Removal stores 100.
     deflatedPercent: integer("deflated_percent").notNull().default(100),
@@ -1565,9 +1588,20 @@ export const projectTimeAuditSegments = pgTable(
   },
   (table) => [
     index("time_audit_segments_project_id_idx").on(table.projectId),
+    index("time_audit_segments_timelapse_id_idx").on(table.timelapseId),
+    // Exactly one shape: an editor wall-clock range or a lapse video range.
+    check(
+      "time_audit_segments_source_valid",
+      sql`(${table.timelapseId} is null and ${table.startAt} is not null and ${table.endAt} is not null)
+        or (${table.timelapseId} is not null and ${table.startSeconds} is not null and ${table.endSeconds} is not null)`,
+    ),
     check(
       "time_audit_segments_range_valid",
-      sql`${table.endAt} > ${table.startAt}`,
+      sql`${table.startAt} is null or ${table.endAt} > ${table.startAt}`,
+    ),
+    check(
+      "time_audit_segments_video_range_valid",
+      sql`${table.startSeconds} is null or (${table.startSeconds} >= 0 and ${table.endSeconds} > ${table.startSeconds})`,
     ),
     check(
       "time_audit_segments_percent_valid",

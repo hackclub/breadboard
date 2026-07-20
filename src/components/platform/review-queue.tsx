@@ -21,19 +21,30 @@ type ReviewProject = {
   submissionType: string;
   submissionSource?: string | null;
   breadOnly?: boolean;
+  simulatorSketchy?: boolean;
   shippedAt: Date | null;
   userEmail: string;
   versionCount: number;
   kitType: string;
 };
 
+// A pseudo-status bucket: not a real submission status but a cross-cut of
+// approved projects a reviewer flagged as simulator sketchy.
+const SIMULATOR_SKETCHY_FILTER = "approved_simulator_sketchy";
+
 const filters = [
   "all",
   "pending_review",
   "needs_changes",
   "approved",
+  SIMULATOR_SKETCHY_FILTER,
   "rejected",
 ];
+
+function filterLabel(name: string) {
+  if (name === SIMULATOR_SKETCHY_FILTER) return "approved · simulator sketchy";
+  return name.replace(/_/g, " ");
+}
 
 function safeUrl(value: string) {
   const storageUrl = storageReadUrl(value);
@@ -73,13 +84,23 @@ export function ReviewQueue({ projects }: { projects: ReviewProject[] }) {
   const [filter, setFilter] = useState("all");
   const visible = useMemo(
     () =>
-      projects.filter(
-        (item) =>
-          (tab === "design"
+      projects.filter((item) => {
+        const inTab =
+          tab === "design"
             ? item.submissionType !== "demo"
-            : item.submissionType === "demo") &&
-          (filter === "all" || item.status === filter),
-      ),
+            : item.submissionType === "demo";
+        if (!inTab) return false;
+        if (filter === "all") return true;
+        // The sketchy bucket is a cross-cut of approved-or-later, flagged
+        // projects, so it doesn't map to a single status value.
+        if (filter === SIMULATOR_SKETCHY_FILTER) {
+          return (
+            Boolean(item.simulatorSketchy) &&
+            (item.status === "approved" || item.status === "fulfilled")
+          );
+        }
+        return item.status === filter;
+      }),
     [projects, filter, tab],
   );
   const designCount = projects.filter(
@@ -126,7 +147,7 @@ export function ReviewQueue({ projects }: { projects: ReviewProject[] }) {
               size="sm"
               className="rounded-full shadow-none"
             >
-              {name.replace(/_/g, " ")}
+              {filterLabel(name)}
             </Button>
           ))}
         </div>
@@ -172,6 +193,11 @@ export function ReviewQueue({ projects }: { projects: ReviewProject[] }) {
                   {project.breadOnly ? (
                     <Badge tone="yellow" className="shrink-0 text-[10px]">
                       bread only
+                    </Badge>
+                  ) : null}
+                  {project.simulatorSketchy ? (
+                    <Badge tone="orange" className="shrink-0 text-[10px]">
+                      sim sketchy
                     </Badge>
                   ) : null}
                   <span className="text-xs text-black/50">

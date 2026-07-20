@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { HackClubClaims } from "@/lib/auth/hackclub";
 import { assertHackClubYswsEligible, ensureSlackId } from "@/lib/auth/hackclub";
 import { requireSession } from "@/lib/auth/guards";
+import { roundHours } from "@/lib/constants";
 import { db } from "@/lib/db/db";
 import {
   editorActivitySessions,
@@ -1169,7 +1170,7 @@ export async function submitExternalProjectFromForm(
       .from(projectTimelapses)
       .where(eq(projectTimelapses.projectId, parsed.projectId));
     const totalSeconds = tracked + (recordingRow?.total ?? 0);
-    const hoursSpent = Math.max(0, Math.ceil(totalSeconds / 3600));
+    const hoursSpent = roundHours(totalSeconds / 3600);
 
     const owner = { userId: session.user.id, email: session.user.email };
     const data: CustomShipInput = {

@@ -90,6 +90,7 @@ export default async function AdminReviewProjectPage({
       submissionType: projectSubmissions.type,
       submissionSource: projectSubmissions.submissionSource,
       breadOnly: projectSubmissions.breadOnly,
+      simulatorSketchy: projects.simulatorSketchy,
       projectType: projects.projectType,
       shippedAt: projectSubmissions.submittedAt,
       updatedAt: projectSubmissions.updatedAt,

@@ -20,9 +20,11 @@ import {
   approveProject,
   rejectProject,
   requestChanges,
+  setProjectSimulatorSketchy,
   updateUnifiedJustification,
 } from "@/actions/admin/review";
 import { BreadAmount, BreadIcon } from "@/components/shared/bread-amount";
+import { breadForHours } from "@/lib/constants";
 import { storageReadUrl } from "@/lib/storage/urls";
 
 type ReviewProject = {
@@ -48,6 +50,7 @@ type ReviewProject = {
   projectStatus: string;
   reviewNote: string;
   breadAmount: number;
+  simulatorSketchy: boolean;
   shippedAt: Date | null;
   updatedAt: Date;
   createdAt: Date;
@@ -139,6 +142,14 @@ export function DemoReviewWorkspace({
   const [justificationError, setJustificationError] = useState<string | null>(
     null,
   );
+  // Reviewer flag for the "approved · simulator sketchy" review-queue bucket.
+  // Persists on its own the moment it's toggled, decoupled from the approve
+  // decision, so flagging changes nothing about the payout or review flow.
+  const [simulatorSketchy, setSimulatorSketchy] = useState(
+    initial.simulatorSketchy,
+  );
+  const [sketchyPending, startSketchyTransition] = useTransition();
+  const [sketchyError, setSketchyError] = useState<string | null>(null);
   const router = useRouter();
   const [projectNotes, setProjectNotes] = useState(initialProjectNotes);
   const [userNotesState, setUserNotesState] = useState(initialUserNotes);
@@ -147,9 +158,8 @@ export function DemoReviewWorkspace({
 
   const demoVideo = safeUrl(initial.demoVideoUrl);
   const designApprovedHours = initial.overrideHoursSpent ?? initial.hoursSpent;
-  const approvedBread =
-    Math.max(0, Math.floor(approvedHours || 0)) * breadPerHour;
-  const designBread = designApprovedHours * breadPerHour;
+  const approvedBread = breadForHours(approvedHours || 0, breadPerHour);
+  const designBread = breadForHours(designApprovedHours, breadPerHour);
   const pctChange =
     designApprovedHours > 0
       ? Math.round(
@@ -202,6 +212,23 @@ export function DemoReviewWorkspace({
         router.refresh();
       } catch (error) {
         setJustificationError(
+          error instanceof Error ? error.message : "Could not save",
+        );
+      }
+    });
+  }
+
+  function toggleSimulatorSketchy() {
+    const next = !simulatorSketchy;
+    setSketchyError(null);
+    setSimulatorSketchy(next);
+    startSketchyTransition(async () => {
+      try {
+        await setProjectSimulatorSketchy(initial.id, next);
+        router.refresh();
+      } catch (error) {
+        setSimulatorSketchy(!next);
+        setSketchyError(
           error instanceof Error ? error.message : "Could not save",
         );
       }
@@ -297,6 +324,7 @@ export function DemoReviewWorkspace({
                 <input
                   type="number"
                   min={0}
+                  step={0.1}
                   value={approvedHours}
                   onChange={(e) => setApprovedHours(Number(e.target.value))}
                   className="rounded-xl border border-black bg-white px-4 py-3 text-xl font-black"
@@ -361,6 +389,44 @@ export function DemoReviewWorkspace({
                   className="rounded-xl border border-black bg-white px-4 py-3 text-sm"
                 />
               </label>
+              <div className="grid gap-1.5">
+                <button
+                  type="button"
+                  aria-pressed={simulatorSketchy}
+                  disabled={sketchyPending}
+                  onClick={toggleSimulatorSketchy}
+                  className={`rounded-xl border px-4 py-3 text-left disabled:opacity-60 ${
+                    simulatorSketchy
+                      ? "border-orange-500 bg-orange-100"
+                      : "border-black bg-white hover:bg-zinc-50"
+                  }`}
+                >
+                  <span
+                    className={`inline-flex items-center gap-1.5 text-sm font-black ${
+                      simulatorSketchy ? "text-orange-900" : "text-black"
+                    }`}
+                  >
+                    <HiExclamationTriangle className="size-4" />
+                    {simulatorSketchy
+                      ? "In “approved · simulator sketchy”"
+                      : "Send to “approved · simulator sketchy”"}
+                  </span>
+                  <span
+                    className={`mt-1 block text-xs font-semibold ${
+                      simulatorSketchy ? "text-orange-800/80" : "text-black/50"
+                    }`}
+                  >
+                    {simulatorSketchy
+                      ? "This project shows under the sketchy bucket in the review queue. Click to remove it."
+                      : "Flag an approved project whose simulator output looked questionable. Groups it in the review queue; nothing else changes."}
+                  </span>
+                </button>
+                {sketchyError ? (
+                  <span className="text-[11px] font-black text-red-700">
+                    {sketchyError}
+                  </span>
+                ) : null}
+              </div>
               <button
                 type="button"
                 disabled={pending || locked || !internalJustification.trim()}

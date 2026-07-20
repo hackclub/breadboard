@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "simulator_sketchy" boolean DEFAULT false NOT NULL;

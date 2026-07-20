@@ -403,9 +403,19 @@ export async function pushShipToUnified(submissionId: number) {
     };
     const codeUrl = s.codeUrl || p.codeUrl;
     set("Code URL", codeUrl);
+    // Build projects run off-platform, so they have no live simulation or
+    // static GitHub Pages demo to point at. The Unified DB still requires a
+    // Playable URL, and for a build the GitHub repo is what a reviewer opens
+    // to experience the project, so fall back to the code URL there.
+    const playableFallback =
+      p.projectType === "build" ? codeUrl : undefined;
     set(
       "Playable URL",
-      s.playableUrl || p.playableUrl || s.demoVideoUrl || p.demoVideoUrl,
+      s.playableUrl ||
+        p.playableUrl ||
+        s.demoVideoUrl ||
+        p.demoVideoUrl ||
+        playableFallback,
     );
     set("First Name", s.firstName || p.firstName);
     set("Last Name", s.lastName || p.lastName);

@@ -407,8 +407,7 @@ export async function pushShipToUnified(submissionId: number) {
     // static GitHub Pages demo to point at. The Unified DB still requires a
     // Playable URL, and for a build the GitHub repo is what a reviewer opens
     // to experience the project, so fall back to the code URL there.
-    const playableFallback =
-      p.projectType === "build" ? codeUrl : undefined;
+    const playableFallback = p.projectType === "build" ? codeUrl : undefined;
     set(
       "Playable URL",
       s.playableUrl ||

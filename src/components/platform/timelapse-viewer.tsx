@@ -110,24 +110,38 @@ function frameKey(frame: TimelineFrame) {
   return `${frame.kind}:${frame.id}`;
 }
 
+// How many frames ahead of the playhead to keep warm. Screen frames now load
+// from a stable, immutable-cached URL, so a decoded image held here is reused
+// instantly when the playhead reaches it or when scrubbing back over it.
+const PREFETCH_AHEAD = 16;
+
+// Keep a reference to every preloaded image so the browser doesn't evict the
+// decoded bitmap under memory pressure mid-replay. Keyed by the frame URL,
+// which is stable per frame.
+const preloadedImages = new Map<string, HTMLImageElement>();
+
 async function preloadImages(urls: string[]) {
   await Promise.allSettled(
-    urls.map(
-      (url) =>
-        new Promise<void>((resolve) => {
-          const image = new Image();
-          const timeout = window.setTimeout(resolve, 3000);
-          image.onload = () => {
-            window.clearTimeout(timeout);
-            resolve();
-          };
-          image.onerror = () => {
-            window.clearTimeout(timeout);
-            resolve();
-          };
-          image.src = url;
-        }),
-    ),
+    urls.map((url) => {
+      if (preloadedImages.has(url)) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        const image = new Image();
+        preloadedImages.set(url, image);
+        const timeout = window.setTimeout(resolve, 3000);
+        image.onload = () => {
+          window.clearTimeout(timeout);
+          resolve();
+        };
+        image.onerror = () => {
+          window.clearTimeout(timeout);
+          // A failed load shouldn't poison the cache; drop it so a later
+          // attempt (e.g. once auth/network recovers) can retry.
+          preloadedImages.delete(url);
+          resolve();
+        };
+        image.src = url;
+      });
+    }),
   );
 }
 
@@ -459,6 +473,25 @@ export function TimelapseViewer({
         ),
       )
     : 0;
+
+  // Keep the next window of screen frames warm ahead of the playhead. Without
+  // this, only the initial tail was preloaded and every frame past it fetched
+  // cold exactly when shown, so playback outran the loads. Runs on any move of
+  // the playhead (playback tick, scrub, or step), following the currently
+  // visible/filtered frames.
+  useEffect(() => {
+    if (visibleFrames.length === 0) return;
+    const urls: string[] = [];
+    for (
+      let index = currentIndex;
+      index <= currentIndex + PREFETCH_AHEAD && index < visibleFrames.length;
+      index += 1
+    ) {
+      const frame = visibleFrames[index];
+      if (frame.kind === "screen" && frame.imageUrl) urls.push(frame.imageUrl);
+    }
+    if (urls.length > 0) void preloadImages(urls);
+  }, [currentIndex, visibleFrames]);
 
   const selectFrame = useCallback(
     (frame: TimelineFrame) => {

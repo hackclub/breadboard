@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import { editorScreenEvidenceFrames, projects } from "@/lib/db/schema";
-import { createPresignedGetUrl } from "@/lib/storage/s3";
+import { getStorageObject } from "@/lib/storage/s3";
 
 export async function GET(
   _request: Request,
@@ -45,5 +45,25 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  return NextResponse.redirect(await createPresignedGetUrl(row.imageKey));
+  // Stream the bytes through the app instead of redirecting to a presigned S3
+  // URL. A frame's image never changes once captured, so a stable URL plus a
+  // long immutable cache lets the browser reuse preloaded frames during replay
+  // and when scrubbing back, killing the per-frame auth+DB+presign+redirect
+  // round trip that made playback lag. Private, since this is admin-only.
+  try {
+    const object = await getStorageObject(row.imageKey);
+    const body = object.Body?.transformToWebStream();
+    if (!body) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    return new Response(body, {
+      headers: {
+        "Content-Type": object.ContentType ?? "image/jpeg",
+        "Cache-Control": "private, max-age=86400, immutable",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  } catch {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 }

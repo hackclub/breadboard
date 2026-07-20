@@ -304,9 +304,7 @@ export async function buildUnifiedJustificationParts(
               }.`
             : "No screen recordings were attached.",
           (journals[0]?.count ?? 0) > 0
-            ? `${journals[0].count} build journal entries cover ${formatHours(
-                journals[0].seconds,
-              )}.`
+            ? `${journals[0].count} build journal entries cover this.`
             : "No journal entries were submitted.",
         ].join(" ");
 

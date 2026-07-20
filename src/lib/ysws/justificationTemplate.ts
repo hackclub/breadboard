@@ -34,7 +34,7 @@ export function composeUnifiedJustification(
   const hoursLine =
     deflation > 0
       ? `${parts.claimedHours}h were claimed for this ship; ${hours}h were approved (${deflation}h deflation applied).`
-      : `${hours}h were approved, matching the ${parts.claimedHours}h claimed for this ship.`;
+      : `${hours}h were approved, out of the ${parts.claimedHours}h claimed for this ship.`;
   return [
     parts.shipLine,
     parts.evidence,

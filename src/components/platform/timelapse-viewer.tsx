@@ -249,10 +249,14 @@ export function TimelapseViewer({
   projectId,
   projectTitle,
   until,
+  focus,
 }: {
   projectId: number;
   projectTitle: string;
   until?: string;
+  // ISO timestamp to jump to on load (e.g. a code-authenticity burst). The
+  // viewer lands on the frame nearest this time instead of the latest one.
+  focus?: string;
 }) {
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [journals, setJournals] = useState<JournalEntry[]>([]);
@@ -347,10 +351,25 @@ export function TimelapseViewer({
           (Number(data.totalSnapshots) || 0) +
             (Number(data.totalScreenFrames) || 0),
         );
-        const latest = timeline.at(-1);
-        const latestKey = latest ? frameKey(latest) : null;
-        selectedFrameKeyRef.current = latestKey;
-        setSelectedFrameKey(latestKey);
+        // Land on the focus frame (nearest capture to the requested time) when
+        // asked to, otherwise on the latest frame.
+        const focusTime = focus ? new Date(focus).getTime() : Number.NaN;
+        let target = timeline.at(-1);
+        if (!Number.isNaN(focusTime) && timeline.length > 0) {
+          let bestGap = Number.POSITIVE_INFINITY;
+          for (const frame of timeline) {
+            const gap = Math.abs(
+              new Date(frame.capturedAt).getTime() - focusTime,
+            );
+            if (gap < bestGap) {
+              bestGap = gap;
+              target = frame;
+            }
+          }
+        }
+        const targetKey = target ? frameKey(target) : null;
+        selectedFrameKeyRef.current = targetKey;
+        setSelectedFrameKey(targetKey);
         void preloadImages(
           screenFrames
             .slice(-12)
@@ -378,7 +397,7 @@ export function TimelapseViewer({
       cancelled = true;
       controller.abort();
     };
-  }, [projectId, reloadKey, stopTimer, until]);
+  }, [projectId, reloadKey, stopTimer, until, focus]);
 
   const visibleFrames = useMemo(
     () =>

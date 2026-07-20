@@ -31,6 +31,7 @@ import {
   setProjectSimulatorSketchy,
   updateUnifiedJustification,
 } from "@/actions/admin/review";
+import { CodeAuthenticityCard } from "@/components/platform/code-authenticity-card";
 import { BreadAmount, BreadIcon } from "@/components/shared/bread-amount";
 import { Markdown } from "@/components/shared/markdown";
 import { breadForHours, roundHours } from "@/lib/constants";
@@ -1324,6 +1325,8 @@ export function ReviewWorkspace({
             </div>
           </div>
         </section>
+
+        <CodeAuthenticityCard projectId={initial.id} />
 
         {initial.breadOnly ? (
           <section className="rounded-[16px] border border-amber-400 bg-amber-100 p-4 shadow-[2px_2px_0_#000]/10">

@@ -23,6 +23,7 @@ import {
   setProjectSimulatorSketchy,
   updateUnifiedJustification,
 } from "@/actions/admin/review";
+import { CodeAuthenticityCard } from "@/components/platform/code-authenticity-card";
 import { BreadAmount, BreadIcon } from "@/components/shared/bread-amount";
 import { breadForHours } from "@/lib/constants";
 import { storageReadUrl } from "@/lib/storage/urls";
@@ -539,6 +540,8 @@ export function DemoReviewWorkspace({
             </div>
           </div>
         </section>
+
+        <CodeAuthenticityCard projectId={initial.id} />
 
         <section className="rounded-[16px] border border-black bg-white p-4 shadow-[4px_4px_0_#000]">
           <div className="flex items-center gap-2 text-sm font-black text-black">

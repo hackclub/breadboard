@@ -74,12 +74,24 @@ function isValidTag(tag: string): boolean {
   return /^[a-z][a-z0-9]*-[a-z0-9-]*$/.test(tag);
 }
 
+// Breadboards are a backing surface: they must sit below the parts plugged
+// into them, never paint over them. Mirrors DynamicComponent's z-order rule
+// (breadboard 0, every other part 1). Detected by element tag here since the
+// snapshot carries tags, not metadataIds.
+function isBreadboardTag(tag: string): boolean {
+  return tag.startsWith("velxio-breadboard") || tag === "wokwi-breadboard";
+}
+const BREADBOARD_Z = 0;
+const PART_Z = 1;
+const WIRE_Z = 2;
+
 function BoardPart({ board }: { board: CircuitSnapshot["boards"][number] }) {
   const tag = boardTag(board.boardKind);
   const style: React.CSSProperties = {
     position: "absolute",
     left: board.x,
     top: board.y,
+    zIndex: PART_Z,
   };
   if (!tag) {
     // Unmapped board kind — neutral PCB-ish placeholder so the layout keeps
@@ -200,6 +212,7 @@ function CircuitPart({
         border: "2px solid transparent",
         transform: rotation ? `rotate(${rotation}deg)` : undefined,
         transformOrigin: "center center",
+        zIndex: isBreadboardTag(part.type) ? BREADBOARD_Z : PART_Z,
       }}
     >
       <PartElement tag={part.type} properties={part.properties} />
@@ -249,6 +262,7 @@ function WireOverlay({ wires }: { wires: CircuitSnapshot["wires"] }) {
         top: minY,
         overflow: "visible",
         pointerEvents: "none",
+        zIndex: WIRE_Z,
       }}
     >
       <title>Circuit wiring</title>

@@ -29,8 +29,13 @@ export function composeUnifiedJustification(
   approvedHours: number,
   reviewerJustification: string,
 ) {
-  const hours = Math.max(0, Math.floor(Number(approvedHours) || 0));
-  const deflation = Math.max(0, parts.claimedHours - hours);
+  // Keep the fractional value the reviewer sees. Flooring here truncated e.g.
+  // 2.9 approved hours to 2 and invented a ~1h deflation the reviewer never
+  // applied. Round the deflation to a tenth so float noise (2.9 - 2.0) doesn't
+  // print as 0.8999999999h.
+  const hours = Math.max(0, Number(approvedHours) || 0);
+  const deflation =
+    Math.round(Math.max(0, parts.claimedHours - hours) * 10) / 10;
   const hoursLine =
     deflation > 0
       ? `${parts.claimedHours}h were claimed for this ship; ${hours}h were approved (${deflation}h deflation applied).`

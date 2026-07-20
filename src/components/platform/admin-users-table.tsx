@@ -13,7 +13,7 @@ import { BreadAmount } from "@/components/shared/bread-amount";
 import { Modal } from "@/components/shared/modal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, inputClass } from "@/components/ui/input";
 import {
   DataPanel,
   DataTable,
@@ -39,6 +39,9 @@ type AdminUser = {
   createdAt: string;
   updatedAt: string;
   balance: number;
+  goldBalance: number;
+  projectCount: number;
+  totalHours: number;
   orderCount: number;
   pendingOrderCount: number;
   accountProviders: string[];
@@ -49,10 +52,47 @@ type SortKey =
   | "name"
   | "email"
   | "balance"
+  | "goldBalance"
+  | "projectCount"
+  | "totalHours"
   | "orderCount"
   | "activeSessionCount";
 
 type SortState = { key: SortKey; direction: "asc" | "desc" };
+
+type FilterKey =
+  | "all"
+  | "admin"
+  | "yswsEligible"
+  | "hasProjects"
+  | "hasGold"
+  | "hasBread";
+
+const FILTERS: { key: FilterKey; label: string }[] = [
+  { key: "all", label: "All users" },
+  { key: "admin", label: "Admins" },
+  { key: "yswsEligible", label: "YSWS eligible" },
+  { key: "hasProjects", label: "Has projects" },
+  { key: "hasGold", label: "Has gold" },
+  { key: "hasBread", label: "Has bread" },
+];
+
+function matchesFilter(user: AdminUser, filter: FilterKey) {
+  switch (filter) {
+    case "admin":
+      return user.admin;
+    case "yswsEligible":
+      return user.yswsEligible;
+    case "hasProjects":
+      return user.projectCount > 0;
+    case "hasGold":
+      return user.goldBalance > 0;
+    case "hasBread":
+      return user.balance > 0;
+    default:
+      return true;
+  }
+}
 
 function compareValues(a: string | number, b: string | number) {
   if (typeof a === "number" && typeof b === "number") return a - b;
@@ -67,6 +107,7 @@ export function AdminUsersTable({
   currentUserId: string;
 }) {
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<FilterKey>("all");
   const [sort, setSort] = useState<SortState>({
     key: "balance",
     direction: "desc",
@@ -76,6 +117,7 @@ export function AdminUsersTable({
   const filteredUsers = useMemo(() => {
     const lowerQuery = query.trim().toLowerCase();
     return users
+      .filter((user) => matchesFilter(user, filter))
       .filter((user) =>
         lowerQuery
           ? `${user.name} ${user.email} ${user.id}`
@@ -87,7 +129,7 @@ export function AdminUsersTable({
         const result = compareValues(a[sort.key], b[sort.key]);
         return sort.direction === "asc" ? result : -result;
       });
-  }, [users, query, sort]);
+  }, [users, query, filter, sort]);
 
   const setSortKey = (key: SortKey) => {
     setSort((current) => ({
@@ -101,19 +143,32 @@ export function AdminUsersTable({
     <>
       <DataPanel
         title="Users"
-        description="Search, sort, and manage accounts."
+        description="Search, filter, sort, and manage accounts."
         action={
-          <Input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search users..."
-            className="w-full bg-white sm:w-80"
-          />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <select
+              value={filter}
+              onChange={(event) => setFilter(event.target.value as FilterKey)}
+              className={inputClass("bg-white sm:w-48")}
+            >
+              {FILTERS.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <Input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search users..."
+              className="w-full bg-white sm:w-72"
+            />
+          </div>
         }
       >
         <TableScroll>
-          <DataTable className="min-w-[980px]">
+          <DataTable className="min-w-295">
             <TableHead>
               <tr>
                 <SortableHeader
@@ -131,6 +186,24 @@ export function AdminUsersTable({
                 <SortableHeader
                   label="Bread"
                   sortKey="balance"
+                  sort={sort}
+                  onSort={setSortKey}
+                />
+                <SortableHeader
+                  label="Gold"
+                  sortKey="goldBalance"
+                  sort={sort}
+                  onSort={setSortKey}
+                />
+                <SortableHeader
+                  label="Projects"
+                  sortKey="projectCount"
+                  sort={sort}
+                  onSort={setSortKey}
+                />
+                <SortableHeader
+                  label="Hours"
+                  sortKey="totalHours"
                   sort={sort}
                   onSort={setSortKey}
                 />
@@ -170,6 +243,15 @@ export function AdminUsersTable({
                   <TableCell className="text-black/70">{user.email}</TableCell>
                   <TableCell className="font-black text-black">
                     <BreadAmount amount={user.balance} />
+                  </TableCell>
+                  <TableCell className="font-black text-black">
+                    <BreadAmount amount={user.goldBalance} gold />
+                  </TableCell>
+                  <TableCell className="text-black/70">
+                    {user.projectCount}
+                  </TableCell>
+                  <TableCell className="text-black/70">
+                    {user.totalHours}h
                   </TableCell>
                   <TableCell className="text-black/70">
                     {user.orderCount} total / {user.pendingOrderCount} pending
@@ -429,6 +511,20 @@ function UserModal({
             <div>
               <dt className="font-black">Sessions</dt>
               <dd>{user.activeSessionCount}</dd>
+            </div>
+            <div>
+              <dt className="font-black">Projects</dt>
+              <dd>{user.projectCount}</dd>
+            </div>
+            <div>
+              <dt className="font-black">Hours spent</dt>
+              <dd>{user.totalHours}h</dd>
+            </div>
+            <div>
+              <dt className="font-black">Gold</dt>
+              <dd>
+                <BreadAmount amount={user.goldBalance} gold />
+              </dd>
             </div>
           </dl>
         </div>

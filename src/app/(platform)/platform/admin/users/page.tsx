@@ -5,10 +5,17 @@ import { LoginButton } from "@/components/shared/auth-buttons";
 import { DocsFrame, PageHero } from "@/components/shared/platform-docs-frame";
 import { buttonClass } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { StatCard, StatGrid } from "@/components/ui/stats";
+import { StatCard } from "@/components/ui/stats";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
-import { account, orders, session, user, userBread } from "@/lib/db/schema";
+import {
+  account,
+  orders,
+  projects,
+  session,
+  user,
+  userBread,
+} from "@/lib/db/schema";
 import { AdminUsersTable } from "@/components/platform/admin-users-table";
 
 export default async function AdminUsersPage() {
@@ -35,7 +42,7 @@ export default async function AdminUsersPage() {
     );
   }
 
-  const [allUsers, balances, allOrders, accounts, activeSessions] =
+  const [allUsers, balances, allOrders, accounts, activeSessions, allProjects] =
     await Promise.all([
       db.select().from(user).orderBy(desc(user.createdAt)),
       db.select().from(userBread),
@@ -44,11 +51,39 @@ export default async function AdminUsersPage() {
         .select({ userId: account.userId, providerId: account.providerId })
         .from(account),
       db.select({ userId: session.userId }).from(session),
+      db
+        .select({
+          userId: projects.userId,
+          hoursSpent: projects.hoursSpent,
+          overrideHoursSpent: projects.overrideHoursSpent,
+          archived: projects.archived,
+        })
+        .from(projects),
     ]);
 
   const balanceByUser = new Map(
     balances.map((balance) => [balance.userId, balance.balance]),
   );
+  const goldByUser = new Map(
+    balances.map((balance) => [balance.userId, balance.goldBalance]),
+  );
+
+  // Effective hours per project prefer the reviewer override when set, matching
+  // how payouts and the Unified DB read them (src/actions/admin/review.ts).
+  const projectStatsByUser = new Map<
+    string,
+    { projectCount: number; totalHours: number }
+  >();
+  for (const project of allProjects) {
+    if (project.archived) continue;
+    const stats = projectStatsByUser.get(project.userId) ?? {
+      projectCount: 0,
+      totalHours: 0,
+    };
+    stats.projectCount += 1;
+    stats.totalHours += project.overrideHoursSpent ?? project.hoursSpent;
+    projectStatsByUser.set(project.userId, stats);
+  }
   const orderStatsByUser = new Map<
     string,
     { orderCount: number; pendingOrderCount: number }
@@ -84,6 +119,10 @@ export default async function AdminUsersPage() {
       orderCount: 0,
       pendingOrderCount: 0,
     };
+    const projectStats = projectStatsByUser.get(row.id) ?? {
+      projectCount: 0,
+      totalHours: 0,
+    };
 
     return {
       id: row.id,
@@ -98,6 +137,9 @@ export default async function AdminUsersPage() {
       createdAt: row.createdAt.toLocaleString(),
       updatedAt: row.updatedAt.toLocaleString(),
       balance: balanceByUser.get(row.id) ?? 0,
+      goldBalance: goldByUser.get(row.id) ?? 0,
+      projectCount: projectStats.projectCount,
+      totalHours: Math.round(projectStats.totalHours * 10) / 10,
       orderCount: stats.orderCount,
       pendingOrderCount: stats.pendingOrderCount,
       accountProviders: providersByUser.get(row.id) ?? [],
@@ -106,6 +148,7 @@ export default async function AdminUsersPage() {
   });
 
   const totalBread = users.reduce((sum, row) => sum + row.balance, 0);
+  const totalGold = users.reduce((sum, row) => sum + row.goldBalance, 0);
 
   return (
     <DocsFrame sidebar={false}>
@@ -128,7 +171,7 @@ export default async function AdminUsersPage() {
 
       <section className="mx-auto max-w-[1440px] px-2 py-8 sm:px-6 sm:py-12">
         <div className="mb-8">
-          <StatGrid>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard label="Users" value={users.length} tone="cream" />
             <StatCard
               label="Total bread"
@@ -136,11 +179,16 @@ export default async function AdminUsersPage() {
               tone="green"
             />
             <StatCard
+              label="Total gold"
+              value={<BreadAmount amount={totalGold} gold />}
+              tone="yellow"
+            />
+            <StatCard
               label="Active sessions"
               value={activeSessions.length}
               tone="blue"
             />
-          </StatGrid>
+          </div>
         </div>
 
         <div className="space-y-4">

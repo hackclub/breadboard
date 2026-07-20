@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-type StatTone = "paper" | "cream" | "green" | "blue" | "red";
+type StatTone = "paper" | "cream" | "green" | "blue" | "red" | "yellow";
 
 const toneClass: Record<StatTone, string> = {
   paper: "bg-white text-black",
@@ -9,6 +9,7 @@ const toneClass: Record<StatTone, string> = {
   green: "bg-green-50 text-green-900",
   blue: "bg-blue-50 text-blue-900",
   red: "bg-[#BD0F32] text-white",
+  yellow: "bg-amber-50 text-amber-900",
 };
 
 export function StatGrid({ children }: { children: ReactNode }) {

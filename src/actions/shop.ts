@@ -83,6 +83,20 @@ function limitedText(
   return text;
 }
 
+// Like limitedText but allows an empty value. Used for genuinely optional
+// product fields (e.g. description, which the column defaults to "" and the
+// shop renders as "No description yet.") so editing a description-less product
+// doesn't get rejected.
+function optionalText(
+  value: unknown,
+  label: string,
+  limit = PRODUCT_TEXT_LIMIT,
+) {
+  const text = String(value ?? "").trim();
+  if (text.length > limit) throw new Error(`${label} is too long`);
+  return text;
+}
+
 function normalizeProductInput(data: ProductInput) {
   const imageUrl = limitedText(data.imageUrl, "Image URL");
   // Uploaded product images come back as root-relative /api/uploads/... paths,
@@ -99,7 +113,7 @@ function normalizeProductInput(data: ProductInput) {
 
   return {
     name: limitedText(data.name, "Name", 120),
-    description: limitedText(data.description, "Description", 1000),
+    description: optionalText(data.description, "Description", 1000),
     imageUrl,
     price: requirePositiveInt(data.price, "Price"),
     goldPrice:

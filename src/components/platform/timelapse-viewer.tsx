@@ -110,39 +110,62 @@ function frameKey(frame: TimelineFrame) {
   return `${frame.kind}:${frame.id}`;
 }
 
-// How many frames ahead of the playhead to keep warm. Screen frames now load
-// from a stable, immutable-cached URL, so a decoded image held here is reused
-// instantly when the playhead reaches it or when scrubbing back over it.
-const PREFETCH_AHEAD = 16;
+// How many parallel frame downloads to keep in flight while warming the
+// timeline. Browsers cap connections per host around six, so going much higher
+// buys little; this keeps the pipe full without starving the on-demand <img>.
+const PRELOAD_CONCURRENCY = 6;
 
-// Keep a reference to every preloaded image so the browser doesn't evict the
-// decoded bitmap under memory pressure mid-replay. Keyed by the frame URL,
-// which is stable per frame.
-const preloadedImages = new Map<string, HTMLImageElement>();
+// URLs already requested this session. Screen frames are served from a stable,
+// immutable-cached URL, so once a frame has been fetched it lives in the
+// browser HTTP cache and re-rendering its <img> is instant — no need to retain
+// the decoded bitmap in JS (that would blow memory on a 600-frame audit).
+// Tracking the URL is enough to avoid re-issuing a request.
+const requestedFrameUrls = new Set<string>();
 
-async function preloadImages(urls: string[]) {
-  await Promise.allSettled(
-    urls.map((url) => {
-      if (preloadedImages.has(url)) return Promise.resolve();
-      return new Promise<void>((resolve) => {
-        const image = new Image();
-        preloadedImages.set(url, image);
-        const timeout = window.setTimeout(resolve, 3000);
-        image.onload = () => {
-          window.clearTimeout(timeout);
-          resolve();
-        };
-        image.onerror = () => {
-          window.clearTimeout(timeout);
-          // A failed load shouldn't poison the cache; drop it so a later
-          // attempt (e.g. once auth/network recovers) can retry.
-          preloadedImages.delete(url);
-          resolve();
-        };
-        image.src = url;
-      });
-    }),
-  );
+// A bounded work queue. Frames are enqueued playhead-first, so the frames the
+// reviewer is about to hit warm before the far end of the timeline.
+const preloadQueue: string[] = [];
+let preloadActive = 0;
+
+function fetchOneFrame(url: string): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const image = new Image();
+    const timeout = window.setTimeout(resolve, 8000);
+    const done = () => {
+      window.clearTimeout(timeout);
+      resolve();
+    };
+    image.onload = done;
+    image.onerror = () => {
+      // A failed load shouldn't poison the cache; let a later pass retry.
+      requestedFrameUrls.delete(url);
+      done();
+    };
+    image.src = url;
+  });
+}
+
+function pumpPreloadQueue() {
+  while (preloadActive < PRELOAD_CONCURRENCY && preloadQueue.length > 0) {
+    const url = preloadQueue.shift();
+    if (!url) continue;
+    preloadActive += 1;
+    void fetchOneFrame(url).finally(() => {
+      preloadActive -= 1;
+      pumpPreloadQueue();
+    });
+  }
+}
+
+// Warm the given URLs through the bounded queue, skipping any already fetched.
+// New requests jump the queue (unshift) so the freshest playhead-first batch
+// is served before older, now-stale ordering.
+function preloadImages(urls: string[]) {
+  const fresh = urls.filter((url) => url && !requestedFrameUrls.has(url));
+  if (fresh.length === 0) return;
+  for (const url of fresh) requestedFrameUrls.add(url);
+  preloadQueue.unshift(...fresh);
+  pumpPreloadQueue();
 }
 
 function parseSnapshot(value: unknown): ParsedSnapshot | null {
@@ -384,12 +407,9 @@ export function TimelapseViewer({
         const targetKey = target ? frameKey(target) : null;
         selectedFrameKeyRef.current = targetKey;
         setSelectedFrameKey(targetKey);
-        void preloadImages(
-          screenFrames
-            .slice(-12)
-            .map((frame) => frame.imageUrl)
-            .filter((url) => url.length > 0),
-        );
+        // The warm-all effect (keyed on the visible frames) takes over
+        // preloading once these land in state, downloading the whole timeline
+        // playhead-first so replay at high speed never races the network.
       })
       .catch((caught) => {
         if (
@@ -474,23 +494,24 @@ export function TimelapseViewer({
       )
     : 0;
 
-  // Keep the next window of screen frames warm ahead of the playhead. Without
-  // this, only the initial tail was preloaded and every frame past it fetched
-  // cold exactly when shown, so playback outran the loads. Runs on any move of
-  // the playhead (playback tick, scrub, or step), following the currently
-  // visible/filtered frames.
+  // Warm the entire visible timeline in the background, playhead-first. A frame
+  // shown every ~35ms at high speed outruns any small look-ahead window, so
+  // instead of racing the network per frame we download the whole (≤600-frame,
+  // API-capped) set up front. Each frame's URL is immutable-cached, so once
+  // warmed, replay and scrubbing are instant. Ordering from the current frame
+  // forward, then wrapping to the start, means the frames about to play warm
+  // first. Re-runs when the frame set or filter changes; already-fetched URLs
+  // are skipped, and moving the playhead re-prioritizes from the new position.
   useEffect(() => {
     if (visibleFrames.length === 0) return;
-    const urls: string[] = [];
-    for (
-      let index = currentIndex;
-      index <= currentIndex + PREFETCH_AHEAD && index < visibleFrames.length;
-      index += 1
-    ) {
-      const frame = visibleFrames[index];
-      if (frame.kind === "screen" && frame.imageUrl) urls.push(frame.imageUrl);
+    const ordered: string[] = [];
+    for (let offset = 0; offset < visibleFrames.length; offset += 1) {
+      const frame = visibleFrames[(currentIndex + offset) % visibleFrames.length];
+      if (frame.kind === "screen" && frame.imageUrl) {
+        ordered.push(frame.imageUrl);
+      }
     }
-    if (urls.length > 0) void preloadImages(urls);
+    if (ordered.length > 0) preloadImages(ordered);
   }, [currentIndex, visibleFrames]);
 
   const selectFrame = useCallback(

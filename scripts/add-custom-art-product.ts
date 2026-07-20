@@ -25,7 +25,7 @@ const NAME = "Custom Art by Herby";
 const row = {
   name: NAME,
   description:
-    "Herby, the artist behind Midnight, Fallout, and Breadboard, draws you a custom animal profile picture or a doodle of your pet. It's yours digitally, so nothing ships and there's no address to enter. Buy it and Herby will reach out for the details of what you'd like.",
+    "Herby, the artist behind programs such as Midnight, Fallout, and Breadboard, draws you an animal pfp or pet doodle :D She will ask for further details if you buy this!",
   imageUrl:
     "https://cdn.hackclub.com/019f7e38-2ab4-792c-a73c-2d3710ec7d22/image.png",
   price: 15, // bread, ~$5 at $0.40/bread

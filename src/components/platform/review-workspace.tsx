@@ -424,6 +424,29 @@ export function ReviewWorkspace({
   useEffect(() => {
     if (!templateDirty) setTemplateText(generatedTemplate);
   }, [generatedTemplate, templateDirty]);
+
+  // The hours justification only reaches the server on approve/save, so
+  // navigating away (which unmounts this client component) used to discard any
+  // unsaved typing. Keep a per-submission localStorage draft so the text
+  // survives an unmount and rehydrates when the reviewer comes back.
+  const justificationDraftKey = `bb-review-justification-${initial.submissionId}`;
+  // Rehydrate once per submission on mount; the value dep is intentionally
+  // omitted so later edits don't re-trigger the restore.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: rehydrate on mount only, not on every edit
+  useEffect(() => {
+    try {
+      const draft = window.localStorage.getItem(justificationDraftKey);
+      if (draft !== null && draft !== unifiedJustification) {
+        setUnifiedJustification(draft);
+      }
+    } catch {}
+  }, [justificationDraftKey]);
+  function clearJustificationDraft() {
+    try {
+      window.localStorage.removeItem(justificationDraftKey);
+    } catch {}
+  }
+
   const router = useRouter();
   const isManual = initial.submissionSource === "manual";
   // Currency follows projectType, not submissionSource: an off-platform
@@ -526,6 +549,7 @@ export function ReviewWorkspace({
           approvedHours,
         );
         setJustificationSaved(true);
+        clearJustificationDraft();
         router.refresh();
       } catch (error) {
         setJustificationError(
@@ -865,8 +889,15 @@ export function ReviewWorkspace({
                   <textarea
                     value={unifiedJustification}
                     onChange={(e) => {
-                      setUnifiedJustification(e.target.value);
+                      const value = e.target.value;
+                      setUnifiedJustification(value);
                       setJustificationSaved(false);
+                      try {
+                        window.localStorage.setItem(
+                          justificationDraftKey,
+                          value,
+                        );
+                      } catch {}
                     }}
                     rows={4}
                     placeholder="Commit count vs hours, submitter experience (with evidence), specific technical features, and why the approved hours fit — or what you deflated and why. Never shown to the maker."
@@ -1003,8 +1034,8 @@ export function ReviewWorkspace({
                       : undefined
                   }
                   onClick={() =>
-                    run(() =>
-                      approveProject(
+                    run(async () => {
+                      await approveProject(
                         initial.id,
                         approvedHours,
                         unifiedJustification,
@@ -1014,8 +1045,9 @@ export function ReviewWorkspace({
                           ? "demo"
                           : "materials",
                         acceptBreadOnly,
-                      ),
-                    )
+                      );
+                      clearJustificationDraft();
+                    })
                   }
                   className="rounded-xl bg-[#BD0F32] py-4 text-sm font-black text-white hover:bg-black disabled:opacity-50"
                 >

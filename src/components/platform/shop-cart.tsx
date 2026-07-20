@@ -26,6 +26,7 @@ type CartItem = {
   stock: number | null;
   quantity: number;
   donation: boolean;
+  noShip: boolean;
 };
 
 type Currency = "bread" | "gold";
@@ -71,6 +72,7 @@ function normalizeCart(value: unknown): CartItem[] {
           : Number(item.stock),
       quantity: Math.max(1, Math.floor(Number(item?.quantity) || 1)),
       donation: item?.donation === true,
+      noShip: item?.noShip === true,
     }))
     .filter(
       (item) =>
@@ -217,8 +219,10 @@ export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
     0,
   );
   const count = items.reduce((sum, item) => sum + item.quantity, 0);
-  // A donation ships nothing, so a cart of only donations skips the address.
-  const donationOnly = items.length > 0 && items.every((item) => item.donation);
+  // Donations and no-ship items (e.g. custom art) mail nothing, so a cart made
+  // up entirely of them skips the shipping address.
+  const noAddressNeeded =
+    items.length > 0 && items.every((item) => item.donation || item.noShip);
 
   const setQuantity = (productId: number, quantity: number) => {
     const next = items
@@ -246,7 +250,7 @@ export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
 
   const order = async () => {
     if (
-      !donationOnly &&
+      !noAddressNeeded &&
       (!address.name || !address.line1 || !address.city || !address.country)
     ) {
       setMessage("Name, address, city, and country are required.");
@@ -537,14 +541,15 @@ export function ShopCart({ shopOpen = true }: { shopOpen?: boolean }) {
                       ))}
                     </div>
                   </div>
-                  {donationOnly ? (
+                  {noAddressNeeded ? (
                     <div className="rounded-[18px] border-[1.5px] border-black bg-[#fffaf1] p-5 shadow-[4px_4px_0_#000]">
                       <p className="text-sm font-bold uppercase tracking-[0.16em] text-black/50">
                         No shipping needed
                       </p>
                       <p className="mt-2 text-sm font-semibold text-black/70">
-                        Donations go straight to Breadboard, so there's nothing
-                        to ship. Thanks for chipping in.
+                        Nothing in this order gets mailed, so there's no address
+                        to fill in. If we need anything else from you, we'll be
+                        in touch.
                       </p>
                     </div>
                   ) : (
@@ -701,6 +706,7 @@ export function AddToCartButton({
   stock,
   shopOpen = true,
   donation = false,
+  noShip = false,
 }: {
   productId: number;
   name: string;
@@ -710,6 +716,7 @@ export function AddToCartButton({
   stock: number | null;
   shopOpen?: boolean;
   donation?: boolean;
+  noShip?: boolean;
 }) {
   const [added, setAdded] = useState(false);
 
@@ -734,6 +741,7 @@ export function AddToCartButton({
                 stock,
                 goldPrice: goldPrice === null ? null : Number(goldPrice),
                 donation,
+                noShip,
                 quantity: Math.min(
                   stock ?? Number.POSITIVE_INFINITY,
                   item.quantity + 1,
@@ -752,6 +760,7 @@ export function AddToCartButton({
             stock,
             quantity: 1,
             donation,
+            noShip,
           },
         ];
 

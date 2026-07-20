@@ -265,13 +265,17 @@ export async function placeOrder(
           `${product.productName} can't be bought with gold bread.`,
         );
       }
-      const isDonation =
-        !!product.metadata &&
-        (product.metadata as Record<string, unknown>).donation === true;
+      const metadata = product.metadata as Record<string, unknown> | null;
+      const isDonation = !!metadata && metadata.donation === true;
+      // No-ship items (e.g. custom art) skip the shipping address like a
+      // donation, but still book a pending order so they land in the orders
+      // queue for someone to pick up and fulfill.
+      const isNoShip = !!metadata && metadata.noShip === true;
       return {
         ...product,
         unitPrice,
         isDonation,
+        isNoShip,
         quantity: quantityByProduct.get(product.productId) ?? 0,
       };
     });
@@ -294,14 +298,19 @@ export async function placeOrder(
     0,
   );
 
-  // Donations (products flagged `donation` in metadata) ship nothing, so they
-  // never need a shipping address and are booked as an already-sent order
-  // rather than a pending one that would clutter fulfillment. A mixed cart
-  // still needs an address for the shippable half.
+  // Donations (flagged `donation` in metadata) ship nothing and never need an
+  // address, so they book as an already-sent order rather than clutter the
+  // pending queue. Everything else goes on a pending order. No-ship items
+  // (flagged `noShip`, e.g. custom art) also skip the address but still need a
+  // pending order so someone picks them up, so the address is only required
+  // when the pending order has at least one physical item to mail.
   const donationItems = items.filter((item) => item.isDonation);
-  const shippableItems = items.filter((item) => !item.isDonation);
-  const shippingAddress =
-    shippableItems.length > 0 ? normalizeAddress(address) : BLANK_ADDRESS;
+  const pendingItems = items.filter((item) => !item.isDonation);
+  const physicalItems = pendingItems.filter((item) => !item.isNoShip);
+  const needsAddress = physicalItems.length > 0;
+  const shippingAddress = needsAddress
+    ? normalizeAddress(address)
+    : BLANK_ADDRESS;
 
   const result = await db.transaction(async (tx) => {
     for (const item of items) {
@@ -357,20 +366,33 @@ export async function placeOrder(
       balanceAfter: updatedBalance.balance,
       sourceEntityType: "shop",
       note:
-        shippableItems.length === 0
+        pendingItems.length === 0
           ? `Donation to Breadboard${payingGold ? " (gold bread)" : ""}`
           : `Shop purchase of ${items.length} item(s)${
               payingGold ? " (gold bread)" : ""
             }`,
     });
 
-    // Shippable items go onto a pending order (merging into an existing one of
-    // the same currency). Orders are single-currency, so a gold purchase only
-    // merges into a pending gold order (and bread into bread).
-    let shippableOrderId: number | null = null;
+    // Non-donation items go onto a pending order (merging into an existing one
+    // of the same currency). Orders are single-currency, so a gold purchase
+    // only merges into a pending gold order (and bread into bread). The address
+    // is only written when this purchase actually mails something, so buying
+    // no-ship items alone never overwrites an existing order's address.
+    const addressFields = needsAddress
+      ? {
+          shippingName: shippingAddress.name,
+          shippingLine1: shippingAddress.line1,
+          shippingLine2: shippingAddress.line2,
+          shippingCity: shippingAddress.city,
+          shippingRegion: shippingAddress.region,
+          shippingPostalCode: shippingAddress.postalCode,
+          shippingCountry: shippingAddress.country,
+        }
+      : {};
+    let pendingOrderId: number | null = null;
     let merged = false;
-    if (shippableItems.length > 0) {
-      const shippableTotal = shippableItems.reduce(
+    if (pendingItems.length > 0) {
+      const pendingTotal = pendingItems.reduce(
         (sum, item) => sum + item.unitPrice * item.quantity,
         0,
       );
@@ -395,43 +417,31 @@ export async function placeOrder(
           .values({
             userId: session.user.id,
             currency,
-            totalCost: shippableTotal,
-            shippingName: shippingAddress.name,
-            shippingLine1: shippingAddress.line1,
-            shippingLine2: shippingAddress.line2,
-            shippingCity: shippingAddress.city,
-            shippingRegion: shippingAddress.region,
-            shippingPostalCode: shippingAddress.postalCode,
-            shippingCountry: shippingAddress.country,
+            totalCost: pendingTotal,
+            ...addressFields,
           })
           .returning();
-        shippableOrderId = createdOrder.id;
+        pendingOrderId = createdOrder.id;
       } else {
         await tx
           .update(orders)
           .set({
-            totalCost: sql`${orders.totalCost} + ${shippableTotal}`,
-            shippingName: shippingAddress.name,
-            shippingLine1: shippingAddress.line1,
-            shippingLine2: shippingAddress.line2,
-            shippingCity: shippingAddress.city,
-            shippingRegion: shippingAddress.region,
-            shippingPostalCode: shippingAddress.postalCode,
-            shippingCountry: shippingAddress.country,
+            totalCost: sql`${orders.totalCost} + ${pendingTotal}`,
+            ...addressFields,
             updatedAt: new Date(),
           })
           .where(eq(orders.id, pendingOrder.id));
-        shippableOrderId = pendingOrder.id;
+        pendingOrderId = pendingOrder.id;
         merged = true;
       }
 
-      for (const item of shippableItems) {
+      for (const item of pendingItems) {
         const existingOrderItem = await tx
           .select()
           .from(orderItems)
           .where(
             and(
-              eq(orderItems.orderId, shippableOrderId),
+              eq(orderItems.orderId, pendingOrderId),
               eq(orderItems.productId, item.productId),
             ),
           )
@@ -444,7 +454,7 @@ export async function placeOrder(
             .where(eq(orderItems.id, existingOrderItem[0].id));
         } else {
           await tx.insert(orderItems).values({
-            orderId: shippableOrderId,
+            orderId: pendingOrderId,
             productId: item.productId,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
@@ -483,13 +493,13 @@ export async function placeOrder(
       }
     }
 
-    const orderId = shippableOrderId ?? donationOrderId ?? 0;
+    const orderId = pendingOrderId ?? donationOrderId ?? 0;
     return {
       orderId,
       totalCost,
       currency,
       merged,
-      donationOnly: shippableItems.length === 0,
+      donationOnly: pendingItems.length === 0,
     };
   });
 

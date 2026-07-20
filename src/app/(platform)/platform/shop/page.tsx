@@ -150,6 +150,10 @@ export default async function PlatformShopPage() {
                         (product.metadata as Record<string, unknown> | null)
                           ?.donation === true
                       }
+                      noShip={
+                        (product.metadata as Record<string, unknown> | null)
+                          ?.noShip === true
+                      }
                     />
                   </div>
                 </div>

@@ -506,7 +506,8 @@ export function TimelapseViewer({
     if (visibleFrames.length === 0) return;
     const ordered: string[] = [];
     for (let offset = 0; offset < visibleFrames.length; offset += 1) {
-      const frame = visibleFrames[(currentIndex + offset) % visibleFrames.length];
+      const frame =
+        visibleFrames[(currentIndex + offset) % visibleFrames.length];
       if (frame.kind === "screen" && frame.imageUrl) {
         ordered.push(frame.imageUrl);
       }

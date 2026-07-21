@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
+  HiCheck,
   HiCheckCircle,
   HiExclamationTriangle,
   HiPencilSquare,
@@ -199,6 +200,9 @@ export function DemoReviewWorkspace({
   }
 
   const locked = submitted || initial.status !== "pending_review";
+  // A decision (approve / changes / reject) already landed on this submission,
+  // so it's no longer awaiting a first look.
+  const reviewed = initial.status !== "pending_review";
 
   // After the decision the review is locked, but the justification and the
   // approved hours stay editable: corrections save directly (bread moves by
@@ -245,6 +249,12 @@ export function DemoReviewWorkspace({
       <section className="overflow-hidden rounded-[16px] border border-black bg-white shadow-[4px_4px_0_#000]">
         <div className="p-5">
           <div className="flex flex-wrap items-center gap-2">
+            {reviewed ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border-2 border-black bg-black px-3 py-1.5 text-xs font-black text-white uppercase">
+                <HiCheck className="size-3.5" />
+                Reviewed
+              </span>
+            ) : null}
             <span
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-black uppercase ${statusTone}`}
             >

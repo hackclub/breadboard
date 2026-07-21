@@ -21,6 +21,7 @@ import {
   user,
 } from "@/lib/db/schema";
 import { ReviewWorkspace } from "@/components/platform/review-workspace";
+import { nextPendingReviewProjectId } from "@/lib/admin/next-review";
 import { unifiedJustificationForSubmission } from "@/lib/ysws/unified";
 
 function toIso(value: Date | string | null | undefined) {
@@ -228,6 +229,16 @@ export default async function AdminReviewProjectPage({
     project.submissionId,
   );
 
+  // Where to send the reviewer after they decide this one, so the queue flows
+  // card to card without a detour back to the gallery.
+  const nextProjectId = await nextPendingReviewProjectId(
+    "materials",
+    projectId,
+  );
+  const nextHref = nextProjectId
+    ? `/platform/admin/review/${nextProjectId}`
+    : "/platform/admin/review";
+
   const activity = activityRows[0];
   const screenEvidence = screenEvidenceRows[0];
   const recordingSeconds = timelapseRows.reduce(
@@ -283,6 +294,7 @@ export default async function AdminReviewProjectPage({
       </Link>
       <ReviewWorkspace
         project={{ ...project, hoursSpent }}
+        nextHref={nextHref}
         unifiedRecord={unifiedRecord}
         journals={journals}
         timelapses={timelapses}

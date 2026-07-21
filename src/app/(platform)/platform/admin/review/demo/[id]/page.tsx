@@ -12,6 +12,7 @@ import {
   user,
 } from "@/lib/db/schema";
 import { DemoReviewWorkspace } from "@/components/platform/demo-review-workspace";
+import { nextPendingReviewProjectId } from "@/lib/admin/next-review";
 
 export default async function AdminDemoReviewPage({
   params,
@@ -113,6 +114,13 @@ export default async function AdminDemoReviewPage({
     );
   }
 
+  // Where to send the reviewer after they decide this one, keeping them in the
+  // demo lane; falls back to the gallery when nothing else is queued.
+  const nextProjectId = await nextPendingReviewProjectId("demo", projectId);
+  const nextHref = nextProjectId
+    ? `/platform/admin/review/demo/${nextProjectId}`
+    : "/platform/admin/review";
+
   const [projectNotes, userNotes] = await Promise.all([
     db
       .select()
@@ -137,6 +145,7 @@ export default async function AdminDemoReviewPage({
       </Link>
       <DemoReviewWorkspace
         project={project}
+        nextHref={nextHref}
         projectNotes={projectNotes}
         userNotes={userNotes}
         currentUserId={session.user.id}

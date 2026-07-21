@@ -112,6 +112,7 @@ function timeAgo(date: Date) {
 
 export function DemoReviewWorkspace({
   project: initial,
+  nextHref,
   projectNotes: initialProjectNotes,
   userNotes: initialUserNotes,
   currentUserId,
@@ -119,6 +120,7 @@ export function DemoReviewWorkspace({
   breadPerHour,
 }: {
   project: ReviewProject;
+  nextHref: string;
   projectNotes: Note[];
   userNotes: Note[];
   currentUserId: string;
@@ -186,7 +188,9 @@ export function DemoReviewWorkspace({
       try {
         await action();
         setSubmitted(true);
-        router.refresh();
+        // Advance to the next queued submission so the reviewer flows card to
+        // card; nextHref falls back to the gallery when the queue is empty.
+        router.push(nextHref);
       } catch (error) {
         setErrorMsg(error instanceof Error ? error.message : "Failed");
         router.refresh();

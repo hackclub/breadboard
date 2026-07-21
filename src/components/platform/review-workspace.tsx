@@ -348,6 +348,7 @@ function CopyPingButtons({
 
 export function ReviewWorkspace({
   project: initial,
+  nextHref,
   unifiedRecord,
   journals,
   timelapses,
@@ -357,6 +358,7 @@ export function ReviewWorkspace({
   breadPerHour,
 }: {
   project: ReviewProject;
+  nextHref: string;
   unifiedRecord: {
     text: string;
     overridden: boolean;
@@ -501,7 +503,9 @@ export function ReviewWorkspace({
       try {
         await action();
         setSubmitted(true);
-        router.refresh();
+        // Advance to the next queued submission so the reviewer flows card to
+        // card; nextHref falls back to the gallery when the queue is empty.
+        router.push(nextHref);
       } catch (error) {
         setErrorMsg(error instanceof Error ? error.message : "Failed");
         router.refresh();

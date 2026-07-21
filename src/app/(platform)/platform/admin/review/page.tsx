@@ -9,6 +9,8 @@ import {
   user,
 } from "@/lib/db/schema";
 import { ReviewQueue } from "@/components/platform/review-queue";
+import { ReviewQueueChart } from "@/components/platform/review-queue-chart";
+import { loadReviewQueueStats } from "@/lib/admin/review-queue-stats";
 
 export default async function AdminReviewPage() {
   const session = await getSession();
@@ -83,6 +85,8 @@ export default async function AdminReviewPage() {
       new Date(right.shippedAt ?? 0).getTime(),
   );
 
+  const reviewQueueStats = await loadReviewQueueStats();
+
   return (
     <main className="space-y-5">
       <section className="rounded-[16px] border border-black bg-white p-6 shadow-[4px_4px_0_#000]">
@@ -91,6 +95,7 @@ export default async function AdminReviewPage() {
         </p>
         <h1 className="mt-2 text-4xl font-black text-black">Project review</h1>
       </section>
+      <ReviewQueueChart stats={reviewQueueStats} />
       <ReviewQueue projects={queue} />
     </main>
   );

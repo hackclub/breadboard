@@ -99,7 +99,10 @@ export async function GET(
     const [snapshotIndex, allScreenFrames, auditSegments, journals] =
       await Promise.all([
         db
-          .select({ id: editorTimelapseSnapshots.id })
+          .select({
+            id: editorTimelapseSnapshots.id,
+            capturedAt: editorTimelapseSnapshots.capturedAt,
+          })
           .from(editorTimelapseSnapshots)
           .where(
             until
@@ -178,11 +181,42 @@ export async function GET(
           .orderBy(asc(projectJournals.createdAt)),
       ]);
 
+    // Seconds from each raw capture to the very next raw capture of the same
+    // source, computed BEFORE sampling. The viewer uses this to tell a genuine
+    // capture gap (nothing was recorded for a long stretch) apart from a
+    // sampling artifact (frames existed but were dropped to hit the payload
+    // cap): a large gap between two returned frames is only real when the raw
+    // neighbour gap is also large.
+    const rawGapAfter = (
+      rows: { id: number; capturedAt: Date | string }[],
+    ): Map<number, number> => {
+      const gaps = new Map<number, number>();
+      for (let index = 0; index < rows.length; index += 1) {
+        const next = rows[index + 1];
+        gaps.set(
+          rows[index].id,
+          next
+            ? Math.max(
+                0,
+                Math.floor(
+                  (new Date(next.capturedAt).getTime() -
+                    new Date(rows[index].capturedAt).getTime()) /
+                    1000,
+                ),
+              )
+            : 0,
+        );
+      }
+      return gaps;
+    };
+    const snapshotGapById = rawGapAfter(snapshotIndex);
+    const screenGapById = rawGapAfter(allScreenFrames);
+
     const sampledSnapshotIds = sampleEvenly(
       snapshotIndex,
       MAX_STITCHED_FRAMES,
     ).map((row) => row.id);
-    const snapshots =
+    const snapshotRows =
       sampledSnapshotIds.length > 0
         ? await db
             .select({
@@ -195,7 +229,16 @@ export async function GET(
             .where(inArray(editorTimelapseSnapshots.id, sampledSnapshotIds))
             .orderBy(asc(editorTimelapseSnapshots.capturedAt))
         : [];
-    const screenFrames = sampleEvenly(allScreenFrames, MAX_STITCHED_FRAMES);
+    const snapshots = snapshotRows.map((row) => ({
+      ...row,
+      rawGapAfterSeconds: snapshotGapById.get(row.id) ?? 0,
+    }));
+    const screenFrames = sampleEvenly(allScreenFrames, MAX_STITCHED_FRAMES).map(
+      (frame) => ({
+        ...frame,
+        rawGapAfterSeconds: screenGapById.get(frame.id) ?? 0,
+      }),
+    );
 
     return NextResponse.json({
       sessions,

@@ -47,6 +47,9 @@ interface Snapshot {
   sessionId?: number;
   capturedAt: string;
   stateData: string;
+  // Seconds to the next raw capture before sampling; lets the viewer tell a
+  // true capture gap apart from frames merely dropped to hit the payload cap.
+  rawGapAfterSeconds?: number;
 }
 
 interface ScreenFrame {
@@ -59,6 +62,7 @@ interface ScreenFrame {
   screenWidth: number;
   screenHeight: number;
   paused: boolean;
+  rawGapAfterSeconds?: number;
 }
 
 interface SessionInfo {
@@ -96,10 +100,22 @@ type SessionSummary = SessionInfo & {
   lastCaptureAt: string | null;
 };
 
+type GapCause = "editor-closed" | "idle-in-session" | "unknown";
+
+interface GapReason {
+  cause: GapCause;
+  // Short chip shown on the scrubber and in the gaps list.
+  label: string;
+  // One-sentence explanation surfaced on hover / beneath the current frame.
+  detail: string;
+}
+
 type GapEvent = {
   frame: TimelineFrame;
   previous: TimelineFrame;
+  seconds: number;
   duration: string;
+  reason: GapReason;
 };
 
 const SPEEDS = [0.5, 1, 2, 4, 8];
@@ -194,6 +210,7 @@ function parseSnapshot(value: unknown): ParsedSnapshot | null {
       id: candidate.id,
       sessionId: candidate.sessionId,
       capturedAt: candidate.capturedAt,
+      rawGapAfterSeconds: candidate.rawGapAfterSeconds,
       parsed: parsed as EditorSnapshotState,
     };
   } catch {
@@ -228,15 +245,69 @@ function fmtTime(value: string): string {
   });
 }
 
-function gapLabel(
-  previous: string,
-  next: string,
-  thresholdSeconds = 300,
-): string | null {
-  const diff = Math.floor(
-    (new Date(next).getTime() - new Date(previous).getTime()) / 1000,
-  );
-  return diff >= thresholdSeconds ? fmtDuration(diff) : null;
+// Explain why two consecutive captures sit far apart. Capture is entirely
+// client-side and only runs while the editor tab is open, focused, and the
+// state is actually changing (see storeSnapshot / activityTracker on the
+// server). So a gap is almost always one of two things: the editor was closed
+// between sessions, or it stayed open but recorded nothing new. Which frames'
+// sessions the gap straddles tells the two apart, so the reviewer sees a cause
+// instead of an unexplained "45h 38m".
+function classifyGap(
+  previous: TimelineFrame,
+  next: TimelineFrame,
+  sessionsById: Map<number, SessionInfo>,
+): GapReason {
+  const prevSessionId = previous.sessionId;
+  const nextSessionId = next.sessionId;
+
+  if (
+    prevSessionId != null &&
+    nextSessionId != null &&
+    prevSessionId !== nextSessionId
+  ) {
+    // The two frames live in different editing sessions, so nothing was open
+    // in between — the editor was closed.
+    const prevSession = sessionsById.get(prevSessionId);
+    const nextSession = sessionsById.get(nextSessionId);
+    const closedFrom =
+      prevSession?.endedAt ??
+      prevSession?.lastActivityAt ??
+      previous.capturedAt;
+    const closedTo = nextSession?.startedAt ?? next.capturedAt;
+    const closedSeconds = Math.floor(
+      (new Date(closedTo).getTime() - new Date(closedFrom).getTime()) / 1000,
+    );
+    const closed = closedSeconds >= 60 ? fmtDuration(closedSeconds) : null;
+    return {
+      cause: "editor-closed",
+      label: "Editor closed",
+      detail: closed
+        ? `The editor was closed for about ${closed} between two sessions. Captures only run while the editor tab is open, so this is time away from the project, not a lost recording.`
+        : "A new editing session begins here. Captures only run while the editor tab is open, so the space between sessions is time away from the project.",
+    };
+  }
+
+  if (
+    prevSessionId != null &&
+    nextSessionId != null &&
+    prevSessionId === nextSessionId
+  ) {
+    // Same session on both sides: the editor stayed open the whole time but
+    // recorded no new state.
+    return {
+      cause: "idle-in-session",
+      label: "Open, no changes",
+      detail:
+        "The editor stayed open but recorded no new state. Captures are skipped when nothing changed (watching the simulation run, reading, or thinking) or when the browser tab lost focus.",
+    };
+  }
+
+  return {
+    cause: "unknown",
+    label: "Gap",
+    detail:
+      "Captures here are spaced further apart than the rest of the timeline.",
+  };
 }
 
 function sourceLabel(frame: TimelineFrame) {
@@ -623,18 +694,46 @@ export function TimelapseViewer({
     return Math.max(300, median * 5);
   }, [allFrames]);
 
+  const sessionsById = useMemo(
+    () => new Map(sessions.map((session) => [session.id, session])),
+    [sessions],
+  );
+
+  // Resolve the gap before `next` into an event, or null when it isn't a real
+  // gap. Duration comes from the raw neighbour spacing when the API provides it
+  // (`rawGapAfterSeconds`), so a big jump between two *sampled* frames whose raw
+  // neighbours were actually close is correctly treated as a sampling artifact,
+  // not flagged as a capture gap.
+  const resolveGap = useCallback(
+    (previous: TimelineFrame, next: TimelineFrame): GapEvent | null => {
+      const raw = previous.rawGapAfterSeconds;
+      const seconds =
+        raw != null
+          ? raw
+          : Math.floor(
+              (new Date(next.capturedAt).getTime() -
+                new Date(previous.capturedAt).getTime()) /
+                1000,
+            );
+      if (seconds < gapThresholdSeconds) return null;
+      return {
+        frame: next,
+        previous,
+        seconds,
+        duration: fmtDuration(seconds),
+        reason: classifyGap(previous, next, sessionsById),
+      };
+    },
+    [gapThresholdSeconds, sessionsById],
+  );
+
   const gapEvents = useMemo<GapEvent[]>(
     () =>
       allFrames.slice(1).flatMap((frame, index) => {
-        const previous = allFrames[index];
-        const duration = gapLabel(
-          previous.capturedAt,
-          frame.capturedAt,
-          gapThresholdSeconds,
-        );
-        return duration ? [{ frame, previous, duration }] : [];
+        const event = resolveGap(allFrames[index], frame);
+        return event ? [event] : [];
       }),
-    [allFrames, gapThresholdSeconds],
+    [allFrames, resolveGap],
   );
 
   const sessionSummaries = useMemo<SessionSummary[]>(
@@ -662,9 +761,7 @@ export function TimelapseViewer({
   const lastFrame = allFrames.at(-1);
   const previous = currentIndex > 0 ? visibleFrames[currentIndex - 1] : null;
   const gapBeforeCurrent =
-    previous && current
-      ? gapLabel(previous.capturedAt, current.capturedAt, gapThresholdSeconds)
-      : null;
+    previous && current ? resolveGap(previous, current) : null;
 
   const jumpToSession = useCallback(
     (sessionId: number) => {
@@ -1279,17 +1376,21 @@ export function TimelapseViewer({
                 })}
                 {visibleFrames.slice(1).map((frame, offset) => {
                   const frameIndex = offset + 1;
-                  const duration = gapLabel(
-                    visibleFrames[frameIndex - 1].capturedAt,
-                    frame.capturedAt,
-                    gapThresholdSeconds,
+                  const event = resolveGap(
+                    visibleFrames[frameIndex - 1],
+                    frame,
                   );
-                  if (!duration) return null;
+                  if (!event) return null;
+                  // Editor-closed gaps (nobody had the project open) read amber;
+                  // open-but-idle gaps read violet, matching the idle signal.
+                  const isClosed = event.reason.cause === "editor-closed";
                   return (
                     <span
                       key={`gap-${frameKey(frame)}`}
-                      className="absolute top-[-2px] h-2 w-1 bg-amber-300"
-                      title={`Capture gap: ${duration}`}
+                      className={`absolute -top-0.5 h-2 w-1 ${
+                        isClosed ? "bg-amber-300" : "bg-violet-300"
+                      }`}
+                      title={`${event.reason.label}: ${event.duration} — ${event.reason.detail}`}
                       style={{
                         left: `${tapePctFromIso(frame.capturedAt)}%`,
                       }}
@@ -1372,8 +1473,10 @@ export function TimelapseViewer({
 
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-black tracking-[0.06em] text-zinc-500 uppercase">
               <span>{visibleFrames.length} visible frames</span>
-              <span className="text-amber-300">Amber: capture gap</span>
-              <span className="text-violet-300">Violet: idle signal</span>
+              <span className="text-amber-300">Amber: editor closed</span>
+              <span className="text-violet-300">
+                Violet: open, no changes / idle
+              </span>
               {journals.length > 0 ? (
                 <span className="text-sky-300">Sky: journal entry</span>
               ) : null}
@@ -1386,8 +1489,16 @@ export function TimelapseViewer({
                 </span>
               ) : null}
               {gapBeforeCurrent ? (
-                <span className="text-amber-200">
-                  Gap before this frame: {gapBeforeCurrent}
+                <span
+                  className={
+                    gapBeforeCurrent.reason.cause === "editor-closed"
+                      ? "text-amber-200"
+                      : "text-violet-200"
+                  }
+                  title={gapBeforeCurrent.reason.detail}
+                >
+                  Before this frame: {gapBeforeCurrent.reason.label} (
+                  {gapBeforeCurrent.duration})
                 </span>
               ) : null}
             </div>
@@ -1882,10 +1993,22 @@ export function TimelapseViewer({
                     key={`${frameKey(event.previous)}-${frameKey(event.frame)}`}
                     type="button"
                     onClick={() => jumpToGap(event)}
+                    title={event.reason.detail}
                     className="flex w-full items-center justify-between gap-3 px-0 py-2 text-left text-xs transition hover:text-amber-100"
                   >
-                    <span className="font-black text-amber-200">
-                      {event.duration}
+                    <span className="min-w-0">
+                      <span
+                        className={`block font-black ${
+                          event.reason.cause === "editor-closed"
+                            ? "text-amber-200"
+                            : "text-violet-200"
+                        }`}
+                      >
+                        {event.reason.label}
+                      </span>
+                      <span className="block text-[10px] text-zinc-500">
+                        {event.duration}
+                      </span>
                     </span>
                     <span className="truncate text-zinc-400">
                       {fmtDateTime(event.frame.capturedAt)}

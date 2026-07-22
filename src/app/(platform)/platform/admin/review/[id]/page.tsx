@@ -91,6 +91,7 @@ export default async function AdminReviewProjectPage({
       status: projectSubmissions.status,
       projectStatus: projects.status,
       reviewNote: projectSubmissions.userComment,
+      reviewerCommentDraft: projectSubmissions.reviewerCommentDraft,
       breadAmount: projectSubmissions.breadAmount,
       submissionType: projectSubmissions.type,
       submissionSource: projectSubmissions.submissionSource,

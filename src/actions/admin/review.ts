@@ -1017,6 +1017,46 @@ export async function setProjectSimulatorSketchy(
   revalidateReviewViews(id);
 }
 
+// Autosaves the reviewer's in-progress maker-facing comment as they type, so a
+// half-written message outlives navigating away, a reload, or coming back days
+// later on another device. Only pending submissions carry a draft; once a
+// decision lands the comment is frozen onto the submission and the draft is
+// reset (see clearReviewCommentDraft), so a stale draft can't repopulate. No
+// revalidation or audit: this fires on a keystroke debounce and must stay cheap
+// and invisible.
+export async function saveReviewCommentDraft(
+  submissionId: number,
+  draft: string,
+) {
+  await requireAdminSession();
+  const id = Math.floor(Number(submissionId));
+  if (!Number.isFinite(id) || id <= 0)
+    throw new Error("Submission ID must be a positive number");
+  await db
+    .update(projectSubmissions)
+    .set({ reviewerCommentDraft: String(draft).slice(0, REVIEW_TEXT_LIMIT) })
+    .where(
+      and(
+        eq(projectSubmissions.id, id),
+        eq(projectSubmissions.status, "pending_review"),
+      ),
+    );
+}
+
+// Resets the comment draft after a decision so a stale message can't linger.
+// Called best-effort from the client once approve/changes/reject succeeds; the
+// review page also refuses to seed a draft for an already-decided submission,
+// so this is hygiene, not the safety net.
+export async function clearReviewCommentDraft(submissionId: number) {
+  await requireAdminSession();
+  const id = Math.floor(Number(submissionId));
+  if (!Number.isFinite(id) || id <= 0) return;
+  await db
+    .update(projectSubmissions)
+    .set({ reviewerCommentDraft: "" })
+    .where(eq(projectSubmissions.id, id));
+}
+
 // Reviewers sometimes need to reclassify a ship: a maker picks "build" but
 // actually wants a kit, or submits a finished build under "design". The type
 // drives payout currency and kit fulfillment, so it can only change before the

@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import {
   HiArrowTopRightOnSquare,
   HiCheck,
@@ -24,8 +24,10 @@ import {
 import { FaGithub, FaSlack } from "react-icons/fa6";
 import {
   approveProject,
+  clearReviewCommentDraft,
   rejectProject,
   requestChanges,
+  saveReviewCommentDraft,
   saveUnifiedTemplateOverride,
   setProjectShipType,
   setProjectSimulatorSketchy,
@@ -70,6 +72,7 @@ type ReviewProject = {
   status: string;
   projectStatus: string;
   reviewNote: string;
+  reviewerCommentDraft: string;
   breadAmount: number;
   shippedAt: Date | null;
   updatedAt: Date;
@@ -385,7 +388,12 @@ export function ReviewWorkspace({
   const [unifiedJustification, setUnifiedJustification] = useState(
     initial.overrideHoursSpentJustification,
   );
-  const [userComment, setUserComment] = useState("");
+  // Seed from the server-side draft so a half-written comment survives a
+  // reload or a return days later on any device. Only a still-pending
+  // submission carries a live draft; a decided one shows a blank box.
+  const [userComment, setUserComment] = useState(
+    initial.status === "pending_review" ? initial.reviewerCommentDraft : "",
+  );
   const [pending, startTransition] = useTransition();
   const [submitted, setSubmitted] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -449,6 +457,39 @@ export function ReviewWorkspace({
     } catch {}
   }
 
+  // The maker-facing comment only reaches the server when a decision is
+  // submitted, so autosave it as a draft in between: debounced while typing and
+  // flushed on blur. It persists server-side (saveReviewCommentDraft), so a
+  // half-written message survives a reload or a return days later on any
+  // device. Only pending submissions carry a draft; once a decision lands the
+  // draft is cleared (see run) and the box is blank. Best-effort: a failed
+  // autosave is swallowed so it never interrupts typing.
+  const commentSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function saveCommentDraft(value: string) {
+    if (initial.status !== "pending_review") return;
+    void saveReviewCommentDraft(initial.submissionId, value).catch(() => {});
+  }
+  function queueCommentDraftSave(value: string) {
+    if (initial.status !== "pending_review") return;
+    if (commentSaveTimer.current) clearTimeout(commentSaveTimer.current);
+    commentSaveTimer.current = setTimeout(() => saveCommentDraft(value), 700);
+  }
+  function flushCommentDraftSave(value: string) {
+    if (commentSaveTimer.current) {
+      clearTimeout(commentSaveTimer.current);
+      commentSaveTimer.current = null;
+    }
+    saveCommentDraft(value);
+  }
+  // Drop a still-pending debounce on unmount so it can't fire after the
+  // component is gone; blur already flushes the common navigate-away case.
+  useEffect(() => {
+    const timer = commentSaveTimer;
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+
   const router = useRouter();
   const isManual = initial.submissionSource === "manual";
   // Currency follows projectType, not submissionSource: an off-platform
@@ -503,6 +544,9 @@ export function ReviewWorkspace({
       try {
         await action();
         setSubmitted(true);
+        // The comment is now frozen onto the submission, so drop its draft
+        // (best-effort; the page won't re-seed a decided submission anyway).
+        void clearReviewCommentDraft(initial.submissionId).catch(() => {});
         // Advance to the next queued submission so the reviewer flows card to
         // card; nextHref falls back to the gallery when the queue is empty.
         router.push(nextHref);
@@ -961,7 +1005,12 @@ export function ReviewWorkspace({
                   </span>
                   <textarea
                     value={userComment}
-                    onChange={(e) => setUserComment(e.target.value)}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setUserComment(value);
+                      queueCommentDraftSave(value);
+                    }}
+                    onBlur={(e) => flushCommentDraftSave(e.target.value)}
                     rows={3}
                     className="rounded-xl border border-black bg-white px-4 py-3 text-sm"
                   />
@@ -1096,7 +1145,12 @@ export function ReviewWorkspace({
                   </span>
                   <textarea
                     value={userComment}
-                    onChange={(e) => setUserComment(e.target.value)}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setUserComment(value);
+                      queueCommentDraftSave(value);
+                    }}
+                    onBlur={(e) => flushCommentDraftSave(e.target.value)}
                     rows={8}
                     className="rounded-xl border border-black bg-white px-4 py-3 text-sm"
                   />

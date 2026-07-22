@@ -849,6 +849,12 @@ export const projectSubmissions = pgTable(
       .notNull()
       .default(""),
     userComment: text("user_comment").notNull().default(""),
+    // The reviewer's in-progress maker-facing comment, autosaved as they type
+    // so a half-written message survives navigating away, a reload, or coming
+    // back days later on another device. Distinct from userComment, which is
+    // the final comment frozen onto the submission when the decision lands.
+    // Cleared back to "" once a decision is submitted.
+    reviewerCommentDraft: text("reviewer_comment_draft").notNull().default(""),
     breadAmount: integer("bread_amount").notNull().default(0),
     // The ship opted out of the cool-project quality bar: it earns bread for
     // the hours without being a kit-worthy showcase. Set by the maker at

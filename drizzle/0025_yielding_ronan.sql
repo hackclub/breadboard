@@ -1,0 +1,1 @@
+ALTER TABLE "project_submissions" ADD COLUMN "reviewer_comment_draft" text DEFAULT '' NOT NULL;

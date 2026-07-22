@@ -176,6 +176,13 @@
       "when": 1784507485579,
       "tag": "0024_perpetual_black_bird",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1784741048540,
+      "tag": "0025_yielding_ronan",
+      "breakpoints": true
     }
   ]
 }

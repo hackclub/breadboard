@@ -13,7 +13,7 @@ import { BreadAmount } from "@/components/shared/bread-amount";
 import { Modal } from "@/components/shared/modal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input, inputClass } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import {
   DataPanel,
   DataTable,
@@ -25,79 +25,20 @@ import {
   TableScroll,
 } from "@/components/ui/table";
 import { slackPfpUrl } from "@/lib/utils/slack-pfp";
+import {
+  type AdminUser,
+  applyFilterSort,
+  type Conjunction,
+  type FieldKey,
+  FilterPopover,
+  type FilterCondition,
+  headerSortIndicator,
+  type SortRule,
+  SortPopover,
+  toggleHeaderSort,
+} from "@/components/platform/admin-users-controls";
 
-type AdminUser = {
-  id: string;
-  name: string;
-  email: string;
-  image: string | null;
-  slackId: string | null;
-  emailVerified: boolean;
-  admin: boolean;
-  yswsEligible: boolean;
-  yswsExempt: boolean;
-  createdAt: string;
-  updatedAt: string;
-  balance: number;
-  goldBalance: number;
-  projectCount: number;
-  totalHours: number;
-  orderCount: number;
-  pendingOrderCount: number;
-  accountProviders: string[];
-  activeSessionCount: number;
-};
-
-type SortKey =
-  | "name"
-  | "email"
-  | "balance"
-  | "goldBalance"
-  | "projectCount"
-  | "totalHours"
-  | "orderCount"
-  | "activeSessionCount";
-
-type SortState = { key: SortKey; direction: "asc" | "desc" };
-
-type FilterKey =
-  | "all"
-  | "admin"
-  | "yswsEligible"
-  | "hasProjects"
-  | "hasGold"
-  | "hasBread";
-
-const FILTERS: { key: FilterKey; label: string }[] = [
-  { key: "all", label: "All users" },
-  { key: "admin", label: "Admins" },
-  { key: "yswsEligible", label: "YSWS eligible" },
-  { key: "hasProjects", label: "Has projects" },
-  { key: "hasGold", label: "Has gold" },
-  { key: "hasBread", label: "Has bread" },
-];
-
-function matchesFilter(user: AdminUser, filter: FilterKey) {
-  switch (filter) {
-    case "admin":
-      return user.admin;
-    case "yswsEligible":
-      return user.yswsEligible;
-    case "hasProjects":
-      return user.projectCount > 0;
-    case "hasGold":
-      return user.goldBalance > 0;
-    case "hasBread":
-      return user.balance > 0;
-    default:
-      return true;
-  }
-}
-
-function compareValues(a: string | number, b: string | number) {
-  if (typeof a === "number" && typeof b === "number") return a - b;
-  return String(a).localeCompare(String(b));
-}
+export type { AdminUser };
 
 export function AdminUsersTable({
   users,
@@ -107,37 +48,27 @@ export function AdminUsersTable({
   currentUserId: string;
 }) {
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<FilterKey>("all");
-  const [sort, setSort] = useState<SortState>({
-    key: "balance",
-    direction: "desc",
-  });
+  const [conditions, setConditions] = useState<FilterCondition[]>([]);
+  const [conjunction, setConjunction] = useState<Conjunction>("and");
+  const [sortRules, setSortRules] = useState<SortRule[]>([
+    { id: "default", field: "balance", direction: "desc" },
+  ]);
   const [selected, setSelected] = useState<AdminUser | null>(null);
 
   const filteredUsers = useMemo(() => {
     const lowerQuery = query.trim().toLowerCase();
-    return users
-      .filter((user) => matchesFilter(user, filter))
-      .filter((user) =>
-        lowerQuery
-          ? `${user.name} ${user.email} ${user.id}`
-              .toLowerCase()
-              .includes(lowerQuery)
-          : true,
-      )
-      .sort((a, b) => {
-        const result = compareValues(a[sort.key], b[sort.key]);
-        return sort.direction === "asc" ? result : -result;
-      });
-  }, [users, query, filter, sort]);
+    const searched = lowerQuery
+      ? users.filter((user) =>
+          `${user.name} ${user.email} ${user.id}`
+            .toLowerCase()
+            .includes(lowerQuery),
+        )
+      : users;
+    return applyFilterSort(searched, conditions, conjunction, sortRules);
+  }, [users, query, conditions, conjunction, sortRules]);
 
-  const setSortKey = (key: SortKey) => {
-    setSort((current) => ({
-      key,
-      direction:
-        current.key === key && current.direction === "desc" ? "asc" : "desc",
-    }));
-  };
+  const onHeaderSort = (field: FieldKey) =>
+    setSortRules((current) => toggleHeaderSort(current, field));
 
   return (
     <>
@@ -146,23 +77,19 @@ export function AdminUsersTable({
         description="Search, filter, sort, and manage accounts."
         action={
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <select
-              value={filter}
-              onChange={(event) => setFilter(event.target.value as FilterKey)}
-              className={inputClass("bg-white sm:w-48")}
-            >
-              {FILTERS.map((option) => (
-                <option key={option.key} value={option.key}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            <FilterPopover
+              conditions={conditions}
+              conjunction={conjunction}
+              onConditionsChange={setConditions}
+              onConjunctionChange={setConjunction}
+            />
+            <SortPopover rules={sortRules} onRulesChange={setSortRules} />
             <Input
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="Search users..."
-              className="w-full bg-white sm:w-72"
+              className="w-full bg-white sm:w-64"
             />
           </div>
         }
@@ -173,51 +100,51 @@ export function AdminUsersTable({
               <tr>
                 <SortableHeader
                   label="User"
-                  sortKey="name"
-                  sort={sort}
-                  onSort={setSortKey}
+                  field="name"
+                  rules={sortRules}
+                  onSort={onHeaderSort}
                 />
                 <SortableHeader
                   label="Email"
-                  sortKey="email"
-                  sort={sort}
-                  onSort={setSortKey}
+                  field="email"
+                  rules={sortRules}
+                  onSort={onHeaderSort}
                 />
                 <SortableHeader
                   label="Bread"
-                  sortKey="balance"
-                  sort={sort}
-                  onSort={setSortKey}
+                  field="balance"
+                  rules={sortRules}
+                  onSort={onHeaderSort}
                 />
                 <SortableHeader
                   label="Gold"
-                  sortKey="goldBalance"
-                  sort={sort}
-                  onSort={setSortKey}
+                  field="goldBalance"
+                  rules={sortRules}
+                  onSort={onHeaderSort}
                 />
                 <SortableHeader
                   label="Projects"
-                  sortKey="projectCount"
-                  sort={sort}
-                  onSort={setSortKey}
+                  field="projectCount"
+                  rules={sortRules}
+                  onSort={onHeaderSort}
                 />
                 <SortableHeader
                   label="Hours"
-                  sortKey="totalHours"
-                  sort={sort}
-                  onSort={setSortKey}
+                  field="totalHours"
+                  rules={sortRules}
+                  onSort={onHeaderSort}
                 />
                 <SortableHeader
                   label="Orders"
-                  sortKey="orderCount"
-                  sort={sort}
-                  onSort={setSortKey}
+                  field="orderCount"
+                  rules={sortRules}
+                  onSort={onHeaderSort}
                 />
                 <SortableHeader
                   label="Sessions"
-                  sortKey="activeSessionCount"
-                  sort={sort}
-                  onSort={setSortKey}
+                  field="activeSessionCount"
+                  rules={sortRules}
+                  onSort={onHeaderSort}
                 />
                 <TableHeaderCell>Admin</TableHeaderCell>
                 <TableHeaderCell>YSWS</TableHeaderCell>
@@ -248,10 +175,20 @@ export function AdminUsersTable({
                     <BreadAmount amount={user.goldBalance} gold />
                   </TableCell>
                   <TableCell className="text-black/70">
-                    {user.projectCount}
+                    <span className="font-black text-black">
+                      {user.projectCount}
+                    </span>
+                    <span className="block text-xs text-black/45">
+                      {user.submittedProjectCount} submitted
+                    </span>
                   </TableCell>
                   <TableCell className="text-black/70">
-                    {user.totalHours}h
+                    <span className="font-black text-black">
+                      {user.totalHours}h
+                    </span>
+                    <span className="block text-xs text-black/45">
+                      {user.submittedHours}h submitted
+                    </span>
                   </TableCell>
                   <TableCell className="text-black/70">
                     {user.orderCount} total / {user.pendingOrderCount} pending
@@ -341,24 +278,23 @@ function UserAvatar({ user }: { user: AdminUser }) {
 
 function SortableHeader({
   label,
-  sortKey,
-  sort,
+  field,
+  rules,
   onSort,
 }: {
   label: string;
-  sortKey: SortKey;
-  sort: SortState;
-  onSort: (key: SortKey) => void;
+  field: FieldKey;
+  rules: SortRule[];
+  onSort: (field: FieldKey) => void;
 }) {
   return (
     <TableHeaderCell>
       <button
         type="button"
-        onClick={() => onSort(sortKey)}
+        onClick={() => onSort(field)}
         className="font-black uppercase tracking-[0.12em] text-white/90 hover:text-white"
       >
-        {label}{" "}
-        {sort.key === sortKey ? (sort.direction === "asc" ? "↑" : "↓") : ""}
+        {label} {headerSortIndicator(rules, field)}
       </button>
     </TableHeaderCell>
   );
@@ -514,11 +450,15 @@ function UserModal({
             </div>
             <div>
               <dt className="font-black">Projects</dt>
-              <dd>{user.projectCount}</dd>
+              <dd>
+                {user.projectCount} ({user.submittedProjectCount} submitted)
+              </dd>
             </div>
             <div>
               <dt className="font-black">Hours spent</dt>
-              <dd>{user.totalHours}h</dd>
+              <dd>
+                {user.totalHours}h ({user.submittedHours}h submitted)
+              </dd>
             </div>
             <div>
               <dt className="font-black">Gold</dt>

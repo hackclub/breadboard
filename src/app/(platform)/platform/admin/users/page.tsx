@@ -12,6 +12,7 @@ import {
   account,
   orders,
   projects,
+  projectSubmissions,
   session,
   user,
   userBread,
@@ -42,24 +43,39 @@ export default async function AdminUsersPage() {
     );
   }
 
-  const [allUsers, balances, allOrders, accounts, activeSessions, allProjects] =
-    await Promise.all([
-      db.select().from(user).orderBy(desc(user.createdAt)),
-      db.select().from(userBread),
-      db.select({ userId: orders.userId, status: orders.status }).from(orders),
-      db
-        .select({ userId: account.userId, providerId: account.providerId })
-        .from(account),
-      db.select({ userId: session.userId }).from(session),
-      db
-        .select({
-          userId: projects.userId,
-          hoursSpent: projects.hoursSpent,
-          overrideHoursSpent: projects.overrideHoursSpent,
-          archived: projects.archived,
-        })
-        .from(projects),
-    ]);
+  const [
+    allUsers,
+    balances,
+    allOrders,
+    accounts,
+    activeSessions,
+    allProjects,
+    allSubmissions,
+  ] = await Promise.all([
+    db.select().from(user).orderBy(desc(user.createdAt)),
+    db.select().from(userBread),
+    db.select({ userId: orders.userId, status: orders.status }).from(orders),
+    db
+      .select({ userId: account.userId, providerId: account.providerId })
+      .from(account),
+    db.select({ userId: session.userId }).from(session),
+    db
+      .select({
+        userId: projects.userId,
+        hoursSpent: projects.hoursSpent,
+        overrideHoursSpent: projects.overrideHoursSpent,
+        archived: projects.archived,
+      })
+      .from(projects),
+    db
+      .select({
+        userId: projectSubmissions.userId,
+        projectId: projectSubmissions.projectId,
+        submissionNumber: projectSubmissions.submissionNumber,
+        hoursSpent: projectSubmissions.hoursSpent,
+      })
+      .from(projectSubmissions),
+  ]);
 
   const balanceByUser = new Map(
     balances.map((balance) => [balance.userId, balance.balance]),
@@ -83,6 +99,28 @@ export default async function AdminUsersPage() {
     stats.projectCount += 1;
     stats.totalHours += project.overrideHoursSpent ?? project.hoursSpent;
     projectStatsByUser.set(project.userId, stats);
+  }
+
+  // Submitted work: a project counts as "submitted" once it has at least one
+  // review submission. Per project we keep the latest submission's claimed
+  // hours (highest submissionNumber) so resubmissions don't double-count.
+  const latestSubmissionByUserProject = new Map<
+    string,
+    Map<number, { submissionNumber: number; hoursSpent: number }>
+  >();
+  for (const submission of allSubmissions) {
+    let byProject = latestSubmissionByUserProject.get(submission.userId);
+    if (!byProject) {
+      byProject = new Map();
+      latestSubmissionByUserProject.set(submission.userId, byProject);
+    }
+    const current = byProject.get(submission.projectId);
+    if (!current || submission.submissionNumber > current.submissionNumber) {
+      byProject.set(submission.projectId, {
+        submissionNumber: submission.submissionNumber,
+        hoursSpent: submission.hoursSpent,
+      });
+    }
   }
   const orderStatsByUser = new Map<
     string,
@@ -123,6 +161,11 @@ export default async function AdminUsersPage() {
       projectCount: 0,
       totalHours: 0,
     };
+    const submissions = latestSubmissionByUserProject.get(row.id);
+    const submittedProjectCount = submissions?.size ?? 0;
+    const submittedHours = submissions
+      ? [...submissions.values()].reduce((sum, s) => sum + s.hoursSpent, 0)
+      : 0;
 
     return {
       id: row.id,
@@ -139,7 +182,9 @@ export default async function AdminUsersPage() {
       balance: balanceByUser.get(row.id) ?? 0,
       goldBalance: goldByUser.get(row.id) ?? 0,
       projectCount: projectStats.projectCount,
+      submittedProjectCount,
       totalHours: Math.round(projectStats.totalHours * 10) / 10,
+      submittedHours: Math.round(submittedHours * 10) / 10,
       orderCount: stats.orderCount,
       pendingOrderCount: stats.pendingOrderCount,
       accountProviders: providersByUser.get(row.id) ?? [],

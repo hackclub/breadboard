@@ -790,6 +790,12 @@ export async function approveProject(
     breadOnly: acceptBreadOnly,
   });
   revalidateReviewViews(id);
+  // The design ship's hours are verified and approved here, even though bread
+  // pays out later at demo approval, so it becomes its own Unified YSWS record
+  // now. The demo ship (and any further ships) approved after the kit is built
+  // land as separate update records that reference these hours, per the Unified
+  // DB's update rule (docs.hackclub.com, "Duplicate and Updated Submissions").
+  await pushShipToUnified(submission.id);
   await notifyReviewDecision(id, "materials", "accepted", {
     note: reviewComment,
   });

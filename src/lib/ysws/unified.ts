@@ -11,6 +11,7 @@ import {
   projects,
   user,
 } from "@/lib/db/schema";
+import { roundHours } from "@/lib/constants";
 import { resolvePublicOrigin } from "@/lib/projects/githubReadme";
 import { storageReadUrl } from "@/lib/storage/urls";
 import {
@@ -208,6 +209,10 @@ export async function buildUnifiedJustificationParts(
         .select({
           count: sql<number>`count(*)::int`,
           hours: sql<number>`coalesce(sum(${projectSubmissions.approvedHours}), 0)::int`,
+          // The largest cumulative tracked-seconds already approved on an
+          // earlier ship. This ship's claim is the new time above that floor,
+          // matching how the review page derives its default hours.
+          floorSeconds: sql<number>`coalesce(max(${projectSubmissions.trackedSeconds}), 0)::int`,
         })
         .from(projectSubmissions)
         .where(
@@ -268,6 +273,21 @@ export async function buildUnifiedJustificationParts(
   const priorCount = priorShips[0]?.count ?? 0;
   const priorHours = priorShips[0]?.hours ?? 0;
   const isUpdate = priorCount > 0;
+
+  // What the maker claimed for THIS ship, kept to a tenth of an hour. The
+  // stored hoursSpent is display-rounded and old rows used whole-hour ceil
+  // (4h 14m read as 5h), which then showed up as a phantom deflation in the
+  // record. Recompute from the live measured total (editor activity plus
+  // attached recordings) minus what earlier approved ships already counted,
+  // exactly like the review page's default. Manual / off-platform ships carry
+  // no tracked time, so their reported hoursSpent stands.
+  const measuredSeconds =
+    (editorTime?.seconds ?? 0) + (recordings[0]?.seconds ?? 0);
+  const priorFloorSeconds = priorShips[0]?.floorSeconds ?? 0;
+  const claimedHours =
+    s.submissionSource === "manual"
+      ? s.hoursSpent
+      : roundHours(Math.max(0, measuredSeconds - priorFloorSeconds) / 3600);
   const shipKind =
     s.type === "demo"
       ? `the completed kit build (demo ship) of "${p.title}"`
@@ -355,7 +375,7 @@ export async function buildUnifiedJustificationParts(
     links,
     approvalIntro,
     reviewerLine,
-    claimedHours: s.hoursSpent,
+    claimedHours,
     inspectUrl: `${base}/platform/admin/review/${p.id}`,
     contactEmail: CONTACT_EMAIL,
   };

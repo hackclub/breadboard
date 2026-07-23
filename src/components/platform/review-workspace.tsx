@@ -25,6 +25,7 @@ import { FaGithub, FaSlack } from "react-icons/fa6";
 import {
   approveProject,
   clearReviewCommentDraft,
+  nextPendingReviewHref,
   rejectProject,
   requestChanges,
   saveReviewCommentDraft,
@@ -374,13 +375,35 @@ export function ReviewWorkspace({
   timeAudit?: TimeAuditSummary;
   breadPerHour: number;
 }) {
+  // Time-audit deductions the reviewer marked on the timelapse. The audited
+  // total (the per-ship claim minus those deductions) is the default approved
+  // hours whenever any segment exists, so marking a deduction actually lowers
+  // the payout and the Unified DB hours instead of silently sending the raw
+  // measured time when the reviewer forgets to click "Use audited total".
+  // initial.hoursSpent is already the per-ship claim, floor-adjusted for
+  // earlier approved ships.
+  const auditDeductedSeconds =
+    (timeAudit?.removedSeconds ?? 0) + (timeAudit?.deflatedSeconds ?? 0);
+  const auditedSeconds = Math.max(
+    0,
+    tracking.measuredSeconds - auditDeductedSeconds,
+  );
+  const hasTimeAudit = (timeAudit?.segmentCount ?? 0) > 0;
+  const auditedHours = roundHours(
+    Math.max(0, initial.hoursSpent - auditDeductedSeconds / 3600),
+  );
+
   const [verdict, setVerdict] = useState<"approve" | "changes" | "reject">(
     "approve",
   );
   const [approvedHours, setApprovedHours] = useState(
-    initial.overrideHoursSpent ?? initial.hoursSpent,
+    initial.overrideHoursSpent ??
+      (hasTimeAudit ? auditedHours : initial.hoursSpent),
   );
-  const [acceptBreadOnly, setAcceptBreadOnly] = useState(false);
+  // Starts on when the maker declared the ship bread-only, so the reviewer
+  // sees that choice pre-selected and can undo it (turning it back into a
+  // normal kit-shipping design approval).
+  const [acceptBreadOnly, setAcceptBreadOnly] = useState(initial.breadOnly);
   // Reviewer-only hours justification. It's stored as the submission's
   // internalNote and pushed to the Unified YSWS DB as "Optional - Override
   // Hours Spent Justification" when the approval pays out. Prefilled from the
@@ -514,14 +537,6 @@ export function ReviewWorkspace({
     ? `https://hackclub.enterprise.slack.com/team/${initial.userSlackId}`
     : null;
   const approvedBread = breadForHours(approvedHours || 0, breadPerHour);
-  const auditDeductedSeconds =
-    (timeAudit?.removedSeconds ?? 0) + (timeAudit?.deflatedSeconds ?? 0);
-  const auditedSeconds = Math.max(
-    0,
-    tracking.measuredSeconds - auditDeductedSeconds,
-  );
-  const auditedHours = roundHours(auditedSeconds / 3600);
-  const hasTimeAudit = (timeAudit?.segmentCount ?? 0) > 0;
 
   const statusTone =
     initial.status === "pending_review"
@@ -547,9 +562,15 @@ export function ReviewWorkspace({
         // The comment is now frozen onto the submission, so drop its draft
         // (best-effort; the page won't re-seed a decided submission anyway).
         void clearReviewCommentDraft(initial.submissionId).catch(() => {});
-        // Advance to the next queued submission so the reviewer flows card to
-        // card; nextHref falls back to the gallery when the queue is empty.
-        router.push(nextHref);
+        // Advance to the next still-pending card in the design lane, resolved
+        // now rather than at page load: on a busy queue the target picked when
+        // this page opened may already be decided, and we must never drop the
+        // reviewer onto a locked review. Falls back to the page-load target,
+        // then the gallery, if the lookup fails.
+        const href = await nextPendingReviewHref("materials", initial.id).catch(
+          () => nextHref,
+        );
+        router.push(href);
       } catch (error) {
         setErrorMsg(error instanceof Error ? error.message : "Failed");
         router.refresh();
@@ -582,7 +603,6 @@ export function ReviewWorkspace({
     initial.projectStatus === "demo_review" ||
     isBuild ||
     isUpdateShip ||
-    initial.breadOnly ||
     acceptBreadOnly;
   const missingJustification = paysOut && !unifiedJustification.trim();
 
@@ -1015,7 +1035,7 @@ export function ReviewWorkspace({
                     className="rounded-xl border border-black bg-white px-4 py-3 text-sm"
                   />
                 </label>
-                {!initial.breadOnly && !isBuild && !isUpdateShip ? (
+                {!isBuild && !isUpdateShip ? (
                   <button
                     type="button"
                     aria-pressed={acceptBreadOnly}
@@ -1041,9 +1061,9 @@ export function ReviewWorkspace({
                         acceptBreadOnly ? "text-amber-800/80" : "text-black/50"
                       }`}
                     >
-                      Approve a project that misses the cool-project complexity
-                      bar. The maker still earns full bread and the ship gets
-                      marked bread only.
+                      {initial.breadOnly
+                        ? "The maker declared this ship bread only. Approving pays full bread and sends no kit. Turn this off to approve it as a normal design and ship a kit instead."
+                        : "Approve a project that misses the cool-project complexity bar. The maker still earns full bread and the ship gets marked bread only."}
                     </span>
                   </button>
                 ) : null}
@@ -1118,10 +1138,7 @@ export function ReviewWorkspace({
                       Approve demo ·{" "}
                       <BreadAmount amount={approvedBread} size="sm" />
                     </span>
-                  ) : isBuild ||
-                    isUpdateShip ||
-                    initial.breadOnly ||
-                    acceptBreadOnly ? (
+                  ) : isBuild || isUpdateShip || acceptBreadOnly ? (
                     <span className="inline-flex items-center gap-0.5">
                       {isUpdateShip ? "Approve update ·" : "Approve ·"}{" "}
                       <BreadAmount

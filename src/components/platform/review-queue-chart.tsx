@@ -17,12 +17,13 @@ import type {
 } from "@/lib/admin/review-queue-stats";
 
 // Throughput chart: inflow vs reviews completed, same daily-count scale so the
-// two lines sit on one axis. Reviews done is the brand crimson headline; new
-// submissions is a calmer blue underneath. Blue vs red is a CVD-safe pair.
+// two areas sit on one axis. Reviews done is the brand crimson headline, drawn
+// on top of the muted slate of new submissions.
 const REVIEWED_COLOR = "#BD0F32";
-const SUBMITTED_COLOR = "#2a78d6";
-// Backlog chart, its own scale: a single slate area for "still waiting".
-const BACKLOG_COLOR = "#52514e";
+const SUBMITTED_COLOR = "#9a9892";
+// Backlog is the outstanding "awaiting review" queue, so it takes the same
+// crimson the queue reads as everywhere else.
+const BACKLOG_COLOR = "#BD0F32";
 const AXIS = "#898781";
 const GRID = "#e1e0d9";
 const INK = "#52514e";
@@ -173,38 +174,6 @@ export function ReviewQueueChart({ stats }: { stats: ReviewQueueStats }) {
           <div className="h-[280px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={stats.series} margin={AXIS_MARGIN}>
-                <defs>
-                  <linearGradient
-                    id="submittedFill"
-                    x1="0"
-                    y1="0"
-                    x2="0"
-                    y2="1"
-                  >
-                    <stop
-                      offset="0%"
-                      stopColor={SUBMITTED_COLOR}
-                      stopOpacity={0.32}
-                    />
-                    <stop
-                      offset="100%"
-                      stopColor={SUBMITTED_COLOR}
-                      stopOpacity={0.02}
-                    />
-                  </linearGradient>
-                  <linearGradient id="reviewedFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop
-                      offset="0%"
-                      stopColor={REVIEWED_COLOR}
-                      stopOpacity={0.32}
-                    />
-                    <stop
-                      offset="100%"
-                      stopColor={REVIEWED_COLOR}
-                      stopOpacity={0.02}
-                    />
-                  </linearGradient>
-                </defs>
                 <CartesianGrid
                   stroke={GRID}
                   strokeDasharray="3 3"
@@ -240,7 +209,7 @@ export function ReviewQueueChart({ stats }: { stats: ReviewQueueStats }) {
                   name="Submitted"
                   stroke={SUBMITTED_COLOR}
                   strokeWidth={2}
-                  fill="url(#submittedFill)"
+                  fill={SUBMITTED_COLOR}
                   fillOpacity={1}
                   isAnimationActive={false}
                 />
@@ -250,7 +219,7 @@ export function ReviewQueueChart({ stats }: { stats: ReviewQueueStats }) {
                   name="Reviewed"
                   stroke={REVIEWED_COLOR}
                   strokeWidth={2}
-                  fill="url(#reviewedFill)"
+                  fill={REVIEWED_COLOR}
                   fillOpacity={1}
                   isAnimationActive={false}
                 />

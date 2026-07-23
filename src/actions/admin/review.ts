@@ -21,6 +21,7 @@ import {
   projects,
   userBread,
 } from "@/lib/db/schema";
+import { nextPendingReviewProjectId } from "@/lib/admin/next-review";
 import { isBuildShip, type ProjectType } from "@/lib/projects/project-type";
 import { recordCurrencyTransaction } from "@/lib/projects/ledger";
 import { notifyProjectStatus, notifyReviewDecision } from "@/lib/slack/tookle";
@@ -600,7 +601,11 @@ export async function approveProject(
     .limit(1);
   const isUpdateShip = Boolean(priorApproved);
 
-  if (acceptBreadOnly || submission.breadOnly || isUpdateShip) {
+  // The reviewer's toggle is authoritative: the client seeds it from the
+  // maker's declared breadOnly, so an unchanged value keeps a maker-declared
+  // bread-only ship bread-only, and unchecking it downgrades to the normal
+  // kit-shipping design flow below.
+  if (acceptBreadOnly || isUpdateShip) {
     const bread = breadForHours(hours, BREAD_PER_HOUR);
     const creditedUser = await db.transaction(async (tx) => {
       await createReviewRecord(tx, {
@@ -623,7 +628,7 @@ export async function approveProject(
           internalNote: reviewJustification,
           userComment: reviewComment,
           breadAmount: bread,
-          ...(acceptBreadOnly ? { breadOnly: true } : {}),
+          breadOnly: acceptBreadOnly,
           reviewedAt: new Date(),
           updatedAt: new Date(),
         })
@@ -686,7 +691,7 @@ export async function approveProject(
     await audit("admin.review.materials_approve", "project", String(id), {
       hours,
       bread,
-      breadOnly: acceptBreadOnly || submission.breadOnly,
+      breadOnly: acceptBreadOnly,
       update: isUpdateShip,
     });
     revalidateReviewViews(id);
@@ -720,6 +725,9 @@ export async function approveProject(
         approvedHours: hours,
         internalNote: reviewJustification,
         userComment: reviewComment,
+        // Reaching this branch means the reviewer left bread-only off, so clear
+        // any maker-declared flag: this is a normal kit-shipping design approval.
+        breadOnly: false,
         reviewedAt: new Date(),
         updatedAt: new Date(),
       })
@@ -1061,6 +1069,25 @@ export async function clearReviewCommentDraft(submissionId: number) {
     .update(projectSubmissions)
     .set({ reviewerCommentDraft: "" })
     .where(eq(projectSubmissions.id, id));
+}
+
+// Where auto-advance should send the reviewer after they decide a card,
+// resolved at click time rather than when the page first rendered. The page's
+// precomputed target can go stale: on a busy queue another reviewer may claim
+// that submission first, and pushing to a decided one strands this reviewer on
+// a locked review. Recomputing here guarantees the next stop is still a pending
+// card in the same lane; returns the gallery when the lane is empty.
+export async function nextPendingReviewHref(
+  lane: ReviewPhase,
+  excludeProjectId: number,
+) {
+  await requireAdminSession();
+  const id = requirePositiveProjectId(excludeProjectId);
+  const nextId = await nextPendingReviewProjectId(lane, id);
+  if (!nextId) return "/platform/admin/review";
+  return lane === "demo"
+    ? `/platform/admin/review/demo/${nextId}`
+    : `/platform/admin/review/${nextId}`;
 }
 
 // Reviewers sometimes need to reclassify a ship: a maker picks "build" but

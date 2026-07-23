@@ -4,6 +4,8 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   type TooltipContentProps,
@@ -16,10 +18,13 @@ import type {
   ReviewQueueStats,
 } from "@/lib/admin/review-queue-stats";
 
-// Two categorical buckets: still-waiting work in brand crimson (the headline),
-// already-actioned work in a muted slate underneath.
-const PENDING_COLOR = "#BD0F32";
-const RESOLVED_COLOR = "#9a9892";
+// Throughput chart: inflow vs reviews completed, same daily-count scale so the
+// two lines sit on one axis. Reviews done is the brand crimson headline; new
+// submissions is a calmer blue underneath. Blue vs red is a CVD-safe pair.
+const REVIEWED_COLOR = "#BD0F32";
+const SUBMITTED_COLOR = "#2a78d6";
+// Backlog chart, its own scale: a single slate area for "still waiting".
+const BACKLOG_COLOR = "#52514e";
 const AXIS = "#898781";
 const GRID = "#e1e0d9";
 const INK = "#52514e";
@@ -34,7 +39,85 @@ function shortDay(day: string) {
   });
 }
 
-function ChartTooltip({
+function LegendRow({ items }: { items: { label: string; color: string }[] }) {
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+      {items.map((item) => (
+        <span
+          key={item.label}
+          className="inline-flex items-center gap-1.5 text-xs font-bold text-black/60"
+        >
+          <span
+            className="inline-block size-3 rounded-[3px] border border-black/20"
+            style={{ backgroundColor: item.color }}
+          />
+          {item.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function TooltipRow({
+  label,
+  color,
+  value,
+}: {
+  label: string;
+  color: string;
+  value: number;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="inline-flex items-center gap-1.5 font-semibold text-black/60">
+        <span
+          className="inline-block size-2.5 rounded-[2px] border border-black/20"
+          style={{ backgroundColor: color }}
+        />
+        {label}
+      </span>
+      <span className="font-black tabular-nums text-black">{value}</span>
+    </div>
+  );
+}
+
+function ThroughputTooltip({
+  active,
+  payload,
+  label,
+}: Partial<TooltipContentProps<number, string>>) {
+  if (!active || !payload || payload.length === 0) return null;
+  const point = payload[0]?.payload as ReviewQueuePoint | undefined;
+  if (!point) return null;
+  const net = point.submitted - point.reviewed;
+
+  return (
+    <div className="rounded-[10px] border border-black bg-white px-3 py-2 text-xs shadow-[3px_3px_0_#000]">
+      <p className="font-black text-black">{shortDay(String(label))}</p>
+      <div className="mt-1.5 space-y-0.5">
+        <TooltipRow
+          label="Submitted"
+          color={SUBMITTED_COLOR}
+          value={point.submitted}
+        />
+        <TooltipRow
+          label="Reviewed"
+          color={REVIEWED_COLOR}
+          value={point.reviewed}
+        />
+      </div>
+      <p className="mt-1.5 border-t border-black/10 pt-1.5 font-black text-black/70">
+        {net === 0
+          ? "Kept pace"
+          : net > 0
+            ? `Queue grew by ${net}`
+            : `Queue shrank by ${-net}`}
+      </p>
+    </div>
+  );
+}
+
+function BacklogTooltip({
   active,
   payload,
   label,
@@ -47,34 +130,8 @@ function ChartTooltip({
     <div className="rounded-[10px] border border-black bg-white px-3 py-2 text-xs shadow-[3px_3px_0_#000]">
       <p className="font-black text-black">{shortDay(String(label))}</p>
       <p className="mt-1 font-black text-black/70">
-        {point.total} {point.total === 1 ? "submission" : "submissions"}
+        {point.backlog} awaiting review
       </p>
-      <div className="mt-1.5 space-y-0.5">
-        <div className="flex items-center justify-between gap-3">
-          <span className="inline-flex items-center gap-1.5 font-semibold text-black/60">
-            <span
-              className="inline-block size-2.5 rounded-[2px] border border-black/20"
-              style={{ backgroundColor: PENDING_COLOR }}
-            />
-            Awaiting review
-          </span>
-          <span className="font-black tabular-nums text-black">
-            {point.pending}
-          </span>
-        </div>
-        <div className="flex items-center justify-between gap-3">
-          <span className="inline-flex items-center gap-1.5 font-semibold text-black/60">
-            <span
-              className="inline-block size-2.5 rounded-[2px] border border-black/20"
-              style={{ backgroundColor: RESOLVED_COLOR }}
-            />
-            Reviewed
-          </span>
-          <span className="font-black tabular-nums text-black">
-            {point.resolved}
-          </span>
-        </div>
-      </div>
     </div>
   );
 }
@@ -92,94 +149,137 @@ function StatTile({ label, value }: { label: string; value: number }) {
   );
 }
 
+const AXIS_MARGIN = { top: 8, right: 8, bottom: 0, left: -16 } as const;
+
 export function ReviewQueueChart({ stats }: { stats: ReviewQueueStats }) {
   return (
-    <DataPanel
-      title="Review queue"
-      description="Submissions received per day (US Eastern), last 30 days. Crimson is still awaiting a reviewer."
-    >
-      <div className="space-y-5 p-5">
-        <div className="grid grid-cols-3 gap-3">
-          <StatTile label="Awaiting review" value={stats.pendingTotal} />
-          <StatTile label="Design pending" value={stats.pendingDesign} />
-          <StatTile label="Demo pending" value={stats.pendingDemo} />
-        </div>
+    <>
+      <DataPanel
+        title="Review throughput"
+        description="Submissions received vs. reviews completed per day (US Eastern), last 30 days. When crimson dips below blue, the queue is growing."
+      >
+        <div className="space-y-5 p-5">
+          <div className="grid grid-cols-3 gap-3">
+            <StatTile label="Awaiting review" value={stats.pendingTotal} />
+            <StatTile label="Design pending" value={stats.pendingDesign} />
+            <StatTile label="Demo pending" value={stats.pendingDemo} />
+          </div>
 
-        <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-          {[
-            { label: "Awaiting review", color: PENDING_COLOR },
-            { label: "Reviewed", color: RESOLVED_COLOR },
-          ].map((series) => (
-            <span
-              key={series.label}
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-black/60"
-            >
-              <span
-                className="inline-block size-3 rounded-[3px] border border-black/20"
-                style={{ backgroundColor: series.color }}
-              />
-              {series.label}
-            </span>
-          ))}
-        </div>
+          <LegendRow
+            items={[
+              { label: "Submitted", color: SUBMITTED_COLOR },
+              { label: "Reviewed", color: REVIEWED_COLOR },
+            ]}
+          />
 
-        <div className="h-[280px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart
-              data={stats.series}
-              margin={{ top: 8, right: 8, bottom: 0, left: -16 }}
-            >
-              <CartesianGrid
-                stroke={GRID}
-                strokeDasharray="3 3"
-                vertical={false}
-              />
-              <XAxis
-                dataKey="day"
-                tickFormatter={shortDay}
-                tick={{ fill: AXIS, fontSize: 11, fontWeight: 700 }}
-                tickLine={false}
-                axisLine={{ stroke: GRID }}
-                minTickGap={28}
-                interval="preserveStartEnd"
-              />
-              <YAxis
-                allowDecimals={false}
-                width={44}
-                tick={{ fill: AXIS, fontSize: 11, fontWeight: 700 }}
-                tickLine={false}
-                axisLine={false}
-              />
-              <Tooltip
-                cursor={{ stroke: INK, strokeWidth: 1, strokeDasharray: "3 3" }}
-                content={<ChartTooltip />}
-              />
-              <Area
-                type="monotone"
-                dataKey="resolved"
-                name="Reviewed"
-                stackId="queue"
-                stroke="#ffffff"
-                strokeWidth={1.5}
-                fill={RESOLVED_COLOR}
-                fillOpacity={1}
-                isAnimationActive={false}
-              />
-              <Area
-                type="monotone"
-                dataKey="pending"
-                name="Awaiting review"
-                stackId="queue"
-                stroke="#ffffff"
-                strokeWidth={1.5}
-                fill={PENDING_COLOR}
-                fillOpacity={1}
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+          <div className="h-[280px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={stats.series} margin={AXIS_MARGIN}>
+                <CartesianGrid
+                  stroke={GRID}
+                  strokeDasharray="3 3"
+                  vertical={false}
+                />
+                <XAxis
+                  dataKey="day"
+                  tickFormatter={shortDay}
+                  tick={{ fill: AXIS, fontSize: 11, fontWeight: 700 }}
+                  tickLine={false}
+                  axisLine={{ stroke: GRID }}
+                  minTickGap={28}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  allowDecimals={false}
+                  width={44}
+                  tick={{ fill: AXIS, fontSize: 11, fontWeight: 700 }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <Tooltip
+                  cursor={{
+                    stroke: INK,
+                    strokeWidth: 1,
+                    strokeDasharray: "3 3",
+                  }}
+                  content={<ThroughputTooltip />}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="submitted"
+                  name="Submitted"
+                  stroke={SUBMITTED_COLOR}
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="reviewed"
+                  name="Reviewed"
+                  stroke={REVIEWED_COLOR}
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
         </div>
-      </div>
-    </DataPanel>
+      </DataPanel>
+
+      <DataPanel
+        title="Review backlog"
+        description="Submissions still awaiting a reviewer at the end of each day (US Eastern), last 30 days. A rising line means work is piling up faster than it clears."
+      >
+        <div className="space-y-5 p-5">
+          <div className="h-[240px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={stats.series} margin={AXIS_MARGIN}>
+                <CartesianGrid
+                  stroke={GRID}
+                  strokeDasharray="3 3"
+                  vertical={false}
+                />
+                <XAxis
+                  dataKey="day"
+                  tickFormatter={shortDay}
+                  tick={{ fill: AXIS, fontSize: 11, fontWeight: 700 }}
+                  tickLine={false}
+                  axisLine={{ stroke: GRID }}
+                  minTickGap={28}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  allowDecimals={false}
+                  width={44}
+                  tick={{ fill: AXIS, fontSize: 11, fontWeight: 700 }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <Tooltip
+                  cursor={{
+                    stroke: INK,
+                    strokeWidth: 1,
+                    strokeDasharray: "3 3",
+                  }}
+                  content={<BacklogTooltip />}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="backlog"
+                  name="Awaiting review"
+                  stroke={BACKLOG_COLOR}
+                  strokeWidth={2}
+                  fill={BACKLOG_COLOR}
+                  fillOpacity={0.18}
+                  isAnimationActive={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </DataPanel>
+    </>
   );
 }

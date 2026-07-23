@@ -4,8 +4,6 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
-  Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   type TooltipContentProps,
@@ -174,7 +172,39 @@ export function ReviewQueueChart({ stats }: { stats: ReviewQueueStats }) {
 
           <div className="h-[280px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={stats.series} margin={AXIS_MARGIN}>
+              <AreaChart data={stats.series} margin={AXIS_MARGIN}>
+                <defs>
+                  <linearGradient
+                    id="submittedFill"
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop
+                      offset="0%"
+                      stopColor={SUBMITTED_COLOR}
+                      stopOpacity={0.32}
+                    />
+                    <stop
+                      offset="100%"
+                      stopColor={SUBMITTED_COLOR}
+                      stopOpacity={0.02}
+                    />
+                  </linearGradient>
+                  <linearGradient id="reviewedFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop
+                      offset="0%"
+                      stopColor={REVIEWED_COLOR}
+                      stopOpacity={0.32}
+                    />
+                    <stop
+                      offset="100%"
+                      stopColor={REVIEWED_COLOR}
+                      stopOpacity={0.02}
+                    />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid
                   stroke={GRID}
                   strokeDasharray="3 3"
@@ -204,25 +234,27 @@ export function ReviewQueueChart({ stats }: { stats: ReviewQueueStats }) {
                   }}
                   content={<ThroughputTooltip />}
                 />
-                <Line
+                <Area
                   type="monotone"
                   dataKey="submitted"
                   name="Submitted"
                   stroke={SUBMITTED_COLOR}
                   strokeWidth={2}
-                  dot={false}
+                  fill="url(#submittedFill)"
+                  fillOpacity={1}
                   isAnimationActive={false}
                 />
-                <Line
+                <Area
                   type="monotone"
                   dataKey="reviewed"
                   name="Reviewed"
                   stroke={REVIEWED_COLOR}
                   strokeWidth={2}
-                  dot={false}
+                  fill="url(#reviewedFill)"
+                  fillOpacity={1}
                   isAnimationActive={false}
                 />
-              </LineChart>
+              </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>

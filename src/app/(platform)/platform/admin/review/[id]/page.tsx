@@ -21,7 +21,10 @@ import {
   user,
 } from "@/lib/db/schema";
 import { ReviewWorkspace } from "@/components/platform/review-workspace";
-import { nextPendingReviewProjectId } from "@/lib/admin/next-review";
+import {
+  nextPendingReviewProjectId,
+  parseSkipParam,
+} from "@/lib/admin/next-review";
 import { unifiedJustificationForSubmission } from "@/lib/ysws/unified";
 
 function toIso(value: Date | string | null | undefined) {
@@ -32,11 +35,17 @@ function toIso(value: Date | string | null | undefined) {
 
 export default async function AdminReviewProjectPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ skip?: string }>;
 }) {
   const { id } = await params;
+  const { skip } = await searchParams;
   const projectId = Number(id);
+  // Projects the reviewer chose to skip this session, carried in the URL so
+  // auto-advance and the skip button keep passing over them.
+  const skipIds = parseSkipParam(skip);
   const session = await getSession();
 
   if (!session) {
@@ -231,13 +240,17 @@ export default async function AdminReviewProjectPage({
   );
 
   // Where to send the reviewer after they decide this one, so the queue flows
-  // card to card without a detour back to the gallery.
-  const nextProjectId = await nextPendingReviewProjectId(
-    "materials",
+  // card to card without a detour back to the gallery. Skip past the current
+  // project and anything deferred this session, and carry the skip set forward
+  // so those stay skipped. This is a fallback; the workspace re-resolves the
+  // target at decision time in case the queue shifted.
+  const nextProjectId = await nextPendingReviewProjectId("materials", [
     projectId,
-  );
+    ...skipIds,
+  ]);
+  const skipQuery = skipIds.length ? `?skip=${skipIds.join(",")}` : "";
   const nextHref = nextProjectId
-    ? `/platform/admin/review/${nextProjectId}`
+    ? `/platform/admin/review/${nextProjectId}${skipQuery}`
     : "/platform/admin/review";
 
   const activity = activityRows[0];
@@ -296,6 +309,7 @@ export default async function AdminReviewProjectPage({
       <ReviewWorkspace
         project={{ ...project, hoursSpent }}
         nextHref={nextHref}
+        skipIds={skipIds}
         unifiedRecord={unifiedRecord}
         journals={journals}
         timelapses={timelapses}

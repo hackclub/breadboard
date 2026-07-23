@@ -12,15 +12,24 @@ import {
   user,
 } from "@/lib/db/schema";
 import { DemoReviewWorkspace } from "@/components/platform/demo-review-workspace";
-import { nextPendingReviewProjectId } from "@/lib/admin/next-review";
+import {
+  nextPendingReviewProjectId,
+  parseSkipParam,
+} from "@/lib/admin/next-review";
 
 export default async function AdminDemoReviewPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ skip?: string }>;
 }) {
   const { id } = await params;
+  const { skip } = await searchParams;
   const projectId = Number(id);
+  // Projects the reviewer chose to skip this session, carried in the URL so
+  // auto-advance and the skip button keep passing over them.
+  const skipIds = parseSkipParam(skip);
   const session = await getSession();
 
   if (!session) {
@@ -115,10 +124,17 @@ export default async function AdminDemoReviewPage({
   }
 
   // Where to send the reviewer after they decide this one, keeping them in the
-  // demo lane; falls back to the gallery when nothing else is queued.
-  const nextProjectId = await nextPendingReviewProjectId("demo", projectId);
+  // demo lane; skip past the current project and anything deferred this session,
+  // carrying the skip set forward. Falls back to the gallery when nothing else
+  // is queued. The workspace re-resolves at decision time in case the queue
+  // shifted.
+  const nextProjectId = await nextPendingReviewProjectId("demo", [
+    projectId,
+    ...skipIds,
+  ]);
+  const skipQuery = skipIds.length ? `?skip=${skipIds.join(",")}` : "";
   const nextHref = nextProjectId
-    ? `/platform/admin/review/demo/${nextProjectId}`
+    ? `/platform/admin/review/demo/${nextProjectId}${skipQuery}`
     : "/platform/admin/review";
 
   const [projectNotes, userNotes] = await Promise.all([
@@ -146,6 +162,7 @@ export default async function AdminDemoReviewPage({
       <DemoReviewWorkspace
         project={project}
         nextHref={nextHref}
+        skipIds={skipIds}
         projectNotes={projectNotes}
         userNotes={userNotes}
         currentUserId={session.user.id}

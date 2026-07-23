@@ -1071,23 +1071,29 @@ export async function clearReviewCommentDraft(submissionId: number) {
     .where(eq(projectSubmissions.id, id));
 }
 
-// Where auto-advance should send the reviewer after they decide a card,
-// resolved at click time rather than when the page first rendered. The page's
-// precomputed target can go stale: on a busy queue another reviewer may claim
-// that submission first, and pushing to a decided one strands this reviewer on
-// a locked review. Recomputing here guarantees the next stop is still a pending
-// card in the same lane; returns the gallery when the lane is empty.
+// Where auto-advance (or a skip) should send the reviewer, resolved at click
+// time rather than when the page first rendered. The page's precomputed target
+// can go stale: on a busy queue another reviewer may claim that submission
+// first, and pushing to a decided one strands this reviewer on a locked review.
+// Recomputing here guarantees the next stop is still a pending card in the same
+// lane. `excludeProjectIds` is the current card plus any skipped this session,
+// so a deferred card isn't served again; `carrySkipIds` is threaded onto the
+// destination URL as `?skip=` so the skip set survives the navigation. Returns
+// the gallery when nothing else is pending.
 export async function nextPendingReviewHref(
   lane: ReviewPhase,
-  excludeProjectId: number,
+  excludeProjectIds: number[],
+  carrySkipIds: number[] = [],
 ) {
   await requireAdminSession();
-  const id = requirePositiveProjectId(excludeProjectId);
-  const nextId = await nextPendingReviewProjectId(lane, id);
+  const nextId = await nextPendingReviewProjectId(lane, excludeProjectIds);
   if (!nextId) return "/platform/admin/review";
-  return lane === "demo"
-    ? `/platform/admin/review/demo/${nextId}`
-    : `/platform/admin/review/${nextId}`;
+  const base =
+    lane === "demo"
+      ? `/platform/admin/review/demo/${nextId}`
+      : `/platform/admin/review/${nextId}`;
+  const carry = carrySkipIds.filter((id) => Number.isInteger(id) && id > 0);
+  return carry.length ? `${base}?skip=${carry.join(",")}` : base;
 }
 
 // Reviewers sometimes need to reclassify a ship: a maker picks "build" but

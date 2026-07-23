@@ -353,6 +353,7 @@ function CopyPingButtons({
 export function ReviewWorkspace({
   project: initial,
   nextHref,
+  skipIds,
   unifiedRecord,
   journals,
   timelapses,
@@ -363,6 +364,7 @@ export function ReviewWorkspace({
 }: {
   project: ReviewProject;
   nextHref: string;
+  skipIds: number[];
   unifiedRecord: {
     text: string;
     overridden: boolean;
@@ -565,16 +567,33 @@ export function ReviewWorkspace({
         // Advance to the next still-pending card in the design lane, resolved
         // now rather than at page load: on a busy queue the target picked when
         // this page opened may already be decided, and we must never drop the
-        // reviewer onto a locked review. Falls back to the page-load target,
-        // then the gallery, if the lookup fails.
-        const href = await nextPendingReviewHref("materials", initial.id).catch(
-          () => nextHref,
-        );
+        // reviewer onto a locked review. Skip past anything deferred this
+        // session and carry the skip set forward. Falls back to the page-load
+        // target, then the gallery, if the lookup fails.
+        const href = await nextPendingReviewHref(
+          "materials",
+          [initial.id, ...skipIds],
+          skipIds,
+        ).catch(() => nextHref);
         router.push(href);
       } catch (error) {
         setErrorMsg(error instanceof Error ? error.message : "Failed");
         router.refresh();
       }
+    });
+  }
+
+  // Defer this card without deciding it: add it to the skip set and jump to the
+  // next still-pending card in the lane, carrying the skip set in the URL so
+  // skipped cards don't resurface this session. Falls back to the gallery.
+  function skipReview() {
+    setErrorMsg(null);
+    const carry = [initial.id, ...skipIds];
+    startTransition(async () => {
+      const href = await nextPendingReviewHref("materials", carry, carry).catch(
+        () => "/platform/admin/review",
+      );
+      router.push(href);
     });
   }
 
@@ -1203,6 +1222,22 @@ export function ReviewWorkspace({
               <p className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm font-black text-red-800">
                 {errorMsg}
               </p>
+            ) : null}
+            {!locked ? (
+              <div className="mt-4 border-t border-black/10 pt-4">
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={skipReview}
+                  className="w-full rounded-xl border border-dashed border-black/40 bg-white py-3 text-sm font-black text-black/60 hover:border-black hover:text-black disabled:opacity-50"
+                >
+                  Skip for now →
+                </button>
+                <p className="mt-1.5 text-center text-xs font-semibold text-black/40">
+                  Leaves this one pending and jumps to the next unreviewed card.
+                  It won&apos;t come back around this session.
+                </p>
+              </div>
             ) : null}
           </div>
         </div>

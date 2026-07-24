@@ -44,22 +44,24 @@ export default async function PlatformShopPage() {
     .where(eq(products.active, true))
     .orderBy(asc(products.id));
 
-  // Grants and the Custom Art commission are pinned to the top of the shop;
-  // everything else keeps its natural order below them. A product counts as a
-  // grant if it's flagged in metadata or just has "grant" in its name (the
-  // older PCB/Hardware grants predate the metadata flag).
+  // The top of the shop is pinned in this order: grants, then the Custom Art
+  // commission, then Donate to Breadboard; everything else keeps its natural
+  // order below them. A product counts as a grant if it's flagged in metadata
+  // or just has "grant" in its name (the older PCB/Hardware grants predate the
+  // metadata flag).
   const isGrant = (product: (typeof activeProducts)[number]) =>
     product.metadata?.grant != null || /grant/i.test(product.name);
   const grants = activeProducts.filter(isGrant);
   const customArt = activeProducts.filter(
     (product) => !isGrant(product) && product.name === "Custom Art by Herby",
   );
-  const pinnedIds = new Set(
-    [...grants, ...customArt].map((product) => product.id),
+  const donation = activeProducts.filter(
+    (product) => !isGrant(product) && product.metadata?.donation === true,
   );
+  const pinned = [...grants, ...customArt, ...donation];
+  const pinnedIds = new Set(pinned.map((product) => product.id));
   const allProducts = [
-    ...grants,
-    ...customArt,
+    ...pinned,
     ...activeProducts.filter((product) => !pinnedIds.has(product.id)),
   ];
   const isShopOpen = await shopOpen();

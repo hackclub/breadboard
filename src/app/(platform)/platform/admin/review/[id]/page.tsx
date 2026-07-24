@@ -111,6 +111,11 @@ export default async function AdminReviewProjectPage({
       updatedAt: projectSubmissions.updatedAt,
       createdAt: projects.createdAt,
       kitType: projects.kitType,
+      // Whether a kit has ever been ordered for this project. Set once, on the
+      // first design approval, and used to stop an update ship from shipping a
+      // second kit while still letting the reviewer send a first one to a
+      // project that never got one (e.g. a prior bread-only ship).
+      kitOrderId: projects.kitOrderId,
       userName: user.name,
       userEmail: user.email,
       userSlackId: user.slackId,

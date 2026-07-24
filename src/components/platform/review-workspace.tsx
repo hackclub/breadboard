@@ -83,6 +83,7 @@ type ReviewProject = {
   userSlackId: string | null;
   userId: string;
   kitType: string;
+  kitOrderId: number | null;
   submissionSource: string | null;
   breadOnly: boolean;
   simulatorSketchy: boolean;
@@ -625,10 +626,20 @@ export function ReviewWorkspace({
   );
 
   // A prior approved ship means this submission is an update: approving pays
-  // bread for the new hours immediately and never ships another kit.
+  // bread for the new hours immediately.
   const isUpdateShip = submissionHistory.some(
     (entry) => entry.status === "approved" || entry.status === "fulfilled",
   );
+
+  // Kit state for the update panel. A project has had its kit once kitOrderId
+  // is set; own-parts builders never get one. A project with no kit yet (e.g. a
+  // prior bread-only ship) can be sent its first kit from this update, which
+  // the reviewer opts into. shipKitWithUpdate only reaches the server for
+  // update ships, and the server ignores it unless a kit is genuinely due.
+  const usesOwnParts = initial.kitType === "own";
+  const hasKit = initial.kitOrderId != null;
+  const canOfferKit = isUpdateShip && !hasKit && !usesOwnParts;
+  const [shipKitWithUpdate, setShipKitWithUpdate] = useState(false);
 
   // Approvals that pay out (demo, build, bread-only, update) push the ship to
   // the Unified YSWS DB, whose spot-checks require an hours justification. The
@@ -961,9 +972,54 @@ export function ReviewWorkspace({
                     </p>
                     <p className="mt-1 text-xs font-semibold text-violet-800/80">
                       The hours below are new since the last approved ship.
-                      Approving pays the bread immediately; no kit ships.
+                      Approving pays the bread immediately.
                     </p>
+                    {hasKit ? (
+                      <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-violet-100 px-2.5 py-1.5 text-xs font-black text-violet-900">
+                        <HiCheckCircle className="size-4" />A kit was already
+                        sent for this project. No second kit will ship.
+                      </p>
+                    ) : usesOwnParts ? (
+                      <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-violet-100 px-2.5 py-1.5 text-xs font-black text-violet-900">
+                        Own-parts build. No kit ships.
+                      </p>
+                    ) : null}
                   </div>
+                ) : null}
+                {canOfferKit ? (
+                  <button
+                    type="button"
+                    aria-pressed={shipKitWithUpdate}
+                    onClick={() => setShipKitWithUpdate((value) => !value)}
+                    className={`rounded-xl border px-4 py-3 text-left ${
+                      shipKitWithUpdate
+                        ? "border-emerald-500 bg-emerald-100"
+                        : "border-black bg-white hover:bg-zinc-50"
+                    }`}
+                  >
+                    <span
+                      className={`inline-flex items-center gap-1.5 text-sm font-black ${
+                        shipKitWithUpdate ? "text-emerald-900" : "text-black"
+                      }`}
+                    >
+                      <HiWrenchScrewdriver className="size-4" />
+                      {shipKitWithUpdate
+                        ? "Shipping a kit with this approval"
+                        : "Ship a kit with this approval"}
+                    </span>
+                    <span
+                      className={`mt-1 block text-xs font-semibold ${
+                        shipKitWithUpdate
+                          ? "text-emerald-800/80"
+                          : "text-black/50"
+                      }`}
+                    >
+                      This project never got a kit (an earlier ship was bread
+                      only). Turning this on sends the{" "}
+                      {initial.kitType === "esp32" ? "Kit B · ESP32" : "Kit A"}{" "}
+                      to fulfillment now. A project only ever gets one kit.
+                    </span>
+                  </button>
                 ) : null}
                 <label className="grid gap-1.5">
                   <span className="text-xs font-black tracking-[0.14em] text-black/40 uppercase">
@@ -1162,6 +1218,7 @@ export function ReviewWorkspace({
                           ? "demo"
                           : "materials",
                         acceptBreadOnly,
+                        canOfferKit && shipKitWithUpdate,
                       );
                       clearJustificationDraft();
                     })

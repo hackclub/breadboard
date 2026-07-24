@@ -296,6 +296,41 @@ async function getOrCreateKitProduct(tx: typeof db, kitType: string) {
   return created.id;
 }
 
+// Creates the single kit order for a project and returns its id so the caller
+// can stamp projects.kitOrderId inside the same transaction. Callers must guard
+// on project.kitOrderId (and own-parts) first: this function itself does not
+// check, so the one-kit-per-project rule lives at the call sites plus the
+// pending_review status guard that rolls the whole approval back on a replay.
+async function createKitOrder(
+  tx: typeof db,
+  project: typeof projects.$inferSelect,
+) {
+  const kitProductId = await getOrCreateKitProduct(tx, project.kitType);
+  const [kitOrder] = await tx
+    .insert(orders)
+    .values({
+      userId: project.userId,
+      totalCost: 0,
+      shippingName: `${project.firstName} ${project.lastName}`.trim(),
+      shippingLine1: project.addressLine1,
+      shippingLine2: project.addressLine2,
+      shippingCity: project.city,
+      shippingRegion: project.region,
+      shippingPostalCode: project.postalCode,
+      shippingCountry: project.country,
+      source: "project_kit",
+      projectId: project.id,
+    })
+    .returning({ id: orders.id });
+  await tx.insert(orderItems).values({
+    orderId: kitOrder.id,
+    productId: kitProductId,
+    quantity: 1,
+    unitPrice: 0,
+  });
+  return kitOrder.id;
+}
+
 function revalidateReviewViews(projectId?: number) {
   revalidatePath("/platform/admin/review");
   if (projectId) revalidatePath(`/platform/admin/review/${projectId}`);
@@ -368,6 +403,7 @@ export async function approveProject(
   checks?: ReviewCheckInput[],
   expectedPhase: ReviewPhase = "materials",
   breadOnly = false,
+  shipKit = false,
 ) {
   const session = await requireAdminSession();
   const id = requirePositiveProjectId(projectId);
@@ -585,8 +621,10 @@ export async function approveProject(
   // A design ship pays out at materials approval when no demo phase lies ahead
   // of it: bread-only ships (declared by the maker or accepted by the
   // reviewer), and update ships to a project that already had a ship approved.
-  // The kit decision happens exactly once, on the first approval. Updates
-  // never trigger fulfillment, whether the project got a kit or was bread only.
+  // A kit is normally sent once, on the first kit-shipping approval; a project
+  // that never got one (a prior bread-only ship) can still be sent its first
+  // kit here when the reviewer asks, but a project that already has one never
+  // gets a second (see canShipKit below).
   const [priorApproved] = await db
     .select({ id: projectSubmissions.id })
     .from(projectSubmissions)
@@ -600,6 +638,14 @@ export async function approveProject(
     )
     .limit(1);
   const isUpdateShip = Boolean(priorApproved);
+
+  // Ship a first kit from this approval only when the reviewer asked, the
+  // project has never had one, and it's a kit project (own-parts builders use
+  // their own components). The kitOrderId guard is authoritative and server
+  // side: a stale or crafted client can't cause a second kit, so a single ship
+  // can never produce two.
+  const canShipKit =
+    shipKit && !project.kitOrderId && project.kitType !== "own";
 
   // The reviewer's toggle is authoritative: the client seeds it from the
   // maker's declared breadOnly, so an unchanged value keeps a maker-declared
@@ -657,6 +703,16 @@ export async function approveProject(
           updatedAt: new Date(),
         })
         .where(eq(projects.id, id));
+      // Send a first kit if the reviewer opted in. The order drives fulfillment
+      // on its own, so the project status set above is left as is; stamping
+      // kitOrderId is what blocks any later ship from sending a second.
+      if (canShipKit) {
+        const kitOrderId = await createKitOrder(tx, project);
+        await tx
+          .update(projects)
+          .set({ kitOrderId, kitApprovedAt: new Date(), updatedAt: new Date() })
+          .where(eq(projects.id, id));
+      }
       const [credited] = await tx
         .insert(userBread)
         .values({ userId: updatedSubmission.userId, balance: bread })
@@ -693,6 +749,7 @@ export async function approveProject(
       bread,
       breadOnly: acceptBreadOnly,
       update: isUpdateShip,
+      kitShipped: canShipKit,
     });
     revalidateReviewViews(id);
     // Bread-only and update ships pay out at materials approval, so the
@@ -760,32 +817,10 @@ export async function approveProject(
       .where(eq(projects.id, id));
 
     if (!usesOwnParts) {
-      const kitProductId = await getOrCreateKitProduct(tx, project.kitType);
-      const [kitOrder] = await tx
-        .insert(orders)
-        .values({
-          userId: project.userId,
-          totalCost: 0,
-          shippingName: `${project.firstName} ${project.lastName}`.trim(),
-          shippingLine1: project.addressLine1,
-          shippingLine2: project.addressLine2,
-          shippingCity: project.city,
-          shippingRegion: project.region,
-          shippingPostalCode: project.postalCode,
-          shippingCountry: project.country,
-          source: "project_kit",
-          projectId: id,
-        })
-        .returning({ id: orders.id });
-      await tx.insert(orderItems).values({
-        orderId: kitOrder.id,
-        productId: kitProductId,
-        quantity: 1,
-        unitPrice: 0,
-      });
+      const kitOrderId = await createKitOrder(tx, project);
       await tx
         .update(projects)
-        .set({ kitOrderId: kitOrder.id, updatedAt: new Date() })
+        .set({ kitOrderId, updatedAt: new Date() })
         .where(eq(projects.id, id));
     }
 

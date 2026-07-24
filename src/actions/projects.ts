@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { z } from "zod";
 import type { HackClubClaims } from "@/lib/auth/hackclub";
 import { assertHackClubYswsEligible, ensureSlackId } from "@/lib/auth/hackclub";
@@ -28,6 +29,10 @@ import {
   getUnjournaledSeconds,
   JOURNAL_MIN_SECONDS,
 } from "@/lib/editor/journal-time";
+import {
+  refreshGitHubReadme,
+  resolvePublicOrigin,
+} from "@/lib/projects/githubReadme";
 import {
   fetchTimelapsesForUser,
   lapseProgramKeyConfigured,
@@ -446,6 +451,18 @@ export async function shipProjectFromForm(
       projectId,
       data,
     );
+    // An auto-generated circuit screenshot the maker never uploaded by hand
+    // only reaches the repo if we push it: shipProjectForUser has persisted it
+    // to the project row, so refresh the published GitHub README now. Limited
+    // to auto screenshots ("/auto.png") on purpose. A hand-uploaded shot is the
+    // maker's to publish via the edit-modal save, so we don't auto-push it here.
+    // Scheduled with after() so the submit response doesn't wait on the GitHub
+    // round-trip; refreshGitHubReadme never throws and skips repos we don't own.
+    // Origin is resolved here because headers() is gone in after().
+    if (data.screenshotUrl.endsWith("/auto.png")) {
+      const origin = await resolvePublicOrigin();
+      after(() => refreshGitHubReadme(projectId, session.user.id, origin));
+    }
     await notifyReviewSubmitted(projectId, "materials");
     await syncUserToLoops(session.user.id);
     revalidatePath("/platform/projects");

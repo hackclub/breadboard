@@ -305,15 +305,24 @@ export async function buildUnifiedJustificationParts(
       }, and this record approves only the hours for the new work since.`
     : "";
 
+  // Never present the same time twice across ships. The per-ship claim is the
+  // measured total above the floor already approved on earlier ships, so an
+  // update ship states that split in words rather than the raw whole-project
+  // total. The stored per-submission snapshot (s.trackedSeconds) is
+  // deliberately not printed: it is 0 or stale on older rows, which made the
+  // record contradict the recomputed claimedHours in the very next sentence.
+  const editingSummary = `${formatHours(editorTime?.seconds ?? 0)} of active editing across ${editorTime?.sessions ?? 0} sessions`;
+  const trackingLine = isUpdate
+    ? `Time was tracked server-side in the Breadboard editor: ${editingSummary} for the whole project, with periodic screen captures verifying activity. Earlier approved ships already counted ${formatHours(
+        priorFloorSeconds,
+      )}, so this ship claims only the ${claimedHours}h of new work since; no time is counted twice across ships.`
+    : `Time was tracked server-side in the Breadboard editor: ${editingSummary}, with periodic screen captures verifying activity. This is the project's first ship, so all of this time counts toward it.`;
+
   const evidence =
     s.submissionSource === "manual"
       ? `Time was measured off-platform with Breadboard's external tracker (screen-verified heartbeats), reported as ${s.hoursSpent}h for this ship.`
       : [
-          `Time was tracked server-side in the Breadboard editor: ${formatHours(
-            editorTime?.seconds ?? 0,
-          )} of active editing across ${editorTime?.sessions ?? 0} sessions for the whole project (${formatHours(
-            s.trackedSeconds,
-          )} in this ship's snapshot), with periodic screen captures verifying activity.`,
+          trackingLine,
           (recordings[0]?.count ?? 0) > 0
             ? `${recordings[0].count} Lapse screen recordings totaling ${formatHours(
                 recordings[0].seconds,

@@ -395,6 +395,22 @@ export function ReviewWorkspace({
     Math.max(0, initial.hoursSpent - auditDeductedSeconds / 3600),
   );
 
+  // Split the whole-project measured total into what earlier approved ships
+  // already counted and what's new in this ship, so the reviewer can see at a
+  // glance which time this ship claims. The floor is the largest cumulative
+  // tracked total on a prior approved ship, matching how the server derives the
+  // per-ship claim (src/lib/projects/mutations.ts approvedShipFloor) and keeps
+  // time from being counted twice across ships.
+  const priorApprovedFloorSeconds = submissionHistory
+    .filter(
+      (entry) => entry.status === "approved" || entry.status === "fulfilled",
+    )
+    .reduce((max, entry) => Math.max(max, entry.trackedSeconds ?? 0), 0);
+  const thisShipMeasuredSeconds = Math.max(
+    0,
+    tracking.measuredSeconds - priorApprovedFloorSeconds,
+  );
+
   const [verdict, setVerdict] = useState<"approve" | "changes" | "reject">(
     "approve",
   );
@@ -1409,11 +1425,30 @@ export function ReviewWorkspace({
               </span>
             </div>
             <div className="flex justify-between gap-3">
-              <span>Measured total</span>
+              <span>
+                Measured total
+                {priorApprovedFloorSeconds > 0 ? " (whole project)" : ""}
+              </span>
               <span className="font-black text-[#BD0F32]">
                 {formatExactDuration(tracking.measuredSeconds)}
               </span>
             </div>
+            {priorApprovedFloorSeconds > 0 ? (
+              <>
+                <div className="flex justify-between gap-3">
+                  <span>Counted on earlier ships</span>
+                  <span className="font-black text-black/60">
+                    −{formatExactDuration(priorApprovedFloorSeconds)}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span>New in this ship</span>
+                  <span className="font-black text-[#BD0F32]">
+                    {formatExactDuration(thisShipMeasuredSeconds)}
+                  </span>
+                </div>
+              </>
+            ) : null}
             {hasTimeAudit && timeAudit ? (
               <>
                 {timeAudit.removedSeconds > 0 ? (

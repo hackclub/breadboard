@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import Image from "next/image";
 import { LoginButton } from "@/components/shared/auth-buttons";
 import { PageHero } from "@/components/shared/docs-frame";
@@ -38,10 +38,30 @@ export default async function PlatformShopPage() {
     );
   }
 
-  const allProducts = await db
+  const activeProducts = await db
     .select()
     .from(products)
-    .where(eq(products.active, true));
+    .where(eq(products.active, true))
+    .orderBy(asc(products.id));
+
+  // Grants and the Custom Art commission are pinned to the top of the shop;
+  // everything else keeps its natural order below them. A product counts as a
+  // grant if it's flagged in metadata or just has "grant" in its name (the
+  // older PCB/Hardware grants predate the metadata flag).
+  const isGrant = (product: (typeof activeProducts)[number]) =>
+    product.metadata?.grant != null || /grant/i.test(product.name);
+  const grants = activeProducts.filter(isGrant);
+  const customArt = activeProducts.filter(
+    (product) => !isGrant(product) && product.name === "Custom Art by Herby",
+  );
+  const pinnedIds = new Set(
+    [...grants, ...customArt].map((product) => product.id),
+  );
+  const allProducts = [
+    ...grants,
+    ...customArt,
+    ...activeProducts.filter((product) => !pinnedIds.has(product.id)),
+  ];
   const isShopOpen = await shopOpen();
 
   return (

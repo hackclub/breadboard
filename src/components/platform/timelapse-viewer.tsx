@@ -357,15 +357,23 @@ export function TimelapseViewer({
   projectId,
   projectTitle,
   until,
+  since,
   focus,
 }: {
   projectId: number;
   projectTitle: string;
   until?: string;
+  // Start of this ship's window (the previous approved ship's submission).
+  // With until, it scopes the timeline and audit tool to one ship's new time.
+  since?: string;
   // ISO timestamp to jump to on load (e.g. a code-authenticity burst). The
   // viewer lands on the frame nearest this time instead of the latest one.
   focus?: string;
 }) {
+  // When the page provides a ship window, default to showing just this ship and
+  // let the reviewer widen to the whole project; the audit tool follows suit.
+  const hasWindow = Boolean(since || until);
+  const [scope, setScope] = useState<"ship" | "all">("ship");
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [journals, setJournals] = useState<JournalEntry[]>([]);
   const [allFrames, setAllFrames] = useState<TimelineFrame[]>([]);
@@ -407,7 +415,12 @@ export function TimelapseViewer({
     setPlaying(false);
 
     const search = new URLSearchParams({ refresh: String(reloadKey) });
-    if (until) search.set("until", until);
+    // "This ship" applies both window bounds; "All time" drops them to load the
+    // whole project.
+    if (scope === "ship") {
+      if (until) search.set("until", until);
+      if (since) search.set("since", since);
+    }
     const query = `?${search.toString()}`;
     fetch(`/api/editor/projects/${projectId}/timelapse/frames${query}`, {
       credentials: "include",
@@ -505,7 +518,7 @@ export function TimelapseViewer({
       cancelled = true;
       controller.abort();
     };
-  }, [projectId, reloadKey, stopTimer, until, focus]);
+  }, [projectId, reloadKey, stopTimer, until, since, scope, focus]);
 
   const visibleFrames = useMemo(
     () =>
@@ -1087,7 +1100,31 @@ export function TimelapseViewer({
             <p className="shrink-0 text-[10px] font-black tracking-[0.16em] text-[#BD0F32] uppercase">
               Timelapse review
             </p>
-            {until ? (
+            {hasWindow ? (
+              <fieldset className="flex shrink-0 border border-[#4a4a4a] bg-[#1c1c1c] p-0.5">
+                <legend className="sr-only">Time scope</legend>
+                {(
+                  [
+                    ["ship", "This ship"],
+                    ["all", "All time"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setScope(value)}
+                    aria-pressed={scope === value}
+                    className={`px-2 py-0.5 text-[10px] font-black tracking-[0.06em] uppercase transition ${
+                      scope === value
+                        ? "bg-[#BD0F32] text-white"
+                        : "text-zinc-400 hover:bg-[#363636] hover:text-white"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </fieldset>
+            ) : until ? (
               <span className="truncate border border-[#BD0F32]/50 bg-[#BD0F32]/10 px-1.5 py-0.5 text-[10px] font-black tracking-[0.08em] text-red-100 uppercase">
                 At submission
               </span>

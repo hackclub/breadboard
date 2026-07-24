@@ -360,7 +360,10 @@ export function ReviewWorkspace({
   timelapses,
   submissionHistory,
   tracking,
+  trackingAllTime,
+  windowStartIso,
   timeAudit,
+  timeAuditAllTime,
   breadPerHour,
 }: {
   project: ReviewProject;
@@ -374,43 +377,45 @@ export function ReviewWorkspace({
   journals: Journal[];
   timelapses: Timelapse[];
   submissionHistory: SubmissionHistoryEntry[];
+  // tracking / timeAudit are this ship's window (what pays out). The *AllTime
+  // pair is the whole project, shown when the reviewer toggles the scope.
   tracking: TrackingSummary;
+  trackingAllTime: TrackingSummary;
+  // Start of this ship's window (previous approved ship's submission), passed
+  // through to the timelapse so its audit tool opens scoped to this ship. Null
+  // on a first ship.
+  windowStartIso: string | null;
   timeAudit?: TimeAuditSummary;
+  timeAuditAllTime?: TimeAuditSummary;
   breadPerHour: number;
 }) {
-  // Time-audit deductions the reviewer marked on the timelapse. The audited
-  // total (the per-ship claim minus those deductions) is the default approved
-  // hours whenever any segment exists, so marking a deduction actually lowers
-  // the payout and the Unified DB hours instead of silently sending the raw
-  // measured time when the reviewer forgets to click "Use audited total".
-  // initial.hoursSpent is already the per-ship claim, floor-adjusted for
-  // earlier approved ships.
+  // Payout always follows THIS ship's window: the audited total (the per-ship
+  // measured minus the reviewer's deductions) is the default approved hours
+  // whenever any segment exists, so marking a deduction actually lowers the
+  // payout and the Unified DB hours instead of silently sending the raw
+  // measured time. initial.hoursSpent is already this ship's measured total.
+  // Time from earlier ships is windowed out upstream, so the same hours can't
+  // be counted twice.
   const auditDeductedSeconds =
     (timeAudit?.removedSeconds ?? 0) + (timeAudit?.deflatedSeconds ?? 0);
-  const auditedSeconds = Math.max(
-    0,
-    tracking.measuredSeconds - auditDeductedSeconds,
-  );
   const hasTimeAudit = (timeAudit?.segmentCount ?? 0) > 0;
   const auditedHours = roundHours(
     Math.max(0, initial.hoursSpent - auditDeductedSeconds / 3600),
   );
 
-  // Split the whole-project measured total into what earlier approved ships
-  // already counted and what's new in this ship, so the reviewer can see at a
-  // glance which time this ship claims. The floor is the largest cumulative
-  // tracked total on a prior approved ship, matching how the server derives the
-  // per-ship claim (src/lib/projects/mutations.ts approvedShipFloor) and keeps
-  // time from being counted twice across ships.
-  const priorApprovedFloorSeconds = submissionHistory
-    .filter(
-      (entry) => entry.status === "approved" || entry.status === "fulfilled",
-    )
-    .reduce((max, entry) => Math.max(max, entry.trackedSeconds ?? 0), 0);
-  const thisShipMeasuredSeconds = Math.max(
+  // The Time evidence card can show this ship's window (the default, what pays
+  // out) or the whole project, toggled by the reviewer. Only the display
+  // switches; the approved-hours default above stays pinned to this ship.
+  const [timeScope, setTimeScope] = useState<"ship" | "all">("ship");
+  const trackingView = timeScope === "all" ? trackingAllTime : tracking;
+  const auditView = timeScope === "all" ? timeAuditAllTime : timeAudit;
+  const viewAuditDeducted =
+    (auditView?.removedSeconds ?? 0) + (auditView?.deflatedSeconds ?? 0);
+  const viewAuditedSeconds = Math.max(
     0,
-    tracking.measuredSeconds - priorApprovedFloorSeconds,
+    trackingView.measuredSeconds - viewAuditDeducted,
   );
+  const viewHasAudit = (auditView?.segmentCount ?? 0) > 0;
 
   const [verdict, setVerdict] = useState<"approve" | "changes" | "reject">(
     "approve",
@@ -851,7 +856,11 @@ export function ReviewWorkspace({
               <EvidenceButton
                 href={`/platform/admin/projects/${initial.id}/timelapse?until=${encodeURIComponent(
                   initial.shippedAt?.toISOString() ?? "",
-                )}`}
+                )}${
+                  windowStartIso
+                    ? `&since=${encodeURIComponent(windowStartIso)}`
+                    : ""
+                }`}
                 label="Timelapse"
                 icon={HiFilm}
               />
@@ -1458,79 +1467,90 @@ export function ReviewWorkspace({
         </section>
 
         <section className="rounded-[16px] border border-black bg-white p-4 shadow-[4px_4px_0_#000]">
-          <div className="flex items-center gap-2 text-sm font-black text-black">
-            <HiClock className="size-5 text-[#BD0F32]" />
-            Time evidence
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm font-black text-black">
+              <HiClock className="size-5 text-[#BD0F32]" />
+              Time evidence
+            </div>
+            <fieldset className="flex rounded-lg border border-black bg-zinc-100 p-0.5">
+              <legend className="sr-only">Time scope</legend>
+              {(
+                [
+                  ["ship", "This ship"],
+                  ["all", "All time"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setTimeScope(value)}
+                  aria-pressed={timeScope === value}
+                  className={`rounded-md px-2 py-1 text-[11px] font-black transition ${
+                    timeScope === value
+                      ? "bg-black text-white"
+                      : "text-black/50 hover:text-black"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </fieldset>
           </div>
           <p className="mt-1 text-xs font-semibold text-black/50">
-            Server-calculated activity and separately attached recordings.
+            {timeScope === "all"
+              ? "The whole project, every ship combined."
+              : "Only this ship's new time. This is what pays out; the same hours are never counted on two ships."}
           </p>
           <p className="mt-1 text-xs font-semibold text-black/40">
-            These are the sources used for the submitted measured-time total.
+            This ship {formatExactDuration(tracking.measuredSeconds)} · whole
+            project {formatExactDuration(trackingAllTime.measuredSeconds)}
           </p>
           <div className="mt-3 space-y-2 text-sm text-black/70">
             <div className="flex justify-between gap-3">
               <span>Active in Breadboard</span>
               <span className="font-black text-black">
-                {formatExactDuration(tracking.trackedSeconds)}
+                {formatExactDuration(trackingView.trackedSeconds)}
               </span>
             </div>
             <div className="flex justify-between gap-3">
               <span>Lapse recording time</span>
               <span className="font-black text-black">
-                {formatExactDuration(tracking.recordingSeconds)}
+                {formatExactDuration(trackingView.recordingSeconds)}
               </span>
             </div>
             <div className="flex justify-between gap-3">
               <span>
-                Measured total
-                {priorApprovedFloorSeconds > 0 ? " (whole project)" : ""}
+                Measured total{timeScope === "all" ? " (whole project)" : ""}
               </span>
               <span className="font-black text-[#BD0F32]">
-                {formatExactDuration(tracking.measuredSeconds)}
+                {formatExactDuration(trackingView.measuredSeconds)}
               </span>
             </div>
-            {priorApprovedFloorSeconds > 0 ? (
+            {viewHasAudit && auditView ? (
               <>
-                <div className="flex justify-between gap-3">
-                  <span>Counted on earlier ships</span>
-                  <span className="font-black text-black/60">
-                    −{formatExactDuration(priorApprovedFloorSeconds)}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <span>New in this ship</span>
-                  <span className="font-black text-[#BD0F32]">
-                    {formatExactDuration(thisShipMeasuredSeconds)}
-                  </span>
-                </div>
-              </>
-            ) : null}
-            {hasTimeAudit && timeAudit ? (
-              <>
-                {timeAudit.removedSeconds > 0 ? (
+                {auditView.removedSeconds > 0 ? (
                   <div className="flex justify-between gap-3">
                     <span>Time audit · removed</span>
                     <span className="font-black text-red-600">
-                      −{formatExactDuration(timeAudit.removedSeconds)}
+                      −{formatExactDuration(auditView.removedSeconds)}
                     </span>
                   </div>
                 ) : null}
-                {timeAudit.deflatedSeconds > 0 ? (
+                {auditView.deflatedSeconds > 0 ? (
                   <div className="flex justify-between gap-3">
                     <span>Time audit · deflated</span>
                     <span className="font-black text-amber-600">
-                      −{formatExactDuration(timeAudit.deflatedSeconds)}
+                      −{formatExactDuration(auditView.deflatedSeconds)}
                     </span>
                   </div>
                 ) : null}
                 <div className="flex justify-between gap-3">
                   <span>
-                    Audited total ({timeAudit.segmentCount} segment
-                    {timeAudit.segmentCount === 1 ? "" : "s"})
+                    Audited total ({auditView.segmentCount} segment
+                    {auditView.segmentCount === 1 ? "" : "s"})
                   </span>
                   <span className="font-black text-emerald-700">
-                    {formatExactDuration(auditedSeconds)}
+                    {formatExactDuration(viewAuditedSeconds)}
                   </span>
                 </div>
               </>
@@ -1538,32 +1558,34 @@ export function ReviewWorkspace({
               <div className="flex justify-between gap-3 text-xs">
                 <span>Time audit</span>
                 <span className="font-semibold text-black/40">
-                  None yet — mark segments in the timelapse
+                  {timeScope === "all"
+                    ? "None yet across the project"
+                    : "None yet — mark segments in the timelapse"}
                 </span>
               </div>
             )}
             <div className="flex justify-between gap-3 border-t border-black/10 pt-2 text-xs">
               <span>Activity sessions</span>
               <span className="font-black text-black">
-                {tracking.sessionCount}
+                {trackingView.sessionCount}
               </span>
             </div>
             <div className="flex justify-between gap-3 text-xs">
               <span>Journals cover</span>
               <span className="font-black text-black">
-                {formatExactDuration(tracking.journaledSeconds)}
+                {formatExactDuration(trackingView.journaledSeconds)}
               </span>
             </div>
             <div className="border-t border-black/10 pt-2 text-xs">
               <p className="font-black text-black/45">Last heartbeat</p>
               <p className="mt-0.5 font-semibold text-black">
-                {formatEvidenceTime(tracking.lastTrackedAt)}
+                {formatEvidenceTime(trackingView.lastTrackedAt)}
               </p>
             </div>
             <div className="text-xs">
               <p className="font-black text-black/45">Latest screen proof</p>
               <p className="mt-0.5 font-semibold text-black">
-                {formatEvidenceTime(tracking.lastScreenEvidenceAt)}
+                {formatEvidenceTime(trackingView.lastScreenEvidenceAt)}
               </p>
             </div>
           </div>

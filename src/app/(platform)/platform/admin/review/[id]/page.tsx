@@ -157,11 +157,10 @@ export default async function AdminReviewProjectPage({
   const [
     journals,
     timelapseRows,
-    activityRows,
+    sessionRows,
     screenEvidenceRows,
-    journalTimeRows,
     submissionHistoryRows,
-    timeAuditRows,
+    auditSegmentRows,
   ] = await Promise.all([
     db
       .select()
@@ -180,11 +179,13 @@ export default async function AdminReviewProjectPage({
       .from(projectTimelapses)
       .where(eq(projectTimelapses.projectId, projectId))
       .orderBy(desc(projectTimelapses.recordedAt)),
+    // Session rows (not a pre-aggregate) so this ship's window can be summed in
+    // memory alongside the whole-project total, without a second round trip.
     db
       .select({
-        trackedSeconds: sql<number>`coalesce(sum(${editorActivitySessions.activeSeconds}), 0)::int`,
-        sessionCount: sql<number>`count(${editorActivitySessions.id})::int`,
-        lastTrackedAt: sql<Date | null>`max(${editorActivitySessions.lastActivityAt})`,
+        startedAt: editorActivitySessions.startedAt,
+        lastActivityAt: editorActivitySessions.lastActivityAt,
+        activeSeconds: editorActivitySessions.activeSeconds,
       })
       .from(editorActivitySessions)
       .where(eq(editorActivitySessions.projectId, projectId)),
@@ -194,12 +195,6 @@ export default async function AdminReviewProjectPage({
       })
       .from(editorScreenEvidenceFrames)
       .where(eq(editorScreenEvidenceFrames.projectId, projectId)),
-    db
-      .select({
-        journaledSeconds: sql<number>`coalesce(sum(${projectJournals.activeSecondsCovered}), 0)::int`,
-      })
-      .from(projectJournals)
-      .where(eq(projectJournals.projectId, projectId)),
     db
       .select({
         id: projectSubmissions.id,
@@ -221,13 +216,23 @@ export default async function AdminReviewProjectPage({
         ),
       )
       .orderBy(desc(projectSubmissions.submissionNumber)),
+    // Segment rows with the parent recording's date, so both the whole-project
+    // and per-ship deduction totals can be computed in memory. Editor (tape)
+    // segments window by their work time (startAt); Lapse segments window by
+    // the recording they belong to (recordedAt).
     db
       .select({
-        segmentCount: sql<number>`count(${projectTimeAuditSegments.id})::int`,
-        removedSeconds: sql<number>`coalesce(sum(${projectTimeAuditSegments.deductedSeconds}) filter (where ${projectTimeAuditSegments.kind} = 'removed'), 0)::int`,
-        deflatedSeconds: sql<number>`coalesce(sum(${projectTimeAuditSegments.deductedSeconds}) filter (where ${projectTimeAuditSegments.kind} = 'deflated'), 0)::int`,
+        kind: projectTimeAuditSegments.kind,
+        deductedSeconds: projectTimeAuditSegments.deductedSeconds,
+        startAt: projectTimeAuditSegments.startAt,
+        timelapseId: projectTimeAuditSegments.timelapseId,
+        recordedAt: projectTimelapses.recordedAt,
       })
       .from(projectTimeAuditSegments)
+      .leftJoin(
+        projectTimelapses,
+        eq(projectTimeAuditSegments.timelapseId, projectTimelapses.id),
+      )
       .where(eq(projectTimeAuditSegments.projectId, projectId)),
   ]);
   const timelapses = timelapseRows.map((entry) => ({
@@ -258,17 +263,83 @@ export default async function AdminReviewProjectPage({
     ? `/platform/admin/review/${nextProjectId}${skipQuery}`
     : "/platform/admin/review";
 
-  const activity = activityRows[0];
   const screenEvidence = screenEvidenceRows[0];
-  const recordingSeconds = timelapseRows.reduce(
-    (total, entry) => total + entry.durationSeconds,
+
+  // --- Per-ship time window ---
+  // This ship's work spans from the previous approved ship's submission (which
+  // closed its editor sessions, making it a clean accounting boundary) up to
+  // this ship's submission. Time and audit deductions outside that window
+  // belong to another ship, so counting them here would submit the same hours
+  // twice (Unified DB rule). Everything is computed for both scopes: the per-
+  // ship window (the default, what pays out) and the whole project (a view the
+  // reviewer can toggle to). A first ship has no lower bound.
+  const windowEndMs = project.shippedAt
+    ? new Date(project.shippedAt).getTime()
+    : Number.POSITIVE_INFINITY;
+  const windowStartMs = submissionHistoryRows
+    .filter(
+      (entry) =>
+        entry.id !== project.submissionId &&
+        entry.submissionNumber < project.submissionNumber &&
+        (entry.status === "approved" || entry.status === "fulfilled"),
+    )
+    .reduce(
+      (max, entry) =>
+        Math.max(
+          max,
+          entry.submittedAt ? new Date(entry.submittedAt).getTime() : 0,
+        ),
+      0,
+    );
+  const inWindow = (value: Date | string | null | undefined) => {
+    if (!value) return false;
+    const t = new Date(value).getTime();
+    return t >= windowStartMs && t <= windowEndMs;
+  };
+  const latestOf = (
+    rows: { date: Date | string | null }[],
+  ): Date | string | null =>
+    rows.reduce<Date | string | null>((latest, row) => {
+      if (!row.date) return latest;
+      if (!latest) return row.date;
+      return new Date(row.date).getTime() > new Date(latest).getTime()
+        ? row.date
+        : latest;
+    }, null);
+
+  const shipSessions = sessionRows.filter((s) => inWindow(s.startedAt));
+  const allTracked = sessionRows.reduce((sum, s) => sum + s.activeSeconds, 0);
+  const shipTracked = shipSessions.reduce((sum, s) => sum + s.activeSeconds, 0);
+  const allRecordingSeconds = timelapseRows.reduce(
+    (sum, t) => sum + t.durationSeconds,
     0,
   );
-  // The authoritative "time spent": server-tracked editor activity plus the
-  // attached Lapse recordings. This is what the workspace shows as the
-  // measured total and audits against.
-  const measuredSeconds = (activity?.trackedSeconds ?? 0) + recordingSeconds;
-  const journalTime = journalTimeRows[0];
+  const shipRecordingSeconds = timelapseRows
+    .filter((t) => inWindow(t.recordedAt))
+    .reduce((sum, t) => sum + t.durationSeconds, 0);
+  const allJournaled = journals.reduce(
+    (sum, j) => sum + (j.activeSecondsCovered ?? 0),
+    0,
+  );
+  const shipJournaled = journals
+    .filter((j) => inWindow(j.createdAt))
+    .reduce((sum, j) => sum + (j.activeSecondsCovered ?? 0), 0);
+
+  const segInWindow = (seg: (typeof auditSegmentRows)[number]) =>
+    seg.timelapseId == null ? inWindow(seg.startAt) : inWindow(seg.recordedAt);
+  const auditAgg = (rows: typeof auditSegmentRows) => ({
+    segmentCount: rows.length,
+    removedSeconds: rows
+      .filter((r) => r.kind === "removed")
+      .reduce((sum, r) => sum + r.deductedSeconds, 0),
+    deflatedSeconds: rows
+      .filter((r) => r.kind === "deflated")
+      .reduce((sum, r) => sum + r.deductedSeconds, 0),
+  });
+
+  const allMeasuredSeconds = allTracked + allRecordingSeconds;
+  const shipMeasuredSeconds = shipTracked + shipRecordingSeconds;
+
   const submissionHistory = submissionHistoryRows
     .filter((entry) => entry.id !== project.submissionId)
     .map((entry) => ({
@@ -284,23 +355,42 @@ export default async function AdminReviewProjectPage({
       reviewedAt: toIso(entry.reviewedAt),
     }));
 
-  // The stored hoursSpent was pre-rounded when the submission shipped, and old
-  // rows used whole-hour ceil (3h 34m read as 4h). Recompute the default from
-  // the live measured total, minus what earlier approved ships already
-  // counted, kept to 0.1h. Falls back to the stored value for manual /
-  // off-platform submissions that carry no tracked time.
-  const priorApprovedFloor = submissionHistoryRows
-    .filter(
-      (entry) =>
-        entry.id !== project.submissionId &&
-        entry.submissionNumber < project.submissionNumber &&
-        (entry.status === "approved" || entry.status === "fulfilled"),
-    )
-    .reduce((max, entry) => Math.max(max, entry.trackedSeconds ?? 0), 0);
+  // The default approved hours is this ship's measured total, kept to 0.1h.
+  // Windowing already excludes what earlier ships counted, so there's no floor
+  // to subtract. Falls back to the stored value for manual / off-platform
+  // submissions that carry no tracked time.
   const hoursSpent =
-    measuredSeconds > 0
-      ? roundHours(Math.max(0, measuredSeconds - priorApprovedFloor) / 3600)
+    shipMeasuredSeconds > 0
+      ? roundHours(shipMeasuredSeconds / 3600)
       : project.hoursSpent;
+
+  // The "latest screen proof" marker stays whole-project in both scopes; it's a
+  // light evidence signal, not part of the paid measured total.
+  const lastScreenEvidenceIso = toIso(screenEvidence?.lastScreenEvidenceAt);
+  const trackingThisShip = {
+    trackedSeconds: shipTracked,
+    sessionCount: shipSessions.length,
+    lastTrackedAt: toIso(
+      latestOf(shipSessions.map((s) => ({ date: s.lastActivityAt }))),
+    ),
+    lastScreenEvidenceAt: lastScreenEvidenceIso,
+    recordingSeconds: shipRecordingSeconds,
+    measuredSeconds: shipMeasuredSeconds,
+    journaledSeconds: shipJournaled,
+  };
+  const trackingAllTime = {
+    trackedSeconds: allTracked,
+    sessionCount: sessionRows.length,
+    lastTrackedAt: toIso(
+      latestOf(sessionRows.map((s) => ({ date: s.lastActivityAt }))),
+    ),
+    lastScreenEvidenceAt: lastScreenEvidenceIso,
+    recordingSeconds: allRecordingSeconds,
+    measuredSeconds: allMeasuredSeconds,
+    journaledSeconds: allJournaled,
+  };
+  const windowStartIso =
+    windowStartMs > 0 ? new Date(windowStartMs).toISOString() : null;
 
   return (
     <main className="space-y-4">
@@ -319,20 +409,11 @@ export default async function AdminReviewProjectPage({
         journals={journals}
         timelapses={timelapses}
         submissionHistory={submissionHistory}
-        tracking={{
-          trackedSeconds: activity?.trackedSeconds ?? 0,
-          sessionCount: activity?.sessionCount ?? 0,
-          lastTrackedAt: toIso(activity?.lastTrackedAt),
-          lastScreenEvidenceAt: toIso(screenEvidence?.lastScreenEvidenceAt),
-          recordingSeconds,
-          measuredSeconds,
-          journaledSeconds: journalTime?.journaledSeconds ?? 0,
-        }}
-        timeAudit={{
-          segmentCount: timeAuditRows[0]?.segmentCount ?? 0,
-          removedSeconds: timeAuditRows[0]?.removedSeconds ?? 0,
-          deflatedSeconds: timeAuditRows[0]?.deflatedSeconds ?? 0,
-        }}
+        tracking={trackingThisShip}
+        trackingAllTime={trackingAllTime}
+        windowStartIso={windowStartIso}
+        timeAudit={auditAgg(auditSegmentRows.filter(segInWindow))}
+        timeAuditAllTime={auditAgg(auditSegmentRows)}
         breadPerHour={
           isBuildShip(project) ? GOLD_BREAD_PER_HOUR : BREAD_PER_HOUR
         }

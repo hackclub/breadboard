@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
@@ -48,6 +48,15 @@ export async function GET(
   if (untilParam && (!until || Number.isNaN(until.getTime()))) {
     return NextResponse.json({ error: "Invalid until" }, { status: 400 });
   }
+  // Lower bound: the start of a ship's window (the previous approved ship's
+  // submission). With both bounds the timeline, its totals, and the audit tool
+  // cover only one ship's new time, so a reviewer never audits or deducts hours
+  // an earlier ship already claimed.
+  const sinceParam = url.searchParams.get("since");
+  const since = sinceParam ? new Date(sinceParam) : null;
+  if (sinceParam && (!since || Number.isNaN(since.getTime()))) {
+    return NextResponse.json({ error: "Invalid since" }, { status: 400 });
+  }
 
   const sess = await getSession();
   if (!sess)
@@ -78,12 +87,11 @@ export async function GET(
       })
       .from(editorActivitySessions)
       .where(
-        until
-          ? and(
-              eq(editorActivitySessions.projectId, projectId),
-              lte(editorActivitySessions.startedAt, until),
-            )
-          : eq(editorActivitySessions.projectId, projectId),
+        and(
+          eq(editorActivitySessions.projectId, projectId),
+          since ? gte(editorActivitySessions.startedAt, since) : undefined,
+          until ? lte(editorActivitySessions.startedAt, until) : undefined,
+        ),
       )
       .orderBy(asc(editorActivitySessions.startedAt));
 
@@ -153,10 +161,14 @@ export async function GET(
           .leftJoin(user, eq(projectTimeAuditSegments.reviewerId, user.id))
           // Editor (wall-clock tape) segments only; lapse segments carry a
           // timelapseId and video-second coordinates handled on their own page.
+          // Windowed by work time (startAt) so a ship's view only shows its own
+          // deductions.
           .where(
             and(
               eq(projectTimeAuditSegments.projectId, projectId),
               isNull(projectTimeAuditSegments.timelapseId),
+              since ? gte(projectTimeAuditSegments.startAt, since) : undefined,
+              until ? lte(projectTimeAuditSegments.startAt, until) : undefined,
             ),
           )
           .orderBy(asc(projectTimeAuditSegments.startAt)),
@@ -171,12 +183,11 @@ export async function GET(
           })
           .from(projectJournals)
           .where(
-            until
-              ? and(
-                  eq(projectJournals.projectId, projectId),
-                  lte(projectJournals.createdAt, until),
-                )
-              : eq(projectJournals.projectId, projectId),
+            and(
+              eq(projectJournals.projectId, projectId),
+              since ? gte(projectJournals.createdAt, since) : undefined,
+              until ? lte(projectJournals.createdAt, until) : undefined,
+            ),
           )
           .orderBy(asc(projectJournals.createdAt)),
       ]);

@@ -12,10 +12,10 @@ export default async function AdminTimelapsePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ until?: string; focus?: string }>;
+  searchParams: Promise<{ until?: string; since?: string; focus?: string }>;
 }) {
   const { id } = await params;
-  const { until, focus } = await searchParams;
+  const { until, since, focus } = await searchParams;
   const projectId = Number(id);
   const session = await getSession();
   if (!session) {
@@ -65,6 +65,7 @@ export default async function AdminTimelapsePage({
         projectId={projectId}
         projectTitle={`${project.title} · ${project.userName}`}
         until={until}
+        since={since}
         focus={focus}
       />
     </main>

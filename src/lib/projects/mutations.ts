@@ -348,7 +348,10 @@ export async function shipProjectForUser(
         firstName: clean(data.firstName),
         lastName: clean(data.lastName),
         hoursSpent: totalHours,
-        status: "materials_review",
+        // A first ship enters design review; an update is reviewed in place, so
+        // the project stays wherever it was (building, kit_sent, done, ...) and
+        // its demo phase is never interrupted.
+        ...(hasApprovedShip ? {} : { status: "materials_review" as const }),
         reviewNote: "",
         updatedAt: now,
       })
@@ -453,7 +456,9 @@ export async function shipCustomProjectForUser(
         // Update ships must not reclassify: the currency decision happened at
         // the first approval, so the type stays whatever it was paid as.
         ...(hasApprovedShip ? {} : { projectType: "build", kitType: "own" }),
-        status: "materials_review",
+        // First ship enters design review; an update is reviewed in place and
+        // leaves the project's status untouched.
+        ...(hasApprovedShip ? {} : { status: "materials_review" as const }),
         reviewNote: "",
         updatedAt: now,
       })
@@ -483,23 +488,32 @@ async function assertProjectCanShip(userId: string, projectId: number) {
     .limit(1);
 
   if (!existing[0]) throw new Error("Project not found.");
-  // Mid-flow states are blocked; terminal approved states (done, approved,
-  // paid_out, fulfilled, reviewed) are not, so makers can ship updates to
-  // already-approved projects and earn bread for the new hours.
-  if (
-    [
-      "materials_review",
-      "kit_approved",
-      "kit_fulfillment",
-      "kit_sent",
-      "building",
-      "demo_review",
-    ].includes(existing[0].status)
-  ) {
+  // A pending demo owns the project's review lane, so the maker finishes it
+  // before shipping a design update.
+  if (existing[0].status === "demo_review")
     throw new Error(
-      "This project is already in the shipped flow. Continue from the current project status.",
+      "Your demo is in review. Wait for that decision before shipping again.",
     );
-  }
+  // An update ship is reviewed in place, so the project stays wherever it was
+  // (building, kit_sent, done, ...) instead of moving into design review. The
+  // real guard is therefore not the status but whether a design submission is
+  // already pending: two at once would leave both in the queue with the older
+  // one orphaned. This also covers a project sitting in first-ship review.
+  const [pending] = await db
+    .select({ id: projectSubmissions.id })
+    .from(projectSubmissions)
+    .where(
+      and(
+        eq(projectSubmissions.projectId, projectId),
+        eq(projectSubmissions.type, "materials"),
+        eq(projectSubmissions.status, "pending_review"),
+      ),
+    )
+    .limit(1);
+  if (pending)
+    throw new Error(
+      "This project already has a design submission in review. Wait for that decision before shipping again.",
+    );
 }
 
 export async function archiveProjectForUser(

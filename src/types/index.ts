@@ -104,6 +104,11 @@ export type PlatformProject = ShipInput & {
   trackedSeconds: number;
   submissionSource: string;
   projectType: ProjectType;
+  // A design (materials) submission is sitting in review. For a first ship the
+  // project status already shows this; for an update ship, which is reviewed in
+  // place without moving the status, it's the only signal the update is pending.
+  // Optional so other PlatformProject constructors don't have to supply it.
+  reviewPending?: boolean;
 };
 
 export type ShippingAddress = {

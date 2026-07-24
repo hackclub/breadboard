@@ -144,23 +144,30 @@ export function isAfterKitApproved(status: string) {
   ].includes(status);
 }
 
+// Any state can ship except while a submission is actively awaiting review:
+// design review (materials_review / the "shipped" in-review alias) or a pending
+// demo. Update ships from every other state are reviewed in place. Mirrors the
+// server guard in assertProjectCanShip so the button and the action agree.
 export function canShipProjectCard(status: string) {
+  return !["materials_review", "shipped", "demo_review"].includes(status);
+}
+
+// States where the project already had a ship approved, so a new ship from here
+// is an update that pays bread for the new hours. Besides the terminal states
+// this includes the post-approval, pre-demo states (kit through building):
+// those already cleared design review once, and their update is reviewed in
+// place without disturbing the demo they still owe. Excludes the active-review
+// states (materials_review / shipped / demo_review), which can't ship again.
+export function isUpdateShipStatus(status: string) {
   return [
-    "draft",
-    "needs_changes",
-    "rejected",
     "reviewed",
     "paid_out",
     "fulfilled",
     "approved",
     "done",
+    "kit_approved",
+    "kit_fulfillment",
+    "kit_sent",
+    "building",
   ].includes(status);
-}
-
-// Terminal states where the project already had a ship approved: a new ship
-// from here is an update that pays bread for the new hours at design review.
-export function isUpdateShipStatus(status: string) {
-  return ["reviewed", "paid_out", "fulfilled", "approved", "done"].includes(
-    status,
-  );
 }

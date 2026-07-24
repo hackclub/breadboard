@@ -51,6 +51,30 @@ export function ProjectCard({
   const editable = canEditProjectCard(project.status);
   const shippable = canShipProjectCard(project.status);
   const isManual = project.submissionSource === "manual";
+  // An update ship is reviewed in place, so the project's status doesn't move
+  // while it's pending; reviewPending is the only signal to show. Block a second
+  // ship while one is in review and let makers see it's under review.
+  const reviewPending = project.reviewPending ?? false;
+  const inActiveReview = [
+    "materials_review",
+    "shipped",
+    "demo_review",
+  ].includes(project.status);
+  // kit_sent (confirm package) and building (submit demo) own the primary
+  // button for their state; the ship-update button rides alongside as secondary.
+  const hasStateAction =
+    project.status === "kit_sent" || project.status === "building";
+  const showShipButton = shippable && !isManual && !reviewPending;
+  // Manual off-platform projects ship via the "Continue building & tracking"
+  // link above, not this button, so they aren't "locked".
+  const manualHandledElsewhere =
+    isManual &&
+    (project.status === "draft" || isUpdateShipStatus(project.status));
+  const showLocked =
+    !showShipButton &&
+    !hasStateAction &&
+    !manualHandledElsewhere &&
+    !(reviewPending && !inActiveReview);
   const statusTone =
     project.status === "materials_review" ||
     project.status === "demo_review" ||
@@ -216,22 +240,15 @@ export function ProjectCard({
               </button>
             </form>
           ) : null}
-          {shippable && !isManual ? (
-            <Button tone="primary" onClick={() => setShipOpen(true)}>
-              {project.status === "needs_changes"
-                ? "Submit again"
-                : isUpdateShipStatus(project.status)
-                  ? "Ship an update"
-                  : "Submit design"}
-            </Button>
-          ) : project.status === "kit_sent" ? (
+          {project.status === "kit_sent" ? (
             <form action={confirmKitReceivedFromForm}>
               <input type="hidden" name="projectId" value={project.id} />
               <Button type="submit" tone="primary">
                 Confirm package received
               </Button>
             </form>
-          ) : project.status === "building" ? (
+          ) : null}
+          {project.status === "building" ? (
             <form action={demoAction} className="grid gap-2">
               <input type="hidden" name="projectId" value={project.id} />
               <input type="hidden" name="codeUrl" value={project.codeUrl} />
@@ -299,20 +316,35 @@ export function ProjectCard({
                 </p>
               ) : null}
             </form>
-          ) : isManual &&
-            (project.status === "draft" ||
-              isUpdateShipStatus(project.status)) ? null : (
+          ) : null}
+          {showShipButton ? (
+            <Button
+              tone={hasStateAction ? "paper" : "primary"}
+              onClick={() => setShipOpen(true)}
+            >
+              {project.status === "needs_changes"
+                ? "Submit again"
+                : isUpdateShipStatus(project.status)
+                  ? "Ship an update"
+                  : "Submit design"}
+            </Button>
+          ) : null}
+          {reviewPending && !inActiveReview ? (
+            <p className="text-center text-[11px] font-bold text-black/45">
+              Your design update is in review. You can ship another once it's
+              decided.
+            </p>
+          ) : null}
+          {showLocked ? (
             <Button tone="paper" disabled className="gap-2">
               <HiLockClosed className="size-4" />
-              {project.status === "materials_review" ||
-              project.status === "demo_review" ||
-              project.status === "shipped"
+              {inActiveReview
                 ? "Under review"
                 : project.status === "done"
                   ? "Done"
                   : "Locked"}
             </Button>
-          )}
+          ) : null}
         </div>
       </CardSection>
       {editOpen ? (

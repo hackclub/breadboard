@@ -690,11 +690,15 @@ export async function approveProject(
       await tx
         .update(projects)
         .set({
-          // A project that already finished the kit flow returns to done;
-          // bread-only projects sit in approved. Both keep tracking time and
-          // can ship further updates. overrideHoursSpent accumulates so it
-          // stays the total approved hours across all ships.
-          status: project.doneAt ? "done" : "approved",
+          // An update ship is reviewed in place, so leave the project wherever
+          // it was (building, kit_sent, done, ...) and never interrupt an
+          // unfinished demo phase. A bread-only first ship has no demo phase
+          // ahead of it, so it settles into approved (or done if it already
+          // finished one). overrideHoursSpent accumulates either way so it stays
+          // the total approved hours across all ships.
+          ...(isUpdateShip
+            ? {}
+            : { status: project.doneAt ? "done" : "approved" }),
           overrideHoursSpent: (project.overrideHoursSpent ?? 0) + hours,
           overrideHoursSpentJustification: reviewJustification,
           reviewNote: reviewComment,

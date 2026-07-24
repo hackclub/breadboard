@@ -15,6 +15,7 @@ import {
   editorActivitySessions,
   projectJournals,
   projects,
+  projectSubmissions,
 } from "@/lib/db/schema";
 import type { PlatformProject } from "@/types";
 
@@ -56,6 +57,16 @@ const projectColumns = {
     FROM ${editorActivitySessions}
     WHERE ${editorActivitySessions.projectId} = ${projects}."id"
   )`.mapWith(Number),
+  // Whether a design submission is awaiting review. Drives the "update in
+  // review" state on the card, since an update ship is reviewed in place and
+  // never moves the project's status. Same hand-qualified outer reference as
+  // the counts above.
+  reviewPending: sql<boolean>`EXISTS (
+    SELECT 1 FROM ${projectSubmissions}
+    WHERE ${projectSubmissions.projectId} = ${projects}."id"
+      AND ${projectSubmissions.type} = 'materials'
+      AND ${projectSubmissions.status} = 'pending_review'
+  )`.mapWith(Boolean),
 };
 
 type ProjectRow = Omit<PlatformProject, "kitType" | "projectType"> & {

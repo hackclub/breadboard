@@ -49,10 +49,22 @@ const team: TeamMember[] = [
   {
     name: "Tom",
     title: "Organizer",
+    description:
+      "German high-school student into systems, security, and building things that feel like they help people. Curious about how things break and how to make them resilient.",
     avatar:
       "https://cdn.hackclub.com/019f2034-e041-72a5-977c-b59315f325a3/e09v59wqy1e-u078ph0gbeh-45ae21288c13-512.png",
     socials: {
       github: "https://github.com/deployor/",
+    },
+  },
+  {
+    name: "Herby",
+    title: "Organizer",
+    description: "Herby likes drawing cats :)",
+    avatar: "/assets/herby.png",
+    socials: {
+      github: "https://github.com/Herbeon",
+      website: "https://herbeon.github.io/links/",
     },
   },
 ];

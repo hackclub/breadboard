@@ -1,11 +1,35 @@
 # Test fixtures
 
+Arduino Uno builds produced by the editor backend
+(`POST /api/compile/start`, `board_fqbn: arduino:avr:uno`), so the tests drive
+the same firmware a user's Run button produces rather than something
+hand-assembled. To rebuild either one, compile the sketch below through a
+running editor backend and save `result.hex_content` here verbatim.
+
+## analog-read-uno.hex
+
+Prints `X:<analogRead(A0)> Y:<analogRead(A1)>` every 100 ms. Used by
+`adcRestart.test.ts` to check an injected analog voltage survives `reset()`.
+
+```cpp
+void setup() {
+  Serial.begin(9600);
+  Serial.println("ready");
+}
+void loop() {
+  int x = analogRead(A0);
+  int y = analogRead(A1);
+  Serial.print("X:");
+  Serial.print(x);
+  Serial.print(" Y:");
+  Serial.println(y);
+  delay(100);
+}
+```
+
 ## rc522-uno.hex
 
-An Arduino Uno build of the sketch below, produced by the editor backend
-(`POST /api/compile/start`, `board_fqbn: arduino:avr:uno`) so the test drives
-the same firmware a user's Run button produces, linked against the real
-`MFRC522` library rather than something hand-written.
+Linked against the real `MFRC522` library. Used by `spiRestart.test.ts`.
 
 ```cpp
 #include <SPI.h>
@@ -31,7 +55,6 @@ void loop() {
 }
 ```
 
-To rebuild it, compile that sketch through a running editor backend and save
-`result.hex_content` here verbatim. The test only cares that the firmware
-prints `ready` once per boot and `UID:DEADBEEF` when it reads the emulated
-card, so a newer MFRC522 release is fine as long as those two strings survive.
+The test only cares that the firmware prints `ready` once per boot and
+`UID:DEADBEEF` when it reads the emulated card, so a newer MFRC522 release is
+fine as long as those two strings survive.

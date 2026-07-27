@@ -451,7 +451,7 @@ export class AVRSimulator {
         this.cpu,
         attiny85PortBConfig as typeof portBConfig,
       );
-      this.adc = new AVRADC(this.cpu, attiny85AdcConfig);
+      this.rebuildAdc(attiny85AdcConfig);
       this.peripherals = [
         new AVRTimer(this.cpu, attiny85Timer0Config),
         new ATtinyTimer1(this.cpu, attinyTimer1Config),
@@ -553,7 +553,7 @@ export class AVRSimulator {
         this.twi,
       ];
 
-      this.adc = new AVRADC(this.cpu, adcConfig);
+      this.rebuildAdc(adcConfig);
 
       // ── GPIO ports ──────────────────────────────────────────────────────
       this.portB = new AVRIOPort(this.cpu, portBConfig);
@@ -593,6 +593,30 @@ export class AVRSimulator {
    */
   getADC(): AVRADC | null {
     return this.adc;
+  }
+
+  /**
+   * Build the ADC, carrying over whatever voltages parts have injected.
+   *
+   * `channelValues` holds what the surrounding CIRCUIT applies to the analog
+   * pins — a joystick resting at centre, a pot at half travel, an NTC at room
+   * temperature. Parts write those from attachEvents, which does NOT re-run
+   * when the board restarts (DynamicComponent only re-attaches on a new
+   * simulator, hex or wiring). A fresh AVRADC starts with an empty
+   * channelValues, so without this every analog channel read 0 from the first
+   * Stop onwards and nothing short of a page reload brought it back — the
+   * "joystick axes stick at 0 after the first run" report.
+   *
+   * Cutting power doesn't move the joystick, so carrying the voltages across
+   * the rebuild is also the physically honest answer.
+   */
+  private rebuildAdc(config: ADCConfig): void {
+    const previous = this.adc?.channelValues;
+    this.adc = new AVRADC(this.cpu, config);
+    if (!previous) return;
+    for (let i = 0; i < previous.length; i++) {
+      if (previous[i] !== undefined) this.adc.channelValues[i] = previous[i];
+    }
   }
 
   /** Returns the CPU clock frequency in Hz (16 MHz for AVR). */
@@ -1047,7 +1071,7 @@ export class AVRSimulator {
           this.cpu,
           attiny85PortBConfig as typeof portBConfig,
         );
-        this.adc = new AVRADC(this.cpu, attiny85AdcConfig);
+        this.rebuildAdc(attiny85AdcConfig);
         this.peripherals = [
           new AVRTimer(this.cpu, attiny85Timer0Config),
           new ATtinyTimer1(this.cpu, attinyTimer1Config),
@@ -1087,7 +1111,7 @@ export class AVRSimulator {
           this.spiPeripheral,
           this.twi,
         ];
-        this.adc = new AVRADC(this.cpu, adcConfig);
+        this.rebuildAdc(adcConfig);
 
         this.portB = new AVRIOPort(this.cpu, portBConfig);
         this.portC = new AVRIOPort(this.cpu, portCConfig);

@@ -13,6 +13,7 @@ import {
   HiHome,
   HiShoppingBag,
   HiSignal,
+  HiSquares2X2,
   HiUsers,
 } from "react-icons/hi2";
 import { authClient } from "@/lib/auth/client";
@@ -47,6 +48,7 @@ const mainNavigation: SidebarSection[] = [
     links: [
       { name: "Home", href: "/platform", icon: HiHome },
       { name: "My Projects", href: "/platform/projects", icon: HiCube },
+      { name: "Gallery", href: "/gallery", icon: HiSquares2X2 },
       {
         name: "Docs",
         href: "/get-started",

@@ -3,10 +3,13 @@
 // time audit step: a reviewer marks a wall-clock range of the timelapse and
 // either removes its tracked time outright or deflates it by a percentage.
 //
-// Tracked time lives on activity sessions as activeSeconds, which is usually
-// less than the session's wall-clock span (idle gaps are already discounted).
-// A marked range therefore deducts active seconds in proportion to how much
-// of each session's span it covers.
+// Tracked time lives on activity sessions as activeSeconds. A marked range
+// deducts active seconds in proportion to how much of each session's span it
+// covers, which assumes the time accrued evenly across that span. The
+// assumption only holds if the span is the stretch the heartbeat was actually
+// running, so spans here end at the last heartbeat (see sessionEndMs). Note
+// activeSeconds runs close to the full span in practice: the tracker's only
+// idle discount is a ~140s inactivity cutoff, and any mouse move resets it.
 
 export type TimeAuditSessionWindow = {
   startedAt: string | Date;
@@ -25,6 +28,18 @@ export type TimeAuditRange = {
 const toMs = (value: string | Date) =>
   value instanceof Date ? value.getTime() : new Date(value).getTime();
 
+// Where a session's tracked time actually stops: its last heartbeat, not its
+// endedAt. Sessions close lazily — the heartbeat that finds a stale one stamps
+// endedAt with the time of *that* request, which can be hours after the editor
+// went quiet, so endedAt usually equals the next session's startedAt. Spreading
+// activeSeconds across that inflated span would place counted time in dead air,
+// making a reviewer's deduction land on a range where nothing was earned.
+export function sessionEndMs(session: TimeAuditSessionWindow): number {
+  const lastActivity = toMs(session.lastActivityAt);
+  if (session.endedAt == null) return lastActivity;
+  return Math.min(toMs(session.endedAt), lastActivity);
+}
+
 /** Server-confirmed active seconds that fall inside [startAt, endAt]. */
 export function countedSecondsInRange(
   sessions: TimeAuditSessionWindow[],
@@ -38,7 +53,7 @@ export function countedSecondsInRange(
   let counted = 0;
   for (const session of sessions) {
     const sessionStart = toMs(session.startedAt);
-    const sessionEnd = toMs(session.endedAt ?? session.lastActivityAt);
+    const sessionEnd = sessionEndMs(session);
     const spanSeconds = Math.max(
       (sessionEnd - sessionStart) / 1000,
       session.activeSeconds,
@@ -108,7 +123,7 @@ export function buildTimeAuditTape(
   );
   for (const session of ordered) {
     const startMs = toMs(session.startedAt);
-    const endMs = toMs(session.endedAt ?? session.lastActivityAt);
+    const endMs = sessionEndMs(session);
     const wallSeconds = (endMs - startMs) / 1000;
     const spanSeconds = Math.max(wallSeconds, session.activeSeconds, 1);
     // Same density formula as countedSecondsInRange, so a tape range always

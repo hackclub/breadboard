@@ -245,10 +245,12 @@ export async function shipProjectForUser(
     // Closing the session before reading its total makes submission a hard
     // accounting boundary. Any heartbeat that began before this transaction
     // will fail its open-session compare-and-set instead of adding time after
-    // the submitted snapshot.
+    // the submitted snapshot. What closes it is endedAt going non-null, so it
+    // can carry the last heartbeat rather than now: a project shipped days
+    // after the last edit shouldn't leave a session spanning the whole gap.
     await tx
       .update(editorActivitySessions)
-      .set({ endedAt: now })
+      .set({ endedAt: sql`${editorActivitySessions.lastActivityAt}` })
       .where(
         and(
           eq(editorActivitySessions.projectId, projectId),
@@ -377,9 +379,11 @@ export async function shipCustomProjectForUser(
       .where(eq(projectSubmissions.projectId, projectId));
     const submissionNumber = (latest[0]?.submissionNumber ?? 0) + 1;
     const now = new Date();
+    // Closes the accounting boundary the same way the editor ship does, ending
+    // each session at its last heartbeat rather than at submission time.
     await tx
       .update(editorActivitySessions)
-      .set({ endedAt: now })
+      .set({ endedAt: sql`${editorActivitySessions.lastActivityAt}` })
       .where(
         and(
           eq(editorActivitySessions.projectId, projectId),

@@ -127,7 +127,10 @@ export async function sendHeartbeat(
   if (!canTrackEditorProject(project, session)) {
     await db
       .update(editorActivitySessions)
-      .set({ endedAt: new Date() })
+      // Same rule as the stale-session close below: a session ends where its
+      // tracked time stopped, so the audit math never spreads counted seconds
+      // over time the editor wasn't reporting.
+      .set({ endedAt: sql`${editorActivitySessions.lastActivityAt}` })
       .where(
         and(
           eq(editorActivitySessions.projectId, projectId),
@@ -316,9 +319,14 @@ export async function sendHeartbeat(
       trackingWarning = `A ${formatDuration(elapsedSinceLastHeartbeat)} screen-share gap could not be confirmed, so that time was not added.`;
     }
     if (existing[0] && !existing[0].endedAt) {
+      // The session ended when it last heartbeat, not now. Stamping `now` here
+      // would stretch the session over the whole time the editor was away and
+      // make it abut the session about to be inserted, which hides the closure
+      // from the reviewer's timeline and smears the session's counted seconds
+      // across dead air for the audit math.
       await db
         .update(editorActivitySessions)
-        .set({ endedAt: now })
+        .set({ endedAt: existing[0].lastActivityAt })
         .where(eq(editorActivitySessions.id, existing[0].id));
     }
 

@@ -37,6 +37,7 @@ import type { EditorSnapshotState } from "@/lib/editor/captureState";
 import {
   buildTimeAuditTape,
   dateToTapeSeconds,
+  sessionEndMs,
   tapeSecondsToDate,
   type TimeAuditKind,
   timeAuditRangesOverlap,
@@ -269,10 +270,13 @@ function classifyGap(
     // in between — the editor was closed.
     const prevSession = sessionsById.get(prevSessionId);
     const nextSession = sessionsById.get(nextSessionId);
-    const closedFrom =
-      prevSession?.endedAt ??
-      prevSession?.lastActivityAt ??
-      previous.capturedAt;
+    // Measure from the previous session's last heartbeat. Its endedAt is
+    // stamped whenever the next heartbeat noticed it was stale, so on older
+    // rows it equals the next session's startedAt and would report every
+    // closure as zero.
+    const closedFrom = prevSession
+      ? new Date(sessionEndMs(prevSession)).toISOString()
+      : previous.capturedAt;
     const closedTo = nextSession?.startedAt ?? next.capturedAt;
     const closedSeconds = Math.floor(
       (new Date(closedTo).getTime() - new Date(closedFrom).getTime()) / 1000,

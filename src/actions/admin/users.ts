@@ -1,13 +1,28 @@
 "use server";
 
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import { user, userBread } from "@/lib/db/schema";
-import { isValidEmail, normalizeBread } from "@/lib/utils";
+import {
+  isValidEmail,
+  MAX_ADJUSTMENT_REASON_LENGTH,
+  normalizeBread,
+} from "@/lib/utils";
 import { audit } from "@/lib/audit";
 import { recordCurrencyTransaction } from "@/lib/projects/ledger";
+
+// Production strips thrown Server Action messages down to an opaque digest, so
+// anything the admin needs to read (validation, conflicts) comes back as data.
+export type AdminUserActionResult =
+  | { success: true }
+  | { success: false; message: string };
+
+const failed = (message: string): AdminUserActionResult => ({
+  success: false,
+  message,
+});
 
 export async function updateUserProfile(
   userId: string,
@@ -19,16 +34,16 @@ export async function updateUserProfile(
     admin: boolean;
     yswsExempt: boolean;
   },
-) {
+): Promise<AdminUserActionResult> {
   const session = await requireAdminSession();
   const name = data.name.trim();
   const email = data.email.trim().toLowerCase();
   const image = data.image.trim();
 
-  if (!name) throw new Error("Name is required");
-  if (!isValidEmail(email)) throw new Error("Valid email is required");
+  if (!name) return failed("Name is required");
+  if (!isValidEmail(email)) return failed("Valid email is required");
   if (session.user.id === userId && !data.admin) {
-    throw new Error("You cannot remove your own admin access");
+    return failed("You cannot remove your own admin access");
   }
 
   const [updatedUser] = await db
@@ -44,7 +59,7 @@ export async function updateUserProfile(
     })
     .where(eq(user.id, userId))
     .returning({ id: user.id });
-  if (!updatedUser) throw new Error("User not found");
+  if (!updatedUser) return failed("User not found");
 
   await audit("admin.user.profile_updated", "user", userId, {
     name,
@@ -53,126 +68,145 @@ export async function updateUserProfile(
     yswsExempt: data.yswsExempt,
   });
   revalidatePath("/platform/admin/users");
+  return { success: true };
 }
 
-export async function addUserBread(userId: string, amount: number) {
+export type BalanceCurrency = "bread" | "gold";
+
+type AdjustMode = "add" | "deduct" | "set";
+
+const AUDIT_ACTION: Record<AdjustMode, string> = {
+  add: "admin.user.bread_add",
+  deduct: "admin.user.bread_deduct",
+  set: "admin.user.bread_set",
+};
+
+// Every manual balance move goes through here so the reason, the currency, and
+// the resulting balance always land on the same currency_transactions row. That
+// ledger row is the per-user record of why an admin touched the balance.
+async function adjustBalance(
+  mode: AdjustMode,
+  userId: string,
+  amount: number,
+  currency: BalanceCurrency,
+  rawReason: string,
+): Promise<AdminUserActionResult> {
   const session = await requireAdminSession();
-  const bread = normalizeBread(amount);
-  if (bread <= 0) throw new Error("Amount must be greater than zero");
+  const value = normalizeBread(amount);
+  const reason = String(rawReason ?? "").trim();
+
+  if (currency !== "bread" && currency !== "gold") {
+    return failed("Unknown currency");
+  }
+  if (!reason) return failed("A reason is required");
+  if (reason.length > MAX_ADJUSTMENT_REASON_LENGTH) {
+    return failed(
+      `Reason must be ${MAX_ADJUSTMENT_REASON_LENGTH} characters or fewer`,
+    );
+  }
+  if (mode !== "set" && value <= 0) {
+    return failed("Amount must be greater than zero");
+  }
+
+  const gold = currency === "gold";
+  const column = gold ? userBread.goldBalance : userBread.balance;
 
   await db.transaction(async (tx) => {
-    const [updated] = await tx
-      .insert(userBread)
-      .values({ userId, balance: bread, updatedAt: new Date() })
-      .onConflictDoUpdate({
-        target: userBread.userId,
-        set: {
-          balance: sql`${userBread.balance} + ${bread}`,
-          updatedAt: new Date(),
-        },
-      })
-      .returning({ balance: userBread.balance });
-    await recordCurrencyTransaction(tx, {
-      userId,
-      actorId: session.user.id,
-      type: "admin_adjustment",
-      amount: bread,
-      balanceAfter: updated?.balance ?? null,
-      note: "Admin added bread",
-    });
-  });
-
-  await audit("admin.user.bread_add", "user", userId, { amount: bread });
-  revalidatePath("/platform/admin/users");
-}
-
-export async function deductUserBread(userId: string, amount: number) {
-  const session = await requireAdminSession();
-  const bread = normalizeBread(amount);
-  if (bread <= 0) throw new Error("Amount must be greater than zero");
-
-  await db.transaction(async (tx) => {
+    // Lock the row for the transaction so the read-modify-write below can't
+    // race another payout or purchase touching the same balance.
     const [existing] = await tx
-      .insert(userBread)
-      .values({ userId, balance: 0, updatedAt: new Date() })
-      .onConflictDoUpdate({
-        target: userBread.userId,
-        set: { updatedAt: new Date() },
-      })
-      .returning({ balance: userBread.balance });
-    const before = existing?.balance ?? 0;
-
-    const [updated] = await tx
-      .update(userBread)
-      .set({
-        balance: sql`greatest(${userBread.balance} - ${bread}, 0)`,
-        updatedAt: new Date(),
-      })
-      .where(eq(userBread.userId, userId))
-      .returning({ balance: userBread.balance });
-
-    // Balance is floored at 0, so the amount actually removed can be less than
-    // the requested deduction when the user had a smaller balance.
-    const removed = before - (updated?.balance ?? 0);
-    await recordCurrencyTransaction(tx, {
-      userId,
-      actorId: session.user.id,
-      type: "admin_adjustment",
-      amount: -removed,
-      balanceAfter: updated?.balance ?? null,
-      note: "Admin deducted bread",
-    });
-  });
-
-  await audit("admin.user.bread_deduct", "user", userId, { amount: bread });
-  revalidatePath("/platform/admin/users");
-}
-
-export async function setUserBread(userId: string, amount: number) {
-  const session = await requireAdminSession();
-  const bread = normalizeBread(amount);
-
-  await db.transaction(async (tx) => {
-    const [existing] = await tx
-      .select({ balance: userBread.balance })
+      .select({ balance: column })
       .from(userBread)
       .where(eq(userBread.userId, userId))
-      .limit(1);
+      .limit(1)
+      .for("update");
     const before = existing?.balance ?? 0;
+
+    // Deducting is floored at zero, so the amount actually removed can be less
+    // than what was asked for when the user had a smaller balance.
+    const after =
+      mode === "add"
+        ? before + value
+        : mode === "deduct"
+          ? Math.max(before - value, 0)
+          : value;
 
     await tx
       .insert(userBread)
-      .values({ userId, balance: bread, updatedAt: new Date() })
+      .values({
+        userId,
+        ...(gold ? { goldBalance: after } : { balance: after }),
+        updatedAt: new Date(),
+      })
       .onConflictDoUpdate({
         target: userBread.userId,
-        set: { balance: bread, updatedAt: new Date() },
+        set: {
+          ...(gold ? { goldBalance: after } : { balance: after }),
+          updatedAt: new Date(),
+        },
       });
 
     await recordCurrencyTransaction(tx, {
       userId,
       actorId: session.user.id,
       type: "admin_adjustment",
-      amount: bread - before,
-      balanceAfter: bread,
-      note: `Admin set bread to ${bread}`,
+      currency,
+      amount: after - before,
+      balanceAfter: after,
+      note: reason,
     });
   });
 
-  await audit("admin.user.bread_set", "user", userId, { amount: bread });
+  await audit(AUDIT_ACTION[mode], "user", userId, {
+    amount: value,
+    currency,
+    reason,
+  });
   revalidatePath("/platform/admin/users");
+  return { success: true };
 }
 
-export async function deleteUser(userId: string) {
+export async function addUserBread(
+  userId: string,
+  amount: number,
+  currency: BalanceCurrency,
+  reason: string,
+) {
+  return adjustBalance("add", userId, amount, currency, reason);
+}
+
+export async function deductUserBread(
+  userId: string,
+  amount: number,
+  currency: BalanceCurrency,
+  reason: string,
+) {
+  return adjustBalance("deduct", userId, amount, currency, reason);
+}
+
+export async function setUserBread(
+  userId: string,
+  amount: number,
+  currency: BalanceCurrency,
+  reason: string,
+) {
+  return adjustBalance("set", userId, amount, currency, reason);
+}
+
+export async function deleteUser(
+  userId: string,
+): Promise<AdminUserActionResult> {
   const session = await requireAdminSession();
-  if (session.user.id === userId) throw new Error("You cannot delete yourself");
+  if (session.user.id === userId) return failed("You cannot delete yourself");
 
   const [deletedUser] = await db
     .delete(user)
     .where(eq(user.id, userId))
     .returning({ id: user.id });
-  if (!deletedUser) throw new Error("User not found");
+  if (!deletedUser) return failed("User not found");
   await audit("admin.user.deleted", "user", userId);
   revalidatePath("/platform/admin/users");
   revalidatePath("/platform/admin/orders");
   revalidatePath("/platform/admin/fulfillment");
+  return { success: true };
 }

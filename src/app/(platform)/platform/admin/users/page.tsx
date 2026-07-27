@@ -1,4 +1,4 @@
-import { desc } from "drizzle-orm";
+import { aliasedTable, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { BreadAmount } from "@/components/shared/bread-amount";
 import { LoginButton } from "@/components/shared/auth-buttons";
@@ -10,6 +10,7 @@ import { getSession, isAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import {
   account,
+  currencyTransactions,
   orders,
   projects,
   projectSubmissions,
@@ -18,6 +19,7 @@ import {
   userBread,
 } from "@/lib/db/schema";
 import { AdminUsersTable } from "@/components/platform/admin-users-table";
+import type { AdminAdjustment } from "@/components/platform/admin-users-controls";
 
 export default async function AdminUsersPage() {
   const currentSession = await getSession();
@@ -43,6 +45,10 @@ export default async function AdminUsersPage() {
     );
   }
 
+  // Manual balance moves carry the reason the admin typed. Only the newest slice
+  // is loaded; the modal shows the last few per user.
+  const actor = aliasedTable(user, "actor");
+
   const [
     allUsers,
     balances,
@@ -51,6 +57,7 @@ export default async function AdminUsersPage() {
     activeSessions,
     allProjects,
     allSubmissions,
+    recentAdjustments,
   ] = await Promise.all([
     db.select().from(user).orderBy(desc(user.createdAt)),
     db.select().from(userBread),
@@ -75,6 +82,20 @@ export default async function AdminUsersPage() {
         hoursSpent: projectSubmissions.hoursSpent,
       })
       .from(projectSubmissions),
+    db
+      .select({
+        userId: currencyTransactions.userId,
+        amount: currencyTransactions.amount,
+        currency: currencyTransactions.currency,
+        reason: currencyTransactions.note,
+        actorName: actor.name,
+        createdAt: currencyTransactions.createdAt,
+      })
+      .from(currencyTransactions)
+      .leftJoin(actor, eq(actor.id, currencyTransactions.actorId))
+      .where(eq(currencyTransactions.type, "admin_adjustment"))
+      .orderBy(desc(currencyTransactions.createdAt))
+      .limit(500),
   ]);
 
   const balanceByUser = new Map(
@@ -144,6 +165,21 @@ export default async function AdminUsersPage() {
     ]);
   }
 
+  const ADJUSTMENTS_PER_USER = 5;
+  const adjustmentsByUser = new Map<string, AdminAdjustment[]>();
+  for (const row of recentAdjustments) {
+    const list = adjustmentsByUser.get(row.userId) ?? [];
+    if (list.length >= ADJUSTMENTS_PER_USER) continue;
+    list.push({
+      amount: row.amount,
+      currency: row.currency,
+      reason: row.reason,
+      actorName: row.actorName ?? "Unknown admin",
+      at: row.createdAt.toLocaleString(),
+    });
+    adjustmentsByUser.set(row.userId, list);
+  }
+
   const sessionsByUser = new Map<string, number>();
   for (const sessionRow of activeSessions) {
     sessionsByUser.set(
@@ -189,6 +225,7 @@ export default async function AdminUsersPage() {
       pendingOrderCount: stats.pendingOrderCount,
       accountProviders: providersByUser.get(row.id) ?? [],
       activeSessionCount: sessionsByUser.get(row.id) ?? 0,
+      adjustments: adjustmentsByUser.get(row.id) ?? [],
     };
   });
 

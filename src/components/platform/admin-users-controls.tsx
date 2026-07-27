@@ -4,6 +4,14 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { buttonClass } from "@/components/ui/button";
 import { inputClass } from "@/components/ui/input";
 
+export type AdminAdjustment = {
+  amount: number;
+  currency: "bread" | "gold";
+  reason: string;
+  actorName: string;
+  at: string;
+};
+
 export type AdminUser = {
   id: string;
   name: string;
@@ -26,6 +34,7 @@ export type AdminUser = {
   pendingOrderCount: number;
   accountProviders: string[];
   activeSessionCount: number;
+  adjustments: AdminAdjustment[];
 };
 
 type FieldType = "text" | "number" | "boolean";

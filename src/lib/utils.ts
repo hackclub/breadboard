@@ -27,6 +27,10 @@ export function normalizeBread(amount: number) {
   return Math.max(0, Math.floor(Number(amount) || 0));
 }
 
+// Reason an admin gives when moving a balance by hand. Lives here rather than in
+// the action module because "use server" files can only export async functions.
+export const MAX_ADJUSTMENT_REASON_LENGTH = 200;
+
 export function cn(...classes: (string | false | null | undefined)[]) {
   return classes.filter(Boolean).join(" ");
 }

@@ -4,6 +4,8 @@ import Image from "next/image";
 import { useMemo, useState } from "react";
 import {
   addUserBread,
+  type AdminUserActionResult,
+  type BalanceCurrency,
   deductUserBread,
   deleteUser,
   setUserBread,
@@ -24,6 +26,7 @@ import {
   TableRow,
   TableScroll,
 } from "@/components/ui/table";
+import { MAX_ADJUSTMENT_REASON_LENGTH } from "@/lib/utils";
 import { slackPfpUrl } from "@/lib/utils/slack-pfp";
 import {
   type AdminUser,
@@ -53,7 +56,10 @@ export function AdminUsersTable({
   const [sortRules, setSortRules] = useState<SortRule[]>([
     { id: "default", field: "balance", direction: "desc" },
   ]);
-  const [selected, setSelected] = useState<AdminUser | null>(null);
+  // Track the id, not the row: after an action revalidates the page the modal
+  // needs to re-read the fresh balances and adjustment history.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = users.find((user) => user.id === selectedId) ?? null;
 
   const filteredUsers = useMemo(() => {
     const lowerQuery = query.trim().toLowerCase();
@@ -219,7 +225,7 @@ export function AdminUsersTable({
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Button size="sm" onClick={() => setSelected(user)}>
+                    <Button size="sm" onClick={() => setSelectedId(user.id)}>
                       Manage
                     </Button>
                   </TableCell>
@@ -232,9 +238,10 @@ export function AdminUsersTable({
 
       {selected ? (
         <UserModal
+          key={selected.id}
           user={selected}
           currentUserId={currentUserId}
-          onClose={() => setSelected(null)}
+          onClose={() => setSelectedId(null)}
         />
       ) : null}
     </>
@@ -310,7 +317,15 @@ function UserModal({
   onClose: () => void;
 }) {
   const [saving, setSaving] = useState(false);
-  const [amount, setAmount] = useState(1);
+  const [error, setError] = useState<string | null>(null);
+  // Kept as a string so clearing the field stays empty instead of snapping to 0.
+  const [amountInput, setAmountInput] = useState("1");
+  const [currency, setCurrency] = useState<BalanceCurrency>("bread");
+  const [reason, setReason] = useState("");
+  const amount = Number.parseInt(amountInput, 10);
+  const hasAmount = Number.isFinite(amount) && amount >= 0;
+  const hasReason = reason.trim().length > 0;
+  const currentBalance = currency === "gold" ? user.goldBalance : user.balance;
   const [form, setForm] = useState({
     name: user.name,
     email: user.email,
@@ -320,30 +335,45 @@ function UserModal({
     yswsExempt: user.yswsExempt,
   });
 
-  const run = async (action: () => Promise<void>) => {
+  // Actions report expected failures as { success: false, message }. Anything
+  // thrown is unexpected, and production replaces its message with a digest, so
+  // point the admin at the server logs rather than showing that noise.
+  const run = async (
+    action: () => Promise<AdminUserActionResult>,
+    onDone?: () => void,
+  ) => {
     setSaving(true);
+    setError(null);
     try {
-      await action();
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Failed");
+      const result = await action();
+      if (!result.success) {
+        setError(result.message);
+        return;
+      }
+      onDone?.();
+    } catch {
+      setError("Something went wrong. Check the server logs for details.");
     } finally {
       setSaving(false);
     }
   };
 
-  const remove = () =>
-    run(async () => {
-      if (user.id === currentUserId)
-        throw new Error("You cannot delete yourself");
-      if (
-        !confirm(
-          `Delete ${user.email}? This removes sessions, balances, cart, and orders.`,
-        )
+  // A reason belongs to one adjustment, so don't let it carry into the next.
+  const clearAdjustment = () => setReason("");
+
+  const remove = () => {
+    if (user.id === currentUserId) {
+      setError("You cannot delete yourself");
+      return;
+    }
+    if (
+      !confirm(
+        `Delete ${user.email}? This removes sessions, balances, cart, and orders.`,
       )
-        return;
-      await deleteUser(user.id);
-      onClose();
-    });
+    )
+      return;
+    return run(() => deleteUser(user.id), onClose);
+  };
 
   return (
     <Modal
@@ -470,41 +500,83 @@ function UserModal({
         </div>
 
         <div className="rounded-[12px] border border-black bg-[#f4f4f4] p-4">
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-[#BD0F32]">
-            Bread
+          <div className="grid grid-cols-2 gap-1 rounded-full border border-black bg-white p-1">
+            {(["bread", "gold"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => setCurrency(option)}
+                className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-[0.12em] ${
+                  currency === option
+                    ? "bg-black text-white"
+                    : "text-black hover:bg-black/10"
+                }`}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+          <p className="mt-3 text-xs font-black uppercase tracking-[0.16em] text-[#BD0F32]">
+            {currency === "gold" ? "Gold" : "Bread"}
           </p>
           <p className="mt-1 text-5xl font-black text-black">
-            <BreadAmount amount={user.balance} size="lg" />
+            <BreadAmount
+              amount={currentBalance}
+              size="lg"
+              gold={currency === "gold"}
+            />
           </p>
           <input
             type="number"
             min={0}
-            value={amount}
-            onChange={(event) => setAmount(Number(event.target.value))}
+            value={amountInput}
+            onChange={(event) => setAmountInput(event.target.value)}
             className="mt-4 w-full rounded-[10px] border border-black bg-white px-3 py-2 text-sm"
+          />
+          <input
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            maxLength={MAX_ADJUSTMENT_REASON_LENGTH}
+            placeholder="Reason (required)"
+            className="mt-2 w-full rounded-[10px] border border-black bg-white px-3 py-2 text-sm"
           />
           <div className="mt-3 grid gap-2">
             <button
               type="button"
-              onClick={() => run(() => addUserBread(user.id, amount))}
-              disabled={saving}
-              className="rounded-full border border-black bg-[#BD0F32] px-4 py-2 text-sm font-black text-white hover:bg-black"
+              onClick={() =>
+                run(
+                  () => addUserBread(user.id, amount, currency, reason),
+                  clearAdjustment,
+                )
+              }
+              disabled={saving || !hasAmount || amount <= 0 || !hasReason}
+              className="rounded-full border border-black bg-[#BD0F32] px-4 py-2 text-sm font-black text-white hover:bg-black disabled:opacity-50"
             >
               Add
             </button>
             <button
               type="button"
-              onClick={() => run(() => deductUserBread(user.id, amount))}
-              disabled={saving}
-              className="rounded-full border border-black bg-white px-4 py-2 text-sm font-black hover:bg-black hover:text-white"
+              onClick={() =>
+                run(
+                  () => deductUserBread(user.id, amount, currency, reason),
+                  clearAdjustment,
+                )
+              }
+              disabled={saving || !hasAmount || amount <= 0 || !hasReason}
+              className="rounded-full border border-black bg-white px-4 py-2 text-sm font-black hover:bg-black hover:text-white disabled:opacity-50"
             >
               Deduct
             </button>
             <button
               type="button"
-              onClick={() => run(() => setUserBread(user.id, amount))}
-              disabled={saving}
-              className="rounded-full border border-black bg-white px-4 py-2 text-sm font-black hover:bg-black hover:text-white"
+              onClick={() =>
+                run(
+                  () => setUserBread(user.id, amount, currency, reason),
+                  clearAdjustment,
+                )
+              }
+              disabled={saving || !hasAmount || !hasReason}
+              className="rounded-full border border-black bg-white px-4 py-2 text-sm font-black hover:bg-black hover:text-white disabled:opacity-50"
             >
               Set to amount
             </button>
@@ -517,8 +589,43 @@ function UserModal({
               Delete user
             </button>
           </div>
+
+          <div className="mt-4 border-t border-black/15 pt-3">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-black/60">
+              Recent adjustments
+            </p>
+            {user.adjustments.length === 0 ? (
+              <p className="mt-2 text-xs text-black/60">
+                No manual adjustments yet.
+              </p>
+            ) : (
+              <ul className="mt-2 space-y-2">
+                {user.adjustments.map((adjustment) => (
+                  <li
+                    key={`${adjustment.at}-${adjustment.reason}`}
+                    className="text-xs text-black"
+                  >
+                    <span className="font-black">
+                      {adjustment.amount > 0 ? "+" : ""}
+                      {adjustment.amount} {adjustment.currency}
+                    </span>{" "}
+                    <span className="text-black/60">
+                      by {adjustment.actorName} on {adjustment.at}
+                    </span>
+                    <p className="break-words">{adjustment.reason}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
       </div>
+
+      {error ? (
+        <p className="mt-4 rounded-[10px] border border-red-700 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
+          {error}
+        </p>
+      ) : null}
     </Modal>
   );
 }

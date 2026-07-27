@@ -304,3 +304,36 @@
 .sensor-option.selected .sensor-option-hint {
   color: #7fd0ff;
 }
+
+/* ── Live microphone control ─────────────────────────────────────────────── */
+
+.sensor-mic-control {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #444;
+}
+
+/* Keep the "recording" state visibly lit rather than only on mouse-down. */
+.sensor-trigger-button.active,
+.sensor-trigger-button.active:hover {
+  background-color: #b23a3a;
+  border-color: #e05555;
+}
+
+.sensor-mic-status {
+  font-size: 11px;
+  color: #999;
+}
+
+.sensor-mic-status.error {
+  color: #ff8080;
+}
+
+/* Slider is read-only while the live mic drives the value. */
+.sensor-slider:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

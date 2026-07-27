@@ -18,6 +18,7 @@ import {
   dispatchSensorUpdate,
   getLastSensorValues,
 } from "@/lib/velxio/simulation/SensorUpdateRegistry";
+import { useMicrophoneLevel } from "@/services/velxio/hooks/useMicrophoneLevel";
 import "@/components/velxio/components/simulator/SensorControlPanel.css";
 
 interface SensorControlPanelProps {
@@ -61,6 +62,13 @@ export const SensorControlPanel: React.FC<SensorControlPanelProps> = ({
 }) => {
   const { t } = useTranslation();
   const def = SENSOR_CONTROLS[metadataId];
+
+  // The microphone module can be driven either by the manual slider or by the
+  // user's real microphone. While the live mic is listening it dispatches the
+  // soundLevel itself, so the slider becomes a read-only readout.
+  const isMic = metadataId === "microphone-module";
+  const mic = useMicrophoneLevel();
+  const micListening = isMic && mic.status === "listening";
 
   // Local slider/button state — hydrated from the registry's last-known
   // values for this componentId (so reopening a sensor or switching between
@@ -121,6 +129,24 @@ export const SensorControlPanel: React.FC<SensorControlPanelProps> = ({
     setValues((prev) => ({ ...prev, [key]: value }));
     dispatchSensorUpdate(componentId, { [key]: value });
   };
+
+  const handleMicToggle = () => {
+    if (mic.status === "listening" || mic.status === "requesting") {
+      mic.stop(componentId);
+      // The hook rests the pin at 512 on stop; mirror that into the slider so
+      // the readout and the simulation agree once live capture ends.
+      setValues((prev) => ({ ...prev, soundLevel: 512 }));
+    } else {
+      void mic.start(componentId);
+    }
+  };
+
+  const micButtonLabel =
+    mic.status === "listening"
+      ? "Stop microphone"
+      : mic.status === "requesting"
+        ? "Requesting…"
+        : "Use my microphone";
 
   // ── Render helpers ────────────────────────────────────────────────────────
 
@@ -188,7 +214,11 @@ export const SensorControlPanel: React.FC<SensorControlPanelProps> = ({
 
     // Slider
     const sc = ctrl as SliderControl;
-    const val = (values[sc.key] as number) ?? sc.defaultValue;
+    // While the live mic drives soundLevel, show its value and lock the slider.
+    const liveMic = micListening && sc.key === "soundLevel";
+    const val = liveMic
+      ? mic.level
+      : ((values[sc.key] as number) ?? sc.defaultValue);
     const displayVal = sc.formatValue ? sc.formatValue(val) : String(val);
     const isAxisKey = AXIS_KEYS.has(sc.key);
 
@@ -208,6 +238,7 @@ export const SensorControlPanel: React.FC<SensorControlPanelProps> = ({
           max={sc.max}
           step={sc.step}
           value={val}
+          disabled={liveMic}
           onChange={(e) => handleSlider(sc.key, e.target.value)}
         />
         <span className="sensor-value-display">
@@ -217,6 +248,30 @@ export const SensorControlPanel: React.FC<SensorControlPanelProps> = ({
       </div>
     );
   };
+
+  // Live-microphone control, rendered above the slider for the mic module.
+  const renderMicControl = () => (
+    <div className="sensor-mic-control">
+      <button
+        type="button"
+        className={`sensor-trigger-button${micListening ? " active" : ""}`}
+        onClick={handleMicToggle}
+      >
+        {micButtonLabel}
+      </button>
+      {mic.errorMessage ? (
+        <span className="sensor-mic-status error">{mic.errorMessage}</span>
+      ) : micListening ? (
+        <span className="sensor-mic-status">
+          Listening — speak into your mic
+        </span>
+      ) : (
+        <span className="sensor-mic-status">
+          Or drive the level from your real microphone
+        </span>
+      )}
+    </div>
+  );
 
   // For MPU6050 render sections; for everything else render controls flat
   const renderControls = () => {
@@ -235,6 +290,14 @@ export const SensorControlPanel: React.FC<SensorControlPanelProps> = ({
           </React.Fragment>
         );
       });
+    }
+    if (isMic) {
+      return (
+        <>
+          {renderMicControl()}
+          {def.controls.map(renderControl)}
+        </>
+      );
     }
     return def.controls.map(renderControl);
   };

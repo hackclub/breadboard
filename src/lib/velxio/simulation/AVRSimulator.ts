@@ -301,7 +301,39 @@ export class AVRSimulator {
   private megaPorts: Map<string, AVRIOPort> = new Map();
   private megaPortValues: Map<string, number> = new Map();
   private adc: AVRADC | null = null;
-  public spi: AVRSPI | null = null;
+  /**
+   * The real avr8js SPI peripheral. Rebuilt from scratch on every loadHex /
+   * reset() alongside the CPU, so nothing outside this class may hold on to
+   * it — hook `this.spi` instead.
+   */
+  public spiPeripheral: AVRSPI | null = null;
+  /**
+   * Persistent SPI bus facade (SpiBusLike). Parts hook `simulator.spi.onByte`
+   * once from attachEvents and keep that hook for the lifetime of the part;
+   * loadHex/reset swap the peripheral underneath without disturbing it. Same
+   * trick as `i2cBus`, which survives a reset via attachMaster(), and as
+   * RP2040Simulator's `_spiAdapter`.
+   *
+   * Before this facade existed, `this.spi` WAS the peripheral: Stop (which
+   * calls reset()) built a fresh AVRSPI with its own loopback handler and
+   * dropped the part's handler on the floor. Every SPI part — RC522, ILI9341,
+   * SD card, e-paper, MAX7219 — then went silent for the rest of the session,
+   * because DynamicComponent only re-runs attachEvents when the simulator
+   * instance, the hex, or the wiring changes, and a restart changes none of
+   * them. Symptom: works on the first Run, dead on every Run after.
+   *
+   * Defaults to the same MISO loopback the peripheral used to install, so
+   * parts that chain a previous handler (and EPaperPart's
+   * `typeof spi.onByte === "function"` probe) see what they did before.
+   */
+  public readonly spi: {
+    onByte: ((mosi: number) => void) | null;
+    completeTransfer: (miso: number) => void;
+  } = {
+    onByte: (value: number) => this.spiPeripheral?.completeTransfer(value),
+    completeTransfer: (miso: number) =>
+      this.spiPeripheral?.completeTransfer(miso),
+  };
   public usart: AVRUSART | null = null;
   public twi: AVRTWI | null = null;
   public i2cBus!: I2CBusManager;
@@ -481,10 +513,15 @@ export class AVRSimulator {
         ? { ...twiConfig, twiInterrupt: 0x4e }
         : twiConfig;
 
-      this.spi = new AVRSPI(this.cpu, activeSpiConfig, 16000000);
-      this.spi.onByte = (value) => {
-        this.spi!.completeTransfer(value);
+      const spiPeripheral = new AVRSPI(this.cpu, activeSpiConfig, 16000000);
+      // Route every transmitted byte through the persistent facade, so a part
+      // that hooked `.spi.onByte` before this (re)build keeps receiving bytes.
+      spiPeripheral.onByte = (value) => {
+        const handler = this.spi.onByte;
+        if (handler) handler(value);
+        else spiPeripheral.completeTransfer(value);
       };
+      this.spiPeripheral = spiPeripheral;
 
       this.usart = new AVRUSART(this.cpu, activeUsart0Config, 16000000);
       this.usart.onByteTransmit = (value: number) => {
@@ -512,7 +549,7 @@ export class AVRSimulator {
         new AVRTimer(this.cpu, activeTimer1Config),
         new AVRTimer(this.cpu, activeTimer2Config),
         this.usart,
-        this.spi,
+        this.spiPeripheral,
         this.twi,
       ];
 
@@ -1017,10 +1054,15 @@ export class AVRSimulator {
         ];
         this.usart = null;
       } else {
-        this.spi = new AVRSPI(this.cpu, spiConfig, 16000000);
-        this.spi.onByte = (value) => {
-          this.spi!.completeTransfer(value);
+        // Same facade routing as loadHex — the parts' `.spi.onByte` hooks
+        // must survive a reset (Stop/Run and the Reset button both land here).
+        const spiPeripheral = new AVRSPI(this.cpu, spiConfig, 16000000);
+        spiPeripheral.onByte = (value) => {
+          const handler = this.spi.onByte;
+          if (handler) handler(value);
+          else spiPeripheral.completeTransfer(value);
         };
+        this.spiPeripheral = spiPeripheral;
 
         this.usart = new AVRUSART(this.cpu, usart0Config, 16000000);
         this.usart.onByteTransmit = (value: number) => {
@@ -1042,7 +1084,7 @@ export class AVRSimulator {
           new AVRTimer(this.cpu, timer1Config),
           new AVRTimer(this.cpu, timer2Config),
           this.usart,
-          this.spi,
+          this.spiPeripheral,
           this.twi,
         ];
         this.adc = new AVRADC(this.cpu, adcConfig);

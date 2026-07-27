@@ -784,8 +784,15 @@ export class RP2040Simulator {
         };
         this.wireI2C(0);
         this.wireI2C(1);
+        // Adapter-aware, like initMCU / initMicroPython: a part that hooked
+        // `.spi.onByte` before this reset must keep receiving bytes, otherwise
+        // SPI displays go black after the first Reset press.
         this.rp2040.spi[0].onTransmit = (v: number) => {
-          this.rp2040!.spi[0].completeTransmit(v);
+          if (this._spiAdapter?.onByte) {
+            this._spiAdapter.onByte(v);
+          } else {
+            this.rp2040!.spi[0].completeTransmit(v);
+          }
         };
         this.rp2040.spi[1].onTransmit = (v: number) => {
           this.rp2040!.spi[1].completeTransmit(v);

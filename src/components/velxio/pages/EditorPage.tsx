@@ -284,7 +284,7 @@ export const EditorPage: React.FC<{
               <polyline points="16 18 22 12 16 6" />
               <polyline points="8 6 2 12 8 18" />
             </svg>
-            <span>&lt;/&gt; {t("editor.shell.code")}</span>
+            <span>{t("editor.shell.code")}</span>
           </button>
           <button
             className={`mobile-tab-btn${mobileView === "circuit" ? " mobile-tab-btn--active" : ""}`}

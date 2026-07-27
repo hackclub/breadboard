@@ -110,7 +110,7 @@ export default async function PlatformLayout({
             : null
         }
       />
-      <main className="min-h-screen py-10 pr-10 pl-[320px]">
+      <main className="min-h-screen px-4 pt-20 pb-24 sm:px-6 lg:py-10 lg:pr-10 lg:pl-80">
         <div className="mx-auto max-w-[1320px]">{children}</div>
       </main>
       <Countdown variant="floating" />

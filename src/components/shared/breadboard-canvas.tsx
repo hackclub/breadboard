@@ -361,12 +361,26 @@ export function BreadboardCanvas() {
       mouse = null;
       if (fromHole) draw();
     };
+    // Track the touch so a swipe still scrolls the page. Only a near-stationary
+    // touch counts as a tap; preventDefault is deferred to touchend so we never
+    // swallow a scroll gesture that starts on the board.
+    let touchStart: { x: number; y: number } | null = null;
+    const TAP_SLOP = 10;
     const handleTouchStart = (e: TouchEvent) => {
-      e.preventDefault();
+      const t = e.touches[0];
+      touchStart = t ? { x: t.clientX, y: t.clientY } : null;
     };
     const handleTouchEnd = (e: TouchEvent) => {
-      e.preventDefault();
       const t = e.changedTouches[0];
+      if (!t || !touchStart) return;
+      const moved = Math.hypot(
+        t.clientX - touchStart.x,
+        t.clientY - touchStart.y,
+      );
+      touchStart = null;
+      if (moved > TAP_SLOP) return;
+      // Stationary tap: consume it so the synthetic click doesn't double-handle.
+      e.preventDefault();
       const r = canvas.getBoundingClientRect();
       const x = (t.clientX - r.left) * (BW / r.width);
       const y = (t.clientY - r.top) * (BH / r.height);
@@ -390,7 +404,7 @@ export function BreadboardCanvas() {
     canvas.addEventListener("click", click);
     canvas.addEventListener("mousemove", handleMouseMove);
     canvas.addEventListener("mouseleave", handleMouseLeave);
-    canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
+    canvas.addEventListener("touchstart", handleTouchStart, { passive: true });
     canvas.addEventListener("touchend", handleTouchEnd, { passive: false });
     stateRef.current.clear = () => {
       userWires = [];
@@ -442,17 +456,21 @@ export function BreadboardCanvas() {
           clear
         </button>
       </div>
-      <canvas
-        ref={canvasRef}
-        className="w-full"
-        style={{
-          display: "block",
-          cursor: "crosshair",
-          borderRadius: 8,
-          border: "2px solid #000",
-          aspectRatio: "1024 / 272",
-        }}
-      />
+      {/* Squashed to a phone's width the board is only ~100px tall and the holes
+          are too small to hit, so hold a minimum width and scroll sideways. */}
+      <div className="-mx-1 overflow-x-auto px-1 pb-1">
+        <canvas
+          ref={canvasRef}
+          className="w-full min-w-[760px] sm:min-w-0"
+          style={{
+            display: "block",
+            cursor: "crosshair",
+            borderRadius: 8,
+            border: "2px solid #000",
+            aspectRatio: "1024 / 272",
+          }}
+        />
+      </div>
     </div>
   );
 }

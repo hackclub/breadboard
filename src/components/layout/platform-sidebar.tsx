@@ -3,9 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { IconType } from "react-icons";
 import {
+  HiBars3,
   HiClipboardDocumentCheck,
   HiClock,
   HiCog6Tooth,
@@ -13,8 +14,8 @@ import {
   HiHome,
   HiShoppingBag,
   HiSignal,
-  HiSquares2X2,
   HiUsers,
+  HiXMark,
 } from "react-icons/hi2";
 import { authClient } from "@/lib/auth/client";
 import { BREAD_PER_HOUR, GOLD_BREAD_PER_HOUR } from "@/lib/constants";
@@ -48,7 +49,6 @@ const mainNavigation: SidebarSection[] = [
     links: [
       { name: "Home", href: "/platform", icon: HiHome },
       { name: "My Projects", href: "/platform/projects", icon: HiCube },
-      { name: "Gallery", href: "/gallery", icon: HiSquares2X2 },
       {
         name: "Docs",
         href: "/get-started",
@@ -106,10 +106,20 @@ export function PlatformSidebar({
   const pathname = usePathname();
   const router = useRouter();
   const [authLoading, setAuthLoading] = useState(false);
+  const [open, setOpen] = useState(false);
   const sections = isAdmin
     ? [...mainNavigation, adminNavigation]
     : mainNavigation;
   const userAvatarUrl = user ? slackPfpUrl(user.slackId) : null;
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
 
   async function signIn() {
     setAuthLoading(true);
@@ -131,130 +141,184 @@ export function PlatformSidebar({
   }
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-40 flex w-[min(18rem,86vw)] flex-col border-r border-zinc-200 bg-white">
-      <div className="border-b border-zinc-200 p-4 pt-[calc(env(safe-area-inset-top)+1rem)] sm:p-6">
+    <>
+      <div className="fixed inset-x-0 top-0 z-30 flex h-16 items-center gap-3 border-b border-zinc-200 bg-white px-4 pt-[env(safe-area-inset-top)] lg:hidden">
+        <button
+          type="button"
+          aria-label="Open navigation"
+          aria-expanded={open}
+          aria-controls="platform-sidebar"
+          onClick={() => setOpen(true)}
+          className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-zinc-200 text-zinc-700 transition-colors hover:bg-zinc-100"
+        >
+          <HiBars3 className="size-6" aria-hidden="true" />
+        </button>
         <Link
           href="/platform"
           prefetch={false}
-          className="flex items-center gap-3 after:hidden"
+          className="flex items-center after:hidden"
         >
           <Image
             src="/assets/Breadboard_Logo_White.svg"
             alt="Breadboard"
             width={196}
             height={56}
-            className="h-12 w-auto"
+            className="h-9 w-auto"
             priority
           />
         </Link>
       </div>
 
-      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-3 sm:p-4">
-        {sections.map((section) => {
-          return (
-            <div key={section.name} className="mb-6">
-              <p className="mb-2 px-3 text-xs font-semibold tracking-wider text-zinc-500 uppercase">
-                {section.name}
-              </p>
-              <div className="space-y-1">
-                {section.links.map((item) => {
-                  const Icon = item.icon;
-                  const active = isActivePath(pathname, item.href);
+      {open ? (
+        <button
+          type="button"
+          aria-label="Close navigation"
+          tabIndex={-1}
+          onClick={() => setOpen(false)}
+          className="fixed inset-0 z-40 cursor-default bg-black/40 lg:hidden"
+        />
+      ) : null}
 
-                  return (
-                    <Link
-                      prefetch={false}
-                      key={item.href}
-                      href={item.href}
-                      aria-current={active ? "page" : undefined}
-                      className={`flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium no-underline transition-all ${
-                        active
-                          ? "bg-[#BD0F32] text-white"
-                          : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-950"
-                      }`}
-                    >
-                      <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
-                      <span className="truncate">{item.name}</span>
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </nav>
-
-      <div className="border-t border-zinc-200 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
-        {user ? (
-          <>
-            <div className="mb-3 min-w-0 px-2">
-              <div className="mb-2 size-10 overflow-hidden rounded-full border border-zinc-200">
-                {userAvatarUrl ? (
-                  <Image
-                    src={userAvatarUrl}
-                    alt=""
-                    width={40}
-                    height={40}
-                    className="size-full object-cover"
-                    unoptimized
-                  />
-                ) : (
-                  <div className="grid size-full place-items-center bg-zinc-100 text-sm font-bold text-zinc-500">
-                    {user.name?.slice(0, 1).toUpperCase() || "?"}
-                  </div>
-                )}
-              </div>
-              <p className="truncate text-sm font-medium text-zinc-950">
-                {user.name ?? "Signed in"}
-              </p>
-              <span className="flex items-center gap-3">
-                <BreadAmount amount={user.breadBalance ?? 0} size="sm" />
-                {(user.goldBreadBalance ?? 0) > 0 ||
-                (user.pendingGoldBreadEstimate ?? 0) > 0 ? (
-                  <BreadAmount
-                    amount={user.goldBreadBalance ?? 0}
-                    size="sm"
-                    gold
-                  />
-                ) : null}
-              </span>
-              {(user.pendingBreadEstimate ?? 0) > 0 ? (
-                <p
-                  className="mt-0.5 text-xs font-medium text-zinc-500"
-                  title={`Estimate based on your tracked time (${BREAD_PER_HOUR} bread per hour of work). You officially earn bread when a reviewer approves your work.`}
-                >
-                  ~{user.pendingBreadEstimate} more est. after review
-                </p>
-              ) : null}
-              {(user.pendingGoldBreadEstimate ?? 0) > 0 ? (
-                <p
-                  className="mt-0.5 text-xs font-medium text-zinc-500"
-                  title={`Estimate based on tracked time on your build ships (${GOLD_BREAD_PER_HOUR} gold bread per hour of work). You officially earn gold bread when a reviewer approves your build.`}
-                >
-                  ~{user.pendingGoldBreadEstimate} gold est. after review
-                </p>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              onClick={signOut}
-              disabled={authLoading}
-              className="min-h-11 w-full rounded-xl px-3 py-2 text-sm font-medium text-zinc-500 transition-all hover:bg-zinc-100 hover:text-zinc-950 disabled:opacity-60"
-            >
-              {authLoading ? "Logging out..." : "Log out"}
-            </button>
-          </>
-        ) : (
+      <aside
+        id="platform-sidebar"
+        className={`fixed inset-y-0 left-0 z-50 flex w-[min(18rem,86vw)] flex-col border-r border-zinc-200 bg-white transition-transform duration-200 lg:z-40 lg:translate-x-0 ${
+          open ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-zinc-200 p-4 pt-[calc(env(safe-area-inset-top)+1rem)] sm:p-6">
+          <Link
+            href="/platform"
+            prefetch={false}
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-3 after:hidden"
+          >
+            <Image
+              src="/assets/Breadboard_Logo_White.svg"
+              alt="Breadboard"
+              width={196}
+              height={56}
+              className="h-12 w-auto"
+              priority
+            />
+          </Link>
           <button
             type="button"
-            onClick={signIn}
-            disabled={authLoading}
-            className="min-h-11 w-full rounded-xl bg-[#BD0F32] px-4 py-2.5 text-center text-sm font-medium text-white transition-all hover:bg-[#a30d2b] disabled:opacity-60"
+            aria-label="Close navigation"
+            onClick={() => setOpen(false)}
+            className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-zinc-200 text-zinc-700 transition-colors hover:bg-zinc-100 lg:hidden"
           >
-            {authLoading ? "Logging in..." : "Log in"}
+            <HiXMark className="size-5" aria-hidden="true" />
           </button>
-        )}
-      </div>
-    </aside>
+        </div>
+
+        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-3 sm:p-4">
+          {sections.map((section) => {
+            return (
+              <div key={section.name} className="mb-6">
+                <p className="mb-2 px-3 text-xs font-semibold tracking-wider text-zinc-500 uppercase">
+                  {section.name}
+                </p>
+                <div className="space-y-1">
+                  {section.links.map((item) => {
+                    const Icon = item.icon;
+                    const active = isActivePath(pathname, item.href);
+
+                    return (
+                      <Link
+                        prefetch={false}
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => setOpen(false)}
+                        aria-current={active ? "page" : undefined}
+                        className={`flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium no-underline transition-all ${
+                          active
+                            ? "bg-[#BD0F32] text-white"
+                            : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-950"
+                        }`}
+                      >
+                        <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+                        <span className="truncate">{item.name}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </nav>
+
+        <div className="border-t border-zinc-200 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+          {user ? (
+            <>
+              <div className="mb-3 min-w-0 px-2">
+                <div className="mb-2 size-10 overflow-hidden rounded-full border border-zinc-200">
+                  {userAvatarUrl ? (
+                    <Image
+                      src={userAvatarUrl}
+                      alt=""
+                      width={40}
+                      height={40}
+                      className="size-full object-cover"
+                      unoptimized
+                    />
+                  ) : (
+                    <div className="grid size-full place-items-center bg-zinc-100 text-sm font-bold text-zinc-500">
+                      {user.name?.slice(0, 1).toUpperCase() || "?"}
+                    </div>
+                  )}
+                </div>
+                <p className="truncate text-sm font-medium text-zinc-950">
+                  {user.name ?? "Signed in"}
+                </p>
+                <span className="flex items-center gap-3">
+                  <BreadAmount amount={user.breadBalance ?? 0} size="sm" />
+                  {(user.goldBreadBalance ?? 0) > 0 ||
+                  (user.pendingGoldBreadEstimate ?? 0) > 0 ? (
+                    <BreadAmount
+                      amount={user.goldBreadBalance ?? 0}
+                      size="sm"
+                      gold
+                    />
+                  ) : null}
+                </span>
+                {(user.pendingBreadEstimate ?? 0) > 0 ? (
+                  <p
+                    className="mt-0.5 text-xs font-medium text-zinc-500"
+                    title={`Estimate based on your tracked time (${BREAD_PER_HOUR} bread per hour of work). You officially earn bread when a reviewer approves your work.`}
+                  >
+                    ~{user.pendingBreadEstimate} more est. after review
+                  </p>
+                ) : null}
+                {(user.pendingGoldBreadEstimate ?? 0) > 0 ? (
+                  <p
+                    className="mt-0.5 text-xs font-medium text-zinc-500"
+                    title={`Estimate based on tracked time on your build ships (${GOLD_BREAD_PER_HOUR} gold bread per hour of work). You officially earn gold bread when a reviewer approves your build.`}
+                  >
+                    ~{user.pendingGoldBreadEstimate} gold est. after review
+                  </p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={signOut}
+                disabled={authLoading}
+                className="min-h-11 w-full rounded-xl px-3 py-2 text-sm font-medium text-zinc-500 transition-all hover:bg-zinc-100 hover:text-zinc-950 disabled:opacity-60"
+              >
+                {authLoading ? "Logging out..." : "Log out"}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={signIn}
+              disabled={authLoading}
+              className="min-h-11 w-full rounded-xl bg-[#BD0F32] px-4 py-2.5 text-center text-sm font-medium text-white transition-all hover:bg-[#a30d2b] disabled:opacity-60"
+            >
+              {authLoading ? "Logging in..." : "Log in"}
+            </button>
+          )}
+        </div>
+      </aside>
+    </>
   );
 }

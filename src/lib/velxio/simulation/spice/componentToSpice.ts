@@ -966,22 +966,22 @@ const MAPPERS: Record<string, Mapper> = {
   // an analog output 0..VCC (center = VCC/2), plus a momentary button on SW
   // (driven digitally in ComplexParts, not here). Same reasoning as the water
   // level sensor: drive the axes through SPICE so `analogRead` survives every
-  // re-solve. The panel slider mirrors xAxis/yAxis (-512..512) into properties;
-  // if left untouched they default to 0 → the resting centre voltage. Direct
-  // ADC injection instead reads back as 0 the moment connectAnalogInputsToMcu
-  // re-runs against the undriven net. Referenced to the module's GND, or SPICE
-  // ground if that pin is unwired.
+  // re-solve. The value is read from xValue/yValue — the same [-1, +1] keys the
+  // wokwi element renders the knob from — so 0 is the resting centre voltage.
+  // (Storing it under any other key would leave the element's stale xValue=0
+  // default to snap the knob back on every move; see ComplexParts.) Referenced
+  // to the module's GND, or SPICE ground if that pin is unwired.
   "analog-joystick": (comp, netLookup, ctx) => {
     const gnd = netLookup("GND") ?? netLookup("-") ?? "0";
     const axisVolts = (raw: unknown) => {
-      const a = Math.max(-512, Math.min(512, Number(raw ?? 0)));
-      return ((a + 512) / 1023) * ctx.vcc;
+      const a = Math.max(-1, Math.min(1, Number(raw ?? 0)));
+      return ((a + 1) / 2) * ctx.vcc;
     };
     const vx = netLookup("VERT") ?? netLookup("VRX") ?? netLookup("XOUT");
     const vy = netLookup("HORZ") ?? netLookup("VRY") ?? netLookup("YOUT");
     const cards: string[] = [];
-    if (vx) cards.push(`V_${comp.id}_x ${vx} ${gnd} DC ${axisVolts(comp.properties.xAxis)}`);
-    if (vy) cards.push(`V_${comp.id}_y ${vy} ${gnd} DC ${axisVolts(comp.properties.yAxis)}`);
+    if (vx) cards.push(`V_${comp.id}_x ${vx} ${gnd} DC ${axisVolts(comp.properties.xValue)}`);
+    if (vy) cards.push(`V_${comp.id}_y ${vy} ${gnd} DC ${axisVolts(comp.properties.yValue)}`);
     if (cards.length === 0) return null;
     return { cards, modelsUsed: new Set() };
   },

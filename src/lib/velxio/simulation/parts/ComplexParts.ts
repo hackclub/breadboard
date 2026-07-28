@@ -239,15 +239,16 @@ PartSimulationRegistry.register("analog-joystick", {
 
     if (pinSW !== null) avrSimulator.setPinState(pinSW, true); // HIGH = not pressed
 
-    // wokwi-analog-joystick exposes xValue/yValue as DIRECTION (-1 / 0 / +1),
-    // not pot-style 0..1023.  See @wokwi/elements analog-joystick-element.js:
-    // arrow-zone clicks call mousedown(e, dx, dy) where dx,dy ∈ {-1, 0, +1};
-    // mouseup snaps back to 0.  Map that tri-state onto the -512..512 axis
-    // range the panel slider uses (-1 → -512, 0 → center, +1 → +512).
-    const dirToAxis = (d: number) => Math.max(-1, Math.min(1, Number(d) || 0)) * 512;
+    // The wokwi element renders the knob from xValue/yValue (each in [-1, +1])
+    // and reports moves through them. Mirror those SAME keys into the stored
+    // properties: DynamicComponent re-syncs every stored property back onto the
+    // element after each change, so writing any other key (e.g. xAxis) would
+    // leave the element's stale xValue=0 default to snap the knob back to centre
+    // on every move. Writing xValue/yValue makes that re-sync a visual no-op.
+    const clampAxis = (d: unknown) => Math.max(-1, Math.min(1, Number(d) || 0));
     const onMove = () => {
-      emitPropertyChange(componentId, "xAxis", dirToAxis(el.xValue));
-      emitPropertyChange(componentId, "yAxis", dirToAxis(el.yValue));
+      emitPropertyChange(componentId, "xValue", clampAxis(el.xValue));
+      emitPropertyChange(componentId, "yValue", clampAxis(el.yValue));
     };
 
     const onPress = () => {
@@ -264,14 +265,15 @@ PartSimulationRegistry.register("analog-joystick", {
     element.addEventListener("button-press", onPress);
     element.addEventListener("button-release", onRelease);
 
-    // SensorControlPanel: xAxis/yAxis -512..512 → mirrored to properties, which
-    // the SPICE mapper turns into a voltage 0–VCC (center = VCC/2).
+    // SensorControlPanel slider is -512..512; map it onto the element's
+    // [-1, +1] xValue/yValue so the knob tracks the slider and the SPICE mapper
+    // reads a single, consistent key.
     registerSensorUpdate(componentId, (values) => {
       if ("xAxis" in values) {
-        emitPropertyChange(componentId, "xAxis", Number(values.xAxis));
+        emitPropertyChange(componentId, "xValue", clampAxis(Number(values.xAxis) / 512));
       }
       if ("yAxis" in values) {
-        emitPropertyChange(componentId, "yAxis", Number(values.yAxis));
+        emitPropertyChange(componentId, "yValue", clampAxis(Number(values.yAxis) / 512));
       }
     });
 

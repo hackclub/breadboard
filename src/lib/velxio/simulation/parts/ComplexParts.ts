@@ -226,44 +226,28 @@ PartSimulationRegistry.register("photoresistor", {
  */
 PartSimulationRegistry.register("analog-joystick", {
   attachEvents: (element, avrSimulator, getArduinoPinHelper, componentId) => {
-    // wokwi-analog-joystick uses VERT/HORZ/SEL pin names
-    const pinX =
-      getArduinoPinHelper("VERT") ??
-      getArduinoPinHelper("VRX") ??
-      getArduinoPinHelper("XOUT");
-    const pinY =
-      getArduinoPinHelper("HORZ") ??
-      getArduinoPinHelper("VRY") ??
-      getArduinoPinHelper("YOUT");
+    // The two axes (VERT/HORZ) are driven through SPICE — see the
+    // `analog-joystick` mapper in componentToSpice.ts. Moving the slider (or
+    // dragging the on-canvas joystick) mirrors xAxis/yAxis into the component's
+    // properties; the netlist rebuilds with a voltage source on each axis net
+    // and the ADC bridge reads that solved voltage. Doing it any other way —
+    // e.g. a direct setAdcVoltage() here — gets clobbered to the undriven-net
+    // 0 V by connectAnalogInputsToMcu on the very next re-solve (the bug that
+    // made analogRead() always return 0). The button (SW) stays digital.
     const pinSW = getArduinoPinHelper("SEL") ?? getArduinoPinHelper("SW");
     const el = element as any;
+
+    if (pinSW !== null) avrSimulator.setPinState(pinSW, true); // HIGH = not pressed
 
     // wokwi-analog-joystick exposes xValue/yValue as DIRECTION (-1 / 0 / +1),
     // not pot-style 0..1023.  See @wokwi/elements analog-joystick-element.js:
     // arrow-zone clicks call mousedown(e, dx, dy) where dx,dy ∈ {-1, 0, +1};
-    // mouseup snaps back to 0.  Map that tri-state to an ADC voltage:
-    //   -1 → 0 V   |   0 → VCC/2 (center)   |   +1 → VCC
-    // AVR uses 5 V; everything else (RP2040, ESP32, ESP32-S3, …) runs at 3.3 V.
-    const isAvr =
-      !(avrSimulator instanceof RP2040Simulator) &&
-      typeof (avrSimulator as any).setAdcVoltage !== "function";
-    const vcc = isAvr ? 5.0 : 3.3;
-    const centerV = vcc / 2;
-    const dirToVolts = (d: number) =>
-      ((Math.max(-1, Math.min(1, d)) + 1) / 2) * vcc;
-
-    // Initialize to center position and button not pressed
-    if (pinX !== null) setAdcVoltage(avrSimulator, pinX, centerV);
-    if (pinY !== null) setAdcVoltage(avrSimulator, pinY, centerV);
-    if (pinSW !== null) avrSimulator.setPinState(pinSW, true); // HIGH = not pressed
-
+    // mouseup snaps back to 0.  Map that tri-state onto the -512..512 axis
+    // range the panel slider uses (-1 → -512, 0 → center, +1 → +512).
+    const dirToAxis = (d: number) => Math.max(-1, Math.min(1, Number(d) || 0)) * 512;
     const onMove = () => {
-      if (pinX !== null) {
-        setAdcVoltage(avrSimulator, pinX, dirToVolts(Number(el.xValue ?? 0)));
-      }
-      if (pinY !== null) {
-        setAdcVoltage(avrSimulator, pinY, dirToVolts(Number(el.yValue ?? 0)));
-      }
+      emitPropertyChange(componentId, "xAxis", dirToAxis(el.xValue));
+      emitPropertyChange(componentId, "yAxis", dirToAxis(el.yValue));
     };
 
     const onPress = () => {
@@ -280,21 +264,14 @@ PartSimulationRegistry.register("analog-joystick", {
     element.addEventListener("button-press", onPress);
     element.addEventListener("button-release", onRelease);
 
-    // SensorControlPanel: xAxis/yAxis -512..512 → voltage 0–VCC (center = VCC/2)
+    // SensorControlPanel: xAxis/yAxis -512..512 → mirrored to properties, which
+    // the SPICE mapper turns into a voltage 0–VCC (center = VCC/2).
     registerSensorUpdate(componentId, (values) => {
-      if ("xAxis" in values && pinX !== null) {
-        setAdcVoltage(
-          avrSimulator,
-          pinX,
-          (((values.xAxis as number) + 512) / 1023) * vcc,
-        );
+      if ("xAxis" in values) {
+        emitPropertyChange(componentId, "xAxis", Number(values.xAxis));
       }
-      if ("yAxis" in values && pinY !== null) {
-        setAdcVoltage(
-          avrSimulator,
-          pinY,
-          (((values.yAxis as number) + 512) / 1023) * vcc,
-        );
+      if ("yAxis" in values) {
+        emitPropertyChange(componentId, "yAxis", Number(values.yAxis));
       }
     });
 

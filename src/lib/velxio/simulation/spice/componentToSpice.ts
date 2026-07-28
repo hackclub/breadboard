@@ -962,6 +962,51 @@ const MAPPERS: Record<string, Mapper> = {
     };
   },
 
+  // Analog joystick — two potentiometer axes on VERT (X) and HORZ (Y), each
+  // an analog output 0..VCC (center = VCC/2), plus a momentary button on SW
+  // (driven digitally in ComplexParts, not here). Same reasoning as the water
+  // level sensor: drive the axes through SPICE so `analogRead` survives every
+  // re-solve. The panel slider mirrors xAxis/yAxis (-512..512) into properties;
+  // if left untouched they default to 0 → the resting centre voltage. Direct
+  // ADC injection instead reads back as 0 the moment connectAnalogInputsToMcu
+  // re-runs against the undriven net. Referenced to the module's GND, or SPICE
+  // ground if that pin is unwired.
+  "analog-joystick": (comp, netLookup, ctx) => {
+    const gnd = netLookup("GND") ?? netLookup("-") ?? "0";
+    const axisVolts = (raw: unknown) => {
+      const a = Math.max(-512, Math.min(512, Number(raw ?? 0)));
+      return ((a + 512) / 1023) * ctx.vcc;
+    };
+    const vx = netLookup("VERT") ?? netLookup("VRX") ?? netLookup("XOUT");
+    const vy = netLookup("HORZ") ?? netLookup("VRY") ?? netLookup("YOUT");
+    const cards: string[] = [];
+    if (vx) cards.push(`V_${comp.id}_x ${vx} ${gnd} DC ${axisVolts(comp.properties.xAxis)}`);
+    if (vy) cards.push(`V_${comp.id}_y ${vy} ${gnd} DC ${axisVolts(comp.properties.yAxis)}`);
+    if (cards.length === 0) return null;
+    return { cards, modelsUsed: new Set() };
+  },
+
+  // Microphone / sound sensor module — analog envelope on AO (0..VCC scaled by
+  // sound level 0..1023), plus a digital comparator on DO (driven in index.ts).
+  // AO is driven through SPICE for the same reason as the joystick above:
+  // direct setAdcVoltage() gets clobbered to 0 V on the next re-solve. The
+  // panel slider mirrors `soundLevel` into properties; it defaults to the
+  // mid-scale resting level (512) when untouched.
+  "microphone-module": (comp, netLookup, ctx) => {
+    const out = netLookup("AO") ?? netLookup("AOUT");
+    if (!out) return null;
+    const gnd = netLookup("GND") ?? netLookup("-") ?? "0";
+    const level = Math.max(
+      0,
+      Math.min(1023, Number(comp.properties.soundLevel ?? 512)),
+    );
+    const volts = (level / 1023) * ctx.vcc;
+    return {
+      cards: [`V_${comp.id} ${out} ${gnd} DC ${volts}`],
+      modelsUsed: new Set(),
+    };
+  },
+
   // Ammeter — inserts a 0 V source so ngspice reports the branch current.
   // Terminals are 'A+' and 'A-'. The probe is modelled as:
   //    A+ ──[V_<id>_sense=0]── mid ──[shunt=1mΩ]── A-

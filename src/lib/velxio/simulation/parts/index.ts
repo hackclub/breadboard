@@ -19,7 +19,7 @@ import {
   registerSensorUpdate,
   unregisterSensorUpdate,
 } from "@/lib/velxio/simulation/SensorUpdateRegistry";
-import { setAdcVoltage } from "@/lib/velxio/simulation/parts/partUtils";
+import { emitPropertyChange } from "@/lib/velxio/simulation/parts/partUtils";
 
 const aliasPart = (alias: string, target: string) => {
   const logic = PartSimulationRegistry.get(target);
@@ -64,13 +64,18 @@ PartSimulationRegistry.register("ir-transmitter", {
 
 PartSimulationRegistry.register("microphone-module", {
   attachEvents: (element, simulator, getArduinoPinHelper, componentId) => {
-    const pinAOUT = getArduinoPinHelper("AO") ?? getArduinoPinHelper("AOUT");
+    // The analog envelope on AO is driven through SPICE — see the
+    // `microphone-module` mapper in componentToSpice.ts. The panel slider
+    // mirrors soundLevel into the component's properties, the netlist rebuilds
+    // with a voltage source on the AO net, and the ADC bridge reads that solved
+    // voltage. A direct setAdcVoltage() here would be clobbered to 0 V by
+    // connectAnalogInputsToMcu on the next re-solve (the bug that made
+    // analogRead() always return 0). The DO comparator output stays digital.
     const pinDOUT = getArduinoPinHelper("DO") ?? getArduinoPinHelper("DOUT");
     const setLevel = (level: number) => {
       const soundLevel = Math.max(0, Math.min(1023, Number(level) || 0));
       (element as any).soundLevel = soundLevel;
-      if (pinAOUT !== null)
-        setAdcVoltage(simulator, pinAOUT, (soundLevel / 1023) * 5);
+      emitPropertyChange(componentId, "soundLevel", soundLevel);
       if (pinDOUT !== null) simulator.setPinState(pinDOUT, soundLevel > 512);
     };
 

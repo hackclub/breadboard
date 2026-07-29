@@ -702,11 +702,16 @@ function scheduleDHT22Response(
   const us = (microseconds: number) =>
     Math.round((microseconds * clockHz) / 1_000_000);
 
-  // The Adafruit library writes DATA HIGH, waits 40 µs, then changes the pin
-  // to INPUT_PULLUP before it starts measuring. Starting the response from
-  // that write (as we used to) consumed most of the first LOW pulse while the
-  // MCU still drove the line. Begin after the handoff, like real hardware.
-  const RESPONSE_START = us(70);
+  // How long after the MCU releases DATA before the sensor starts answering,
+  // 20 µs per the datasheet. This has to land before the driver takes its
+  // first sample, which Adafruit's does pullTime after the release (55 µs
+  // unless the sketch passes something else to dht.begin()). Answer any later
+  // and expectPulse(LOW) finds the line still idle-HIGH. It returns 0 straight
+  // away rather than waiting for the line to fall, so the 80 µs preamble gets
+  // read as data bit 0, every bit shifts by one pulse pair, the last bit never
+  // arrives and the checksum fails on every read. This sat at us(70) from
+  // 079bb49 until that turned out to break DHT11 and DHT22 on every AVR board.
+  const RESPONSE_START = us(20);
   const LOW80 = us(80); // 80 µs LOW preamble
   const HIGH80 = us(80); // 80 µs HIGH preamble
   const LOW50 = us(50); // 50 µs LOW marker before each bit

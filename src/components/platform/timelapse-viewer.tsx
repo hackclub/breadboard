@@ -121,7 +121,12 @@ type GapEvent = {
 
 const SPEEDS = [0.5, 1, 2, 4, 8];
 const SCREEN_FRAME_INTERVAL_SECONDS = 30;
-const OFFSITE_INACTIVE_AFTER_SECONDS = 120;
+// How long a stretch with no saved evidence has to run before it counts as dead
+// air. Short quiet spells are just reading, thinking, or wiring up a part
+// without changing the circuit, so nothing under this is treated as inactive
+// anywhere in this view: not the scrubber's dead-air bands, not the capture-gap
+// list, not the idle marker on off-platform screen frames.
+const DEAD_AIR_MIN_SECONDS = 10 * 60;
 
 function frameKey(frame: TimelineFrame) {
   return `${frame.kind}:${frame.id}`;
@@ -457,8 +462,7 @@ export function TimelapseViewer({
                 !frame.paused &&
                 !frame.pixelChanged &&
                 lastChangedAt !== null &&
-                capturedAt - lastChangedAt >=
-                  OFFSITE_INACTIVE_AFTER_SECONDS * 1000,
+                capturedAt - lastChangedAt >= DEAD_AIR_MIN_SECONDS * 1000,
             };
           },
         );
@@ -708,7 +712,7 @@ export function TimelapseViewer({
       .filter((value) => value > 0)
       .sort((left, right) => left - right);
     const median = spacings[Math.floor(spacings.length / 2)] ?? 0;
-    return Math.max(300, median * 5);
+    return Math.max(DEAD_AIR_MIN_SECONDS, median * 5);
   }, [allFrames]);
 
   const sessionsById = useMemo(
@@ -874,6 +878,39 @@ export function TimelapseViewer({
       })),
     [auditTape, visibleFrames],
   );
+
+  // Counted time with nothing behind it. Measured on the tape rather than in
+  // wall-clock, because the tape only contains stretches the tracker was
+  // reporting: time between sessions takes no tape space, so a closure can't
+  // masquerade as dead air, and what's left is the counted minutes a reviewer
+  // could actually deduct. Evidence means any saved frame of either kind, so
+  // the source filter doesn't invent dead air by hiding screen captures.
+  const deadAir = useMemo(() => {
+    const marks = allFrames
+      .map((frame) => dateToTapeSeconds(auditTape, frame.capturedAt))
+      .sort((left, right) => left - right);
+    const bands: { startSec: number; endSec: number; seconds: number }[] = [];
+    let cursor = 0;
+    for (const mark of marks) {
+      if (mark - cursor > DEAD_AIR_MIN_SECONDS) {
+        bands.push({ startSec: cursor, endSec: mark, seconds: mark - cursor });
+      }
+      cursor = Math.max(cursor, mark);
+    }
+    // The run after the last capture, which is where a session that recorded
+    // nothing at all shows up.
+    if (auditTape.totalSeconds - cursor > DEAD_AIR_MIN_SECONDS) {
+      bands.push({
+        startSec: cursor,
+        endSec: auditTape.totalSeconds,
+        seconds: auditTape.totalSeconds - cursor,
+      });
+    }
+    return {
+      bands,
+      totalSeconds: bands.reduce((sum, band) => sum + band.seconds, 0),
+    };
+  }, [allFrames, auditTape]);
 
   const seekToTapeSecond = useCallback(
     (sec: number) => {
@@ -1399,6 +1436,19 @@ export function TimelapseViewer({
                   className="h-full bg-[#BD0F32]"
                   style={{ width: `${(currentTapeSec / tapeTotal) * 100}%` }}
                 />
+                {/* Dead air sits under everything else so the reviewer's own
+                    red/amber marks still read on top of it. */}
+                {deadAir.bands.map((band) => (
+                  <span
+                    key={`dead-${band.startSec}`}
+                    className="absolute top-0 h-full bg-violet-400/40 outline outline-violet-300/50"
+                    title={`Dead air: ${fmtDuration(Math.round(band.seconds))} of counted time with no captures, from ${fmtTapeStamp(band.startSec)} to ${fmtTapeStamp(band.endSec)}`}
+                    style={{
+                      left: `${(band.startSec / tapeTotal) * 100}%`,
+                      width: `${Math.max((band.seconds / tapeTotal) * 100, 0.4)}%`,
+                    }}
+                  />
+                ))}
                 {sessions.slice(1).map((session) => {
                   const startTape = dateToTapeSeconds(
                     auditTape,
@@ -1518,6 +1568,16 @@ export function TimelapseViewer({
               <span className="text-violet-300">
                 Violet: open, no changes / idle
               </span>
+              {deadAir.bands.length > 0 ? (
+                <span
+                  className="text-violet-200"
+                  title={`Stretches longer than ${fmtDuration(DEAD_AIR_MIN_SECONDS)} where no editor snapshot or screen frame was saved, so this counted time has nothing behind it. Shorter quiet spells are not treated as inactive.`}
+                >
+                  Violet band: dead air (
+                  {fmtDuration(Math.round(deadAir.totalSeconds))} in{" "}
+                  {deadAir.bands.length})
+                </span>
+              ) : null}
               {journals.length > 0 ? (
                 <span className="text-sky-300">Sky: journal entry</span>
               ) : null}

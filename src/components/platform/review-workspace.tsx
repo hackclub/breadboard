@@ -44,6 +44,11 @@ import {
   type UnifiedJustificationParts,
   composeUnifiedJustification,
 } from "@/lib/ysws/justificationTemplate";
+import {
+  type NameIssue,
+  checkUnifiedName,
+  worstNameIssue,
+} from "@/lib/ysws/nameCheck";
 
 type ReviewProject = {
   id: number;
@@ -373,6 +378,9 @@ export function ReviewWorkspace({
     text: string;
     overridden: boolean;
     parts: UnifiedJustificationParts | null;
+    // The name and email this ship would be filed under in the Unified DB,
+    // resolved by the push itself so the preview can't drift from it.
+    identity: { firstName: string; lastName: string; email: string };
   } | null;
   journals: Journal[];
   timelapses: Timelapse[];
@@ -561,6 +569,16 @@ export function ReviewWorkspace({
     ? `https://hackclub.enterprise.slack.com/team/${initial.userSlackId}`
     : null;
   const approvedBread = breadForHours(approvedHours || 0, breadPerHour);
+
+  // The Unified DB name policy puts the name on the reviewer: a fake, empty or
+  // initial-only name has to be sorted out with the maker before the ship is
+  // submitted. So flag it here rather than letting it slip through to the
+  // shared database.
+  const pushedIdentity = unifiedRecord?.identity ?? null;
+  const nameIssues = pushedIdentity
+    ? checkUnifiedName(pushedIdentity.firstName, pushedIdentity.lastName)
+    : [];
+  const nameLevel = worstNameIssue(nameIssues);
 
   const statusTone =
     initial.status === "pending_review"
@@ -908,11 +926,20 @@ export function ReviewWorkspace({
                 label="Hours measured"
                 value={`${initial.hoursSpent}h`}
               />
-              <DetailRow label="Email" value={initial.email} />
+              <DetailRow
+                label="Email"
+                value={pushedIdentity?.email || initial.email}
+              />
               <DetailRow label="Birthday" value={initial.birthday} />
+              {/* The resolved identity, so this row can't disagree with the
+                  Unified record card further down. */}
               <DetailRow
                 label="Name"
-                value={`${initial.firstName} ${initial.lastName}`.trim()}
+                value={
+                  pushedIdentity
+                    ? `${pushedIdentity.firstName} ${pushedIdentity.lastName}`.trim()
+                    : `${initial.firstName} ${initial.lastName}`.trim()
+                }
               />
               <DetailRow label="Country" value={initial.country} />
               <DetailRow label="Address" value={initial.addressLine1} />
@@ -974,6 +1001,28 @@ export function ReviewWorkspace({
 
             {verdict === "approve" ? (
               <div className="grid gap-4">
+                {nameLevel ? (
+                  <a
+                    href="#unified-record"
+                    className={`flex items-start gap-2 rounded-xl border-2 px-3 py-2.5 text-xs font-black no-underline ${
+                      nameLevel === "error"
+                        ? "border-[#BD0F32] bg-red-50 text-[#BD0F32]"
+                        : "border-amber-400 bg-amber-50 text-amber-900"
+                    }`}
+                  >
+                    <HiExclamationTriangle className="size-4 shrink-0" />
+                    <span>
+                      This ship submits as “
+                      {`${pushedIdentity?.firstName ?? ""} ${
+                        pushedIdentity?.lastName ?? ""
+                      }`.trim() || "no name"}
+                      ”.{" "}
+                      {nameLevel === "error"
+                        ? "That name doesn't meet the Unified DB policy. Check the record below before approving."
+                        : "Give it a second look in the record below."}
+                    </span>
+                  </a>
+                ) : null}
                 {isUpdateShip ? (
                   <div className="rounded-xl border-2 border-violet-400 bg-violet-50 p-3">
                     <p className="text-sm font-black text-violet-900">
@@ -1325,7 +1374,10 @@ export function ReviewWorkspace({
         </div>
 
         {unifiedRecord ? (
-          <div className="border-t border-black/10 p-5">
+          <div
+            id="unified-record"
+            className="scroll-mt-4 border-t border-black/10 p-5"
+          >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-lg font-black text-black">
                 Unified YSWS record
@@ -1343,11 +1395,23 @@ export function ReviewWorkspace({
               </span>
             </div>
             <p className="mt-1 text-xs font-semibold text-black/45">
-              The exact justification submitted with this ship to the Unified
-              YSWS DB. It updates live as you change the approved hours and
-              justification above, plus the tracked time, recordings, journals,
-              and dates from the database; edit and save to freeze a custom
-              version for this project instead.
+              Exactly what this ship submits to the Unified YSWS DB. Confirm the
+              name and email below. The justification updates live as you change
+              the approved hours and justification above, plus the tracked time,
+              recordings, journals, and dates from the database; edit and save
+              to freeze a custom version for this project instead.
+            </p>
+            <div className="mt-3">
+              <UnifiedIdentity
+                identity={unifiedRecord.identity}
+                accountName={initial.userName}
+                accountEmail={initial.userEmail}
+                slackProfile={slackProfile}
+                issues={nameIssues}
+              />
+            </div>
+            <p className="mt-4 text-[10px] font-black uppercase tracking-[0.12em] text-black/40">
+              Override hours spent justification
             </p>
             <textarea
               value={templateText}
@@ -1357,7 +1421,7 @@ export function ReviewWorkspace({
                 setTemplateStatus(null);
               }}
               rows={16}
-              className="mt-3 w-full rounded-xl border border-black bg-[#fffaf1] px-4 py-3 font-mono text-xs leading-relaxed"
+              className="mt-1 w-full rounded-xl border border-black bg-[#fffaf1] px-4 py-3 font-mono text-xs leading-relaxed"
             />
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
@@ -1860,6 +1924,104 @@ export function ReviewWorkspace({
         </section>
       </aside>
     </article>
+  );
+}
+
+// The identity half of the Unified YSWS record: the exact name and email the
+// push sends, the Breadboard/Slack account they came from so a preferred name
+// can be sanity-checked against what the person is actually called, and
+// whatever looked off about the name.
+function UnifiedIdentity({
+  identity,
+  accountName,
+  accountEmail,
+  slackProfile,
+  issues,
+}: {
+  identity: { firstName: string; lastName: string; email: string };
+  accountName: string;
+  accountEmail: string;
+  slackProfile: string | null;
+  issues: NameIssue[];
+}) {
+  const level = worstNameIssue(issues);
+  const fullName = `${identity.firstName} ${identity.lastName}`.trim();
+  const tone =
+    level === "error"
+      ? "border-[#BD0F32] bg-red-50"
+      : level === "warn"
+        ? "border-amber-400 bg-amber-50"
+        : "border-black bg-[#fffaf1]";
+  return (
+    <div
+      className={`rounded-xl border-2 p-4 shadow-[2px_2px_0_#000] ${tone}`}
+      data-testid="unified-identity"
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-[10px] font-black uppercase tracking-[0.12em] text-black/40">
+          Submitting as
+        </p>
+        {level ? (
+          <span
+            className={`inline-flex items-center gap-1 text-[11px] font-black uppercase ${
+              level === "error" ? "text-[#BD0F32]" : "text-amber-800"
+            }`}
+          >
+            <HiExclamationTriangle className="size-3.5" />
+            {level === "error" ? "Name needs fixing" : "Check the name"}
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-1 text-xl font-black text-black break-words">
+        {fullName || "— no name on this ship —"}
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <DetailRow label="First name" value={identity.firstName} />
+        <DetailRow label="Last name" value={identity.lastName} />
+        <DetailRow label="Email" value={identity.email} />
+      </div>
+      <div className="mt-3 border-t border-black/10 pt-2 text-xs font-semibold text-black/55">
+        Account: <span className="font-black text-black">{accountName}</span>
+        {accountEmail && accountEmail !== identity.email ? (
+          <>
+            {" · "}
+            {accountEmail}
+          </>
+        ) : null}
+        {slackProfile ? (
+          <>
+            {" · "}
+            <a
+              href={slackProfile}
+              target="_blank"
+              rel="noreferrer"
+              className="font-black text-[#BD0F32] underline"
+            >
+              Slack profile
+            </a>
+          </>
+        ) : null}
+      </div>
+      {issues.length ? (
+        <ul className="mt-2 space-y-1">
+          {issues.map((issue) => (
+            <li
+              key={`${issue.field}-${issue.message}`}
+              className={`text-xs font-bold ${
+                issue.level === "error" ? "text-[#BD0F32]" : "text-amber-800"
+              }`}
+            >
+              • {issue.message}
+            </li>
+          ))}
+          <li className="pt-1 text-xs font-semibold text-black/55">
+            Preferred names are fine, but not fake, blank or initial-only ones.
+            Ask the maker for a usable name before this ship goes to the Unified
+            DB.
+          </li>
+        </ul>
+      ) : null}
+    </div>
   );
 }
 

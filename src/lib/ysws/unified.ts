@@ -160,21 +160,37 @@ async function loadShipRow(submissionId: number): Promise<ShipRow | null> {
 }
 
 /**
+ * Who this ship goes into the Unified DB as, resolved exactly the way the push
+ * resolves it: the per-ship value when the submission carries one, otherwise
+ * the project's. The review page shows this so a reviewer confirms the name
+ * before it lands in the shared database, per the Unified DB name policy.
+ */
+export function unifiedIdentity({ submission: s, project: p }: ShipRow) {
+  return {
+    firstName: (s.firstName || p.firstName).trim(),
+    lastName: (s.lastName || p.lastName).trim(),
+    email: (s.email || p.email).trim(),
+  };
+}
+
+/**
  * The justification text this ship would carry into the Unified DB right now:
  * the project's manual override verbatim when one is set, otherwise the
  * template composed live from database facts. The push uses this, and the
- * admin review page uses it to display and edit the record.
+ * admin review page uses it to display and edit the record, alongside the
+ * identity fields the same push would send.
  */
 export async function unifiedJustificationForSubmission(submissionId: number) {
   const row = await loadShipRow(submissionId);
   if (!row) return null;
+  const identity = unifiedIdentity(row);
   // Per-ship override first; the project-level column is the legacy
   // project-wide freeze, read only so old data keeps working.
   const override =
     row.submission.unifiedJustificationOverride.trim() ||
     row.project.unifiedJustificationOverride.trim();
   if (override)
-    return { text: override, overridden: true, parts: null } as const;
+    return { text: override, overridden: true, parts: null, identity } as const;
   const parts = await buildUnifiedJustificationParts(
     row,
     await resolvePublicOrigin(),
@@ -189,6 +205,7 @@ export async function unifiedJustificationForSubmission(submissionId: number) {
     ),
     overridden: false,
     parts,
+    identity,
   };
 }
 
@@ -445,9 +462,12 @@ export async function pushShipToUnified(submissionId: number) {
         p.demoVideoUrl ||
         playableFallback,
     );
-    set("First Name", s.firstName || p.firstName);
-    set("Last Name", s.lastName || p.lastName);
-    set("Email", s.email || p.email);
+    // Same resolution the review page previews (unifiedIdentity), so what a
+    // reviewer confirmed on screen is what lands in the Unified DB.
+    const identity = unifiedIdentity(row);
+    set("First Name", identity.firstName);
+    set("Last Name", identity.lastName);
+    set("Email", identity.email);
     set("Description", p.description || p.title);
     set("GitHub Username", githubUsernameFromCodeUrl(codeUrl));
     set("Address (Line 1)", s.addressLine1 || p.addressLine1);

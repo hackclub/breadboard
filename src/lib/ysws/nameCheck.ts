@@ -9,6 +9,11 @@
  * initial is not a last name. When a name fails, the reviewer has to reach out
  * for a usable name before the ship gets submitted.
  *
+ * The last-initial part was asked about and confirmed the same day ("John F."
+ * is not acceptable, they must give an actual last name), so an abbreviated
+ * last name is an error here, whether it's a bare initial or a shortened form
+ * with a trailing period.
+ *
  * These checks are a reviewer aid, not a gate: they surface the name next to
  * the review with the suspicious bits called out, and the reviewer decides.
  * Nothing here blocks an approval, because "looks fake" is a judgment call and
@@ -151,6 +156,27 @@ function checkField(raw: string, field: "first" | "last"): NameIssue[] {
     });
   }
 
+  // A shortened last name, not just the bare initial: "Fern.", "J.F.". One
+  // token ending in a period is an abbreviation; several tokens are left alone,
+  // because there the period usually belongs to a suffix ("Smith Jr.") or a
+  // prefix ("St. John").
+  const singleToken = value.split(/\s+/).length === 1;
+  if (
+    isLatin &&
+    clean.length > 1 && // a bare initial is already reported above
+    singleToken &&
+    value.endsWith(".")
+  ) {
+    issues.push({
+      level: field === "last" ? "error" : "warn",
+      field,
+      message:
+        field === "last"
+          ? `Last name is abbreviated ("${value}"). The policy needs their actual last name, spelled out.`
+          : `First name looks abbreviated ("${value}").`,
+    });
+  }
+
   // "aaa", "zzzz" — a run of one repeated letter is never a name.
   if (isLatin && clean.length > 1 && new Set(clean).size === 1) {
     issues.push({
@@ -217,6 +243,20 @@ export function checkUnifiedName(
         level: "warn",
         field: "name",
         message: `First and last name are identical ("${firstName.trim()}").`,
+      });
+    }
+    // "J." "F." — a one-letter first name can be real, but not when the last
+    // name is an initial too. Together they're just initials.
+    if (
+      first.length === 1 &&
+      last.length === 1 &&
+      /^[a-z]$/.test(first) &&
+      /^[a-z]$/.test(last)
+    ) {
+      issues.push({
+        level: "error",
+        field: "name",
+        message: `"${firstName.trim()} ${lastName.trim()}" is initials, not a name.`,
       });
     }
   }

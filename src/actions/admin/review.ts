@@ -1048,6 +1048,99 @@ export async function saveUnifiedTemplateOverride(
   revalidateReviewViews(submission.projectId);
 }
 
+function normalizeNamePart(value: string, label: string) {
+  // Collapse runs of whitespace so "John   F" can't smuggle in padding, and
+  // keep the field to something a name-shaped Airtable column accepts.
+  const text = value.trim().replace(/\s+/g, " ");
+  if (!text) throw new Error(`${label} cannot be empty`);
+  if (text.length > 100) throw new Error(`${label} is too long`);
+  return text;
+}
+
+/**
+ * Correct the name a ship files under in the Unified YSWS DB.
+ *
+ * The Unified DB name policy makes the reviewer responsible for the name, so
+ * when a maker submits "John F." and then gives their real last name over
+ * Slack, the fix has to land somewhere. This writes the ship's own snapshot
+ * (what the push reads first), the project's fields (the fallback, what a later
+ * demo ship copies from, and the shipping label), and the kit order's label
+ * when a kit exists and hasn't gone out yet. An already-submitted Airtable row
+ * is refreshed so the Unified DB sees the corrected name.
+ *
+ * The old value is kept in the audit log rather than in a column: this is a
+ * correction, not a second name to carry around.
+ */
+export async function overrideUnifiedName(
+  submissionId: number,
+  firstName: string,
+  lastName: string,
+) {
+  await requireAdminSession();
+  const sid = Math.floor(Number(submissionId));
+  if (!Number.isFinite(sid) || sid <= 0)
+    throw new Error("Submission ID must be a positive number");
+  const first = normalizeNamePart(firstName, "First name");
+  const last = normalizeNamePart(lastName, "Last name");
+  const [submission] = await db
+    .select()
+    .from(projectSubmissions)
+    .where(eq(projectSubmissions.id, sid))
+    .limit(1);
+  if (!submission) throw new Error("Submission not found");
+  const [project] = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.id, submission.projectId))
+    .limit(1);
+  if (!project) throw new Error("Project not found");
+
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx
+      .update(projectSubmissions)
+      .set({ firstName: first, lastName: last, updatedAt: now })
+      .where(eq(projectSubmissions.id, sid));
+    await tx
+      .update(projects)
+      .set({ firstName: first, lastName: last, updatedAt: now })
+      .where(eq(projects.id, project.id));
+    // A kit that's already been packed or sent keeps the label it shipped with;
+    // rewriting it would misrepresent what's on the box.
+    if (project.kitOrderId) {
+      await tx
+        .update(orders)
+        .set({
+          shippingName: `${first} ${last}`.trim(),
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(orders.id, project.kitOrderId),
+            eq(orders.status, "pending"),
+            eq(orders.source, "project_kit"),
+          ),
+        );
+    }
+  });
+
+  await audit("admin.review.override_name", "project", String(project.id), {
+    submissionId: sid,
+    from: `${submission.firstName} ${submission.lastName}`.trim(),
+    to: `${first} ${last}`,
+  });
+  // Same rule as the justification edits: only a ship that actually paid has an
+  // Airtable row, so editing an unpaid one must not create a premature record.
+  if (
+    submission.breadAmount > 0 &&
+    ["approved", "fulfilled"].includes(submission.status)
+  ) {
+    await pushShipToUnified(sid);
+  }
+  revalidateReviewViews(project.id);
+  return { firstName: first, lastName: last };
+}
+
 // Reviewer flag for the "approved · simulator sketchy" review-queue bucket.
 // It only sets a label on the project; it moves no bread, ships no kit, and
 // changes no review state. Reviewers toggle it from the approve panel so

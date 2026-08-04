@@ -29,6 +29,7 @@ import {
   rejectProject,
   requestChanges,
   saveReviewCommentDraft,
+  overrideUnifiedName,
   saveUnifiedTemplateOverride,
   setProjectShipType,
   setProjectSimulatorSketchy,
@@ -1403,6 +1404,7 @@ export function ReviewWorkspace({
             </p>
             <div className="mt-3">
               <UnifiedIdentity
+                submissionId={initial.submissionId}
                 identity={unifiedRecord.identity}
                 accountName={initial.userName}
                 accountEmail={initial.userEmail}
@@ -1932,26 +1934,60 @@ export function ReviewWorkspace({
 // can be sanity-checked against what the person is actually called, and
 // whatever looked off about the name.
 function UnifiedIdentity({
+  submissionId,
   identity,
   accountName,
   accountEmail,
   slackProfile,
   issues,
 }: {
+  submissionId: number;
   identity: { firstName: string; lastName: string; email: string };
   accountName: string;
   accountEmail: string;
   slackProfile: string | null;
   issues: NameIssue[];
 }) {
+  const router = useRouter();
+  const [editing, setEditing] = useState(false);
+  const [draftFirst, setDraftFirst] = useState(identity.firstName);
+  const [draftLast, setDraftLast] = useState(identity.lastName);
+  const [namePending, startNameTransition] = useTransition();
+  const [nameError, setNameError] = useState<string | null>(null);
   const level = worstNameIssue(issues);
   const fullName = `${identity.firstName} ${identity.lastName}`.trim();
+  // What the checker would say about the replacement, so the reviewer sees
+  // whether the name they were given actually clears the policy before saving.
+  const draftIssues = checkUnifiedName(draftFirst, draftLast);
+  const draftLevel = worstNameIssue(draftIssues);
   const tone =
     level === "error"
       ? "border-[#BD0F32] bg-red-50"
       : level === "warn"
         ? "border-amber-400 bg-amber-50"
         : "border-black bg-[#fffaf1]";
+
+  function openEditor() {
+    setDraftFirst(identity.firstName);
+    setDraftLast(identity.lastName);
+    setNameError(null);
+    setEditing(true);
+  }
+
+  function saveName() {
+    setNameError(null);
+    startNameTransition(async () => {
+      try {
+        await overrideUnifiedName(submissionId, draftFirst, draftLast);
+        setEditing(false);
+        // The page recomputes the identity and its flags server-side.
+        router.refresh();
+      } catch (error) {
+        setNameError(error instanceof Error ? error.message : "Save failed");
+      }
+    });
+  }
+
   return (
     <div
       className={`rounded-xl border-2 p-4 shadow-[2px_2px_0_#000] ${tone}`}
@@ -1975,11 +2011,86 @@ function UnifiedIdentity({
       <p className="mt-1 text-xl font-black text-black break-words">
         {fullName || "— no name on this ship —"}
       </p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-3">
-        <DetailRow label="First name" value={identity.firstName} />
-        <DetailRow label="Last name" value={identity.lastName} />
-        <DetailRow label="Email" value={identity.email} />
-      </div>
+      {editing ? (
+        <div className="mt-3 grid gap-2">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="grid gap-1">
+              <span className="text-[10px] font-black uppercase tracking-[0.12em] text-black/40">
+                First name
+              </span>
+              <input
+                value={draftFirst}
+                onChange={(e) => setDraftFirst(e.target.value)}
+                className="rounded-lg border border-black bg-white px-3 py-2 text-sm font-bold"
+              />
+            </label>
+            <label className="grid gap-1">
+              <span className="text-[10px] font-black uppercase tracking-[0.12em] text-black/40">
+                Last name
+              </span>
+              <input
+                value={draftLast}
+                onChange={(e) => setDraftLast(e.target.value)}
+                className="rounded-lg border border-black bg-white px-3 py-2 text-sm font-bold"
+              />
+            </label>
+          </div>
+          {draftIssues.length ? (
+            <p
+              className={`text-[11px] font-bold ${
+                draftLevel === "error" ? "text-[#BD0F32]" : "text-amber-800"
+              }`}
+            >
+              {draftIssues[0].message}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={namePending || !draftFirst.trim() || !draftLast.trim()}
+              onClick={saveName}
+              className="rounded-lg bg-black px-3 py-2 text-xs font-black text-white hover:bg-[#BD0F32] disabled:opacity-50"
+            >
+              {namePending ? "Saving…" : "Save name"}
+            </button>
+            <button
+              type="button"
+              disabled={namePending}
+              onClick={() => setEditing(false)}
+              className="rounded-lg border border-black bg-white px-3 py-2 text-xs font-black text-black hover:bg-black hover:text-white disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            {nameError ? (
+              <span className="text-[11px] font-black text-red-700">
+                {nameError}
+              </span>
+            ) : null}
+          </div>
+          <p className="text-[11px] font-semibold text-black/50">
+            Saves to this ship, the project&apos;s shipping details and the kit
+            label if the kit hasn&apos;t gone out, and refreshes the Airtable
+            row when this ship was already submitted. The old name stays in the
+            audit log.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <DetailRow label="First name" value={identity.firstName} />
+            <DetailRow label="Last name" value={identity.lastName} />
+            <DetailRow label="Email" value={identity.email} />
+          </div>
+          <button
+            type="button"
+            onClick={openEditor}
+            className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-black bg-white px-3 py-1.5 text-xs font-black text-black hover:bg-black hover:text-white"
+          >
+            <HiPencilSquare className="size-3.5" />
+            Override name
+          </button>
+        </>
+      )}
       <div className="mt-3 border-t border-black/10 pt-2 text-xs font-semibold text-black/55">
         Account: <span className="font-black text-black">{accountName}</span>
         {accountEmail && accountEmail !== identity.email ? (

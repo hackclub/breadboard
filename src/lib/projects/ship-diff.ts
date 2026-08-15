@@ -15,12 +15,24 @@
  * called from a script as easily as from a route.
  */
 
-import { addedLineCount } from "@/lib/editor/codeAuthenticity";
 import componentsMetadata from "../../../public/components-metadata.json";
 
 const PART_NAME_BY_METADATA_ID = new Map<string, string>(
   componentsMetadata.components.map((c) => [c.id, c.name]),
 );
+
+/** Enough to read what was written without turning the card into an IDE. */
+const MAX_DIFF_LINES_PER_FILE = 60;
+/** Above this many LCS cells the table costs more than the answer is worth. */
+const MAX_LCS_CELLS = 4_000_000;
+/** Long minified or generated lines get clipped rather than breaking layout. */
+const MAX_LINE_CHARS = 400;
+
+/** One changed line of firmware, so the card can show the code itself. */
+export type ShipDiffLine = {
+  kind: "add" | "del";
+  text: string;
+};
 
 export type ShipFileChange = {
   /** "groupId/filename", the same key code-authenticity uses. */
@@ -28,6 +40,12 @@ export type ShipFileChange = {
   status: "added" | "modified" | "removed";
   addedLines: number;
   removedLines: number;
+  /** The changed lines themselves, capped at MAX_DIFF_LINES_PER_FILE. A count
+      alone doesn't tell a reviewer whether 40 new lines are real work or a
+      pasted library. */
+  lines: ShipDiffLine[];
+  /** True when `lines` was cut short; the counts above are still complete. */
+  linesTruncated: boolean;
 };
 
 export type ShipPartChange = {
@@ -225,6 +243,91 @@ function fileStatus(
   return "modified";
 }
 
+/** Blank lines are churn, not authored code — the same rule the line counts use. */
+function codeLines(content: string): string[] {
+  return content.split("\n").filter((line) => line.trim().length > 0);
+}
+
+function clip(line: string) {
+  const trimmed = line.trimEnd();
+  return trimmed.length > MAX_LINE_CHARS
+    ? `${trimmed.slice(0, MAX_LINE_CHARS)}…`
+    : trimmed;
+}
+
+/**
+ * The changed lines between two versions of a file, in file order, via an LCS
+ * backtrack. Returns both the lines and the totals, because the card shows a
+ * capped sample but the counts must stay honest.
+ *
+ * Files here are student sketches, so the quadratic table is fine; past
+ * MAX_LCS_CELLS it degrades to a set-membership diff, which loses ordering
+ * against moved lines but still names the right ones.
+ */
+export function diffFileLines(prev: string, next: string) {
+  const a = codeLines(prev);
+  const b = codeLines(next);
+
+  if (a.length * b.length > MAX_LCS_CELLS) {
+    const prevSet = new Set(a.map((l) => l.trim()));
+    const nextSet = new Set(b.map((l) => l.trim()));
+    const added = b.filter((l) => !prevSet.has(l.trim()));
+    const removed = a.filter((l) => !nextSet.has(l.trim()));
+    return {
+      added: added.length,
+      removed: removed.length,
+      lines: [
+        ...removed.map((text) => ({ kind: "del" as const, text: clip(text) })),
+        ...added.map((text) => ({ kind: "add" as const, text: clip(text) })),
+      ],
+    };
+  }
+
+  // lcs[i][j] = length of the longest common subsequence of a[i:] and b[j:].
+  // Built from the end so the walk below runs forward and yields file order.
+  const lcs: number[][] = Array.from({ length: a.length + 1 }, () =>
+    new Array<number>(b.length + 1).fill(0),
+  );
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      lcs[i][j] =
+        a[i] === b[j]
+          ? lcs[i + 1][j + 1] + 1
+          : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+
+  const lines: ShipDiffLine[] = [];
+  let added = 0;
+  let removed = 0;
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i++;
+      j++;
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+      lines.push({ kind: "del", text: clip(a[i]) });
+      removed++;
+      i++;
+    } else {
+      lines.push({ kind: "add", text: clip(b[j]) });
+      added++;
+      j++;
+    }
+  }
+  for (; i < a.length; i++) {
+    lines.push({ kind: "del", text: clip(a[i]) });
+    removed++;
+  }
+  for (; j < b.length; j++) {
+    lines.push({ kind: "add", text: clip(b[j]) });
+    added++;
+  }
+
+  return { added, removed, lines };
+}
+
 function plural(count: number, word: string) {
   return `${count} ${word}${count === 1 ? "" : "s"}`;
 }
@@ -248,15 +351,14 @@ export function diffShipPayloads(
     const from = before.files.get(path);
     const to = after.files.get(path);
     if (from === to) continue;
-    // Non-blank lines only, so reflow and spacing churn stay out of the count
-    // (addedLineCount's rule, reused in both directions).
-    const added = addedLineCount(from ?? "", to ?? "");
-    const removed = addedLineCount(to ?? "", from ?? "");
+    const { added, removed, lines } = diffFileLines(from ?? "", to ?? "");
     files.push({
       path,
       status: fileStatus(from, to),
       addedLines: added,
       removedLines: removed,
+      lines: lines.slice(0, MAX_DIFF_LINES_PER_FILE),
+      linesTruncated: lines.length > MAX_DIFF_LINES_PER_FILE,
     });
     addedLines += added;
     removedLines += removed;

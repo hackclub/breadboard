@@ -26,6 +26,15 @@ import {
 export type RepoDiffFile = {
   filename: string;
   status: string;
+  /** Optional because summaries cached before these fields existed are read
+      back from jsonb as-is; the card defaults them rather than re-fetching. */
+  additions?: number;
+  deletions?: number;
+  /** GitHub's unified diff for this file, trimmed to MAX_PATCH_LINES. Empty
+      when GitHub omits it, which it does for binary files and very large
+      diffs. Optional because rows cached before this existed lack it. */
+  patch?: string;
+  patchTruncated?: boolean;
 };
 
 export type RepoDiffSummary = {
@@ -34,6 +43,10 @@ export type RepoDiffSummary = {
   modified: number;
   removed: number;
   renamed: number;
+  /** Total lines across every changed file. Optional: rows cached before this
+      field existed won't have it. */
+  addedLines?: number;
+  removedLines?: number;
   files: RepoDiffFile[];
   /** "sha" = anchored on the exact commit the last ship was reviewed at.
       "date" = approximated from when the last ship was submitted. */
@@ -47,6 +60,10 @@ export type RepoDiffSummary = {
 // Keep the whole card bounded: a student who commits node_modules once
 // shouldn't push a 3000-entry array into a jsonb column and the review page.
 const MAX_FILES = 300;
+// Per-file patch cap, and a whole-summary ceiling so one ship can't write a
+// multi-megabyte row. Files past the budget keep their counts, lose their patch.
+const MAX_PATCH_LINES = 80;
+const MAX_TOTAL_PATCH_CHARS = 200_000;
 const REQUEST_TIMEOUT_MS = 8000;
 
 /**
@@ -170,8 +187,25 @@ async function commitShaAt(
 
 type CompareResponse = {
   total_commits?: number;
-  files?: Array<{ filename?: string; status?: string }>;
+  files?: Array<{
+    filename?: string;
+    status?: string;
+    additions?: number;
+    deletions?: number;
+    patch?: string;
+  }>;
 };
+
+function trimPatch(patch: string) {
+  const lines = patch.split("\n");
+  if (lines.length <= MAX_PATCH_LINES) {
+    return { patch, patchTruncated: false };
+  }
+  return {
+    patch: lines.slice(0, MAX_PATCH_LINES).join("\n"),
+    patchTruncated: true,
+  };
+}
 
 async function compare(
   owner: string,
@@ -183,15 +217,33 @@ async function compare(
     `repos/${owner}/${repo}/compare/${base}...${head}`,
   );
   if (!data) return null;
-  return {
-    totalCommits: data.total_commits ?? 0,
-    files: (data.files ?? [])
-      .filter((file) => typeof file.filename === "string")
-      .map((file) => ({
-        filename: file.filename as string,
-        status: file.status ?? "modified",
-      })),
-  };
+
+  // Patches are kept in order and stop once the whole-summary budget is spent,
+  // so the files a reviewer reads first are the ones that keep their diff.
+  let patchBudget = MAX_TOTAL_PATCH_CHARS;
+  const files: RepoDiffFile[] = [];
+  for (const file of data.files ?? []) {
+    if (typeof file.filename !== "string") continue;
+    const entry: RepoDiffFile = {
+      filename: file.filename,
+      status: file.status ?? "modified",
+      additions: file.additions ?? 0,
+      deletions: file.deletions ?? 0,
+    };
+    if (typeof file.patch === "string" && patchBudget > 0) {
+      const { patch, patchTruncated } = trimPatch(file.patch);
+      if (patch.length <= patchBudget) {
+        entry.patch = patch;
+        entry.patchTruncated = patchTruncated;
+        patchBudget -= patch.length;
+      } else {
+        patchBudget = 0;
+      }
+    }
+    files.push(entry);
+  }
+
+  return { totalCommits: data.total_commits ?? 0, files };
 }
 
 export type RepoDiffAnchor = {
@@ -269,6 +321,9 @@ export async function repoDiffSinceLastShip(
   const count = (...statuses: string[]) =>
     result.files.filter((file) => statuses.includes(file.status)).length;
 
+  const sum = (pick: (file: RepoDiffFile) => number) =>
+    result.files.reduce((total, file) => total + pick(file), 0);
+
   return {
     summary: {
       commits: result.totalCommits,
@@ -276,6 +331,8 @@ export async function repoDiffSinceLastShip(
       modified: count("modified", "changed"),
       removed: count("removed"),
       renamed: count("renamed"),
+      addedLines: sum((file) => file.additions ?? 0),
+      removedLines: sum((file) => file.deletions ?? 0),
       files: result.files.slice(0, MAX_FILES),
       basis: result.basis,
       since: anchor.since?.toISOString() ?? null,

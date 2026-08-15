@@ -1,7 +1,7 @@
 // @ts-nocheck — no @types/bun in the tree, so tsc can't resolve "bun:test".
 // Same escape hatch the velxio simulation tests use.
 import { describe, expect, test } from "bun:test";
-import { diffShipPayloads } from "@/lib/projects/ship-diff";
+import { diffFileLines, diffShipPayloads } from "@/lib/projects/ship-diff";
 
 type PayloadParts = {
   components?: unknown[];
@@ -116,15 +116,31 @@ describe("diffShipPayloads", () => {
       },
     });
     const diff = diffShipPayloads(before, after);
-    expect(diff.files).toEqual([
-      {
-        path: "g1/sketch.ino",
-        status: "modified",
-        addedLines: 2,
-        removedLines: 1,
-      },
-    ]);
+    expect(diff.files[0]).toMatchObject({
+      path: "g1/sketch.ino",
+      status: "modified",
+      addedLines: 2,
+      removedLines: 1,
+      linesTruncated: false,
+    });
     expect(diff.summary).toContain("1 file touched (+2/−1 lines)");
+  });
+
+  test("carries the actual changed code, not just a count", () => {
+    const before = payload({
+      fileGroups: { g1: [{ name: "sketch.ino", content: "setup();" }] },
+    });
+    const after = payload({
+      fileGroups: {
+        g1: [
+          { name: "sketch.ino", content: "setup();\ndigitalWrite(9, HIGH);" },
+        ],
+      },
+    });
+    const [file] = diffShipPayloads(before, after).files;
+    expect(file.lines).toEqual([
+      { kind: "add", text: "digitalWrite(9, HIGH);" },
+    ]);
   });
 
   test("flags a whole file appearing or disappearing", () => {
@@ -138,6 +154,27 @@ describe("diffShipPayloads", () => {
       diffShipPayloads(before, after).files.map((f) => [f.path, f.status]),
     );
     expect(statuses).toEqual({ "g1/old.h": "removed", "g1/new.h": "added" });
+  });
+
+  test("keeps changed lines in file order around untouched code", () => {
+    const { added, removed, lines } = diffFileLines(
+      "int a;\nint b;\nint c;",
+      "int a;\nint b2;\nint c;\nint d;",
+    );
+    expect({ added, removed }).toEqual({ added: 2, removed: 1 });
+    // "int a;" and "int c;" are common, so they never appear as changes, and
+    // the edit to line two is reported where it happens rather than at the end.
+    expect(lines).toEqual([
+      { kind: "del", text: "int b;" },
+      { kind: "add", text: "int b2;" },
+      { kind: "add", text: "int d;" },
+    ]);
+  });
+
+  test("reports a pure insertion without touching the surrounding lines", () => {
+    const { added, removed, lines } = diffFileLines("a;\nc;", "a;\nb;\nc;");
+    expect({ added, removed }).toEqual({ added: 1, removed: 0 });
+    expect(lines).toEqual([{ kind: "add", text: "b;" }]);
   });
 
   test("treats an unparseable or missing payload as empty", () => {

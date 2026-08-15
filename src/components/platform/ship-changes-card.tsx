@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   HiArrowTopRightOnSquare,
   HiChevronDown,
   HiChevronRight,
   HiExclamationTriangle,
-  HiFolder,
   HiSparkles,
 } from "react-icons/hi2";
 import { FaGithub } from "react-icons/fa6";
@@ -41,64 +40,6 @@ function formatDate(iso: string | null) {
   });
 }
 
-// --- repo file tree ---------------------------------------------------------
-
-type DiffNode = {
-  name: string;
-  path: string;
-  type: "tree" | "blob";
-  status?: string;
-  children: DiffNode[];
-};
-
-function buildDiffTree(files: RepoDiffFile[]): DiffNode[] {
-  const root: DiffNode[] = [];
-  const dirs = new Map<string, DiffNode>();
-
-  const ensureDir = (path: string): DiffNode | null => {
-    if (!path) return null;
-    const existing = dirs.get(path);
-    if (existing) return existing;
-    const parts = path.split("/");
-    const node: DiffNode = {
-      name: parts[parts.length - 1],
-      path,
-      type: "tree",
-      children: [],
-    };
-    dirs.set(path, node);
-    const parent = ensureDir(parts.slice(0, -1).join("/"));
-    (parent ? parent.children : root).push(node);
-    return node;
-  };
-
-  for (const file of files) {
-    const parts = file.filename.split("/");
-    const node: DiffNode = {
-      name: parts[parts.length - 1],
-      path: file.filename,
-      type: "blob",
-      status: file.status,
-      children: [],
-    };
-    const parent = ensureDir(parts.slice(0, -1).join("/"));
-    (parent ? parent.children : root).push(node);
-  }
-
-  const sort = (nodes: DiffNode[]) => {
-    nodes.sort((a, b) =>
-      a.type !== b.type
-        ? a.type === "tree"
-          ? -1
-          : 1
-        : a.name.localeCompare(b.name),
-    );
-    for (const node of nodes) if (node.children.length) sort(node.children);
-  };
-  sort(root);
-  return root;
-}
-
 async function sha256Hex(input: string) {
   const buffer = await crypto.subtle.digest(
     "SHA-256",
@@ -109,71 +50,105 @@ async function sha256Hex(input: string) {
     .join("");
 }
 
-function DiffTreeNode({
-  node,
-  depth,
-  hrefFor,
-}: {
-  node: DiffNode;
-  depth: number;
-  hrefFor: (path: string) => string;
-}) {
-  const [open, setOpen] = useState(true);
+// --- rendering actual code ---------------------------------------------------
 
-  if (node.type === "blob") {
-    const style = statusStyle(node.status ?? "");
-    return (
-      <a
-        href={hrefFor(node.path)}
-        target="_blank"
-        rel="noreferrer"
-        className="flex items-center gap-1.5 rounded py-0.5 hover:bg-black/[0.04]"
-        style={{ paddingLeft: `${depth * 14 + 16}px` }}
-      >
-        <span
-          className={`w-3 shrink-0 text-center font-black ${style.className}`}
-        >
-          {style.sign}
-        </span>
-        <span
-          className={`truncate font-semibold ${
-            node.status === "removed"
-              ? "text-black/40 line-through"
-              : "text-black/75"
-          }`}
-        >
-          {node.name}
-        </span>
-      </a>
-    );
-  }
+function patchLineClass(line: string) {
+  if (line.startsWith("@@")) return "text-blue-700 bg-blue-50";
+  if (line.startsWith("+")) return "text-emerald-800 bg-emerald-50";
+  if (line.startsWith("-")) return "text-[#BD0F32] bg-red-50";
+  return "text-black/55";
+}
+
+/** GitHub's unified diff, rendered as-is with the usual colouring. */
+function PatchView({
+  patch,
+  truncated,
+}: {
+  patch: string;
+  truncated?: boolean;
+}) {
+  return (
+    <div className="mt-1 overflow-x-auto rounded-[8px] border border-black/10 bg-white">
+      <pre className="min-w-full text-[10px] leading-[1.5]">
+        {patch.split("\n").map((line, index) => (
+          <div
+            // Patch lines repeat freely, so position is the only stable key.
+            key={`${index}-${line.slice(0, 24)}`}
+            className={`whitespace-pre px-2 ${patchLineClass(line)}`}
+          >
+            {line || " "}
+          </div>
+        ))}
+      </pre>
+      {truncated ? (
+        <p className="border-t border-black/10 px-2 py-1 text-[10px] font-bold text-black/40">
+          Diff truncated. Open it on GitHub for the rest.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** One changed file in the repo, expandable to the code that changed in it. */
+function RepoFileRow({ file, href }: { file: RepoDiffFile; href: string }) {
+  const [open, setOpen] = useState(false);
+  const style = statusStyle(file.status);
 
   return (
-    <div>
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-1 rounded py-0.5 text-left hover:bg-black/[0.04]"
-        style={{ paddingLeft: `${depth * 14 + 4}px` }}
-      >
-        {open ? (
-          <HiChevronDown className="size-3 shrink-0 text-black/40" />
-        ) : (
-          <HiChevronRight className="size-3 shrink-0 text-black/40" />
-        )}
-        <HiFolder className="size-3.5 shrink-0 text-black/40" />
-        <span className="truncate font-bold text-black/70">{node.name}</span>
-      </button>
-      {open
-        ? node.children.map((child) => (
-            <DiffTreeNode
-              key={child.path}
-              node={child}
-              depth={depth + 1}
-              hrefFor={hrefFor}
-            />
-          ))
-        : null}
+    <div className="border-t border-black/8 first:border-t-0">
+      <div className="flex items-center gap-1.5 py-1">
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          disabled={!file.patch}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left disabled:cursor-default"
+        >
+          {file.patch ? (
+            open ? (
+              <HiChevronDown className="size-3 shrink-0 text-black/40" />
+            ) : (
+              <HiChevronRight className="size-3 shrink-0 text-black/40" />
+            )
+          ) : (
+            <span className="size-3 shrink-0" />
+          )}
+          <span
+            className={`w-3 shrink-0 text-center font-black ${style.className}`}
+          >
+            {style.sign}
+          </span>
+          <span
+            className={`truncate font-semibold ${
+              file.status === "removed"
+                ? "text-black/40 line-through"
+                : "text-black/75"
+            }`}
+            title={file.filename}
+          >
+            {file.filename}
+          </span>
+        </button>
+        <span className="shrink-0 font-black tabular-nums">
+          {(file.additions ?? 0) > 0 ? (
+            <span className="text-emerald-700">+{file.additions}</span>
+          ) : null}{" "}
+          {(file.deletions ?? 0) > 0 ? (
+            <span className="text-[#BD0F32]">−{file.deletions}</span>
+          ) : null}
+        </span>
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className="shrink-0 text-black/35 hover:text-[#BD0F32]"
+          title="Open this file's diff on GitHub"
+        >
+          <HiArrowTopRightOnSquare className="size-3" />
+        </a>
+      </div>
+      {open && file.patch ? (
+        <PatchView patch={file.patch} truncated={file.patchTruncated} />
+      ) : null}
     </div>
   );
 }
@@ -205,8 +180,6 @@ function RepoDiff({
       cancelled = true;
     };
   }, [files]);
-
-  const tree = useMemo(() => buildDiffTree(files), [files]);
 
   const base = repoUrl.replace(/\/+$/, "").replace(/\/tree\/[^/]+$/, "");
   const compareUrl = `${base}/compare/${repo.baseSha}...${repo.headSha}`;
@@ -255,6 +228,15 @@ function RepoDiff({
                 <span className="text-blue-700">→{repo.renamed}</span>
               ) : null}
             </span>
+            {repo.addedLines !== undefined ? (
+              <span className="tabular-nums">
+                <span className="text-emerald-700">+{repo.addedLines}</span>{" "}
+                <span className="text-[#BD0F32]">
+                  −{repo.removedLines ?? 0}
+                </span>{" "}
+                <span className="text-black/40">lines</span>
+              </span>
+            ) : null}
             {repo.basis === "date" ? (
               <span
                 className="text-black/35 italic"
@@ -271,7 +253,8 @@ function RepoDiff({
             className="mt-1.5 flex w-full items-center justify-between gap-2 text-xs font-black text-black"
           >
             <span>
-              {files.length} changed file{files.length === 1 ? "" : "s"}
+              {files.length} changed file{files.length === 1 ? "" : "s"} —
+              expand one to read the code
             </span>
             {open ? (
               <HiChevronDown className="size-4" />
@@ -280,13 +263,12 @@ function RepoDiff({
             )}
           </button>
           {open ? (
-            <div className="mt-1.5 max-h-72 overflow-auto rounded-[10px] bg-black/[0.03] p-1.5 text-[11px]">
-              {tree.map((node) => (
-                <DiffTreeNode
-                  key={node.path}
-                  node={node}
-                  depth={0}
-                  hrefFor={hrefFor}
+            <div className="mt-1.5 max-h-96 overflow-auto rounded-[10px] bg-black/[0.03] px-2 py-1 text-[11px]">
+              {files.map((file) => (
+                <RepoFileRow
+                  key={file.filename}
+                  file={file}
+                  href={hrefFor(file.filename)}
                 />
               ))}
             </div>
@@ -324,25 +306,83 @@ function ChangeRow({
   );
 }
 
+/** One changed firmware file, expandable to the lines the maker wrote. */
+function EditorFileRow({
+  file,
+}: {
+  file: NonNullable<ShipChanges["editor"]>["files"][number];
+}) {
+  const [open, setOpen] = useState(false);
+  const style = statusStyle(file.status);
+  const lines = file.lines ?? [];
+
+  return (
+    <div className="border-t border-black/8 first:border-t-0">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        disabled={!lines.length}
+        className="flex w-full items-center gap-1.5 py-1 text-left disabled:cursor-default"
+      >
+        {lines.length ? (
+          open ? (
+            <HiChevronDown className="size-3 shrink-0 text-black/40" />
+          ) : (
+            <HiChevronRight className="size-3 shrink-0 text-black/40" />
+          )
+        ) : (
+          <span className="size-3 shrink-0" />
+        )}
+        <span
+          className={`w-3 shrink-0 text-center font-black ${style.className}`}
+        >
+          {style.sign}
+        </span>
+        <span className="min-w-0 flex-1 truncate font-semibold text-black/75">
+          {file.path}
+        </span>
+        <span className="shrink-0 font-black tabular-nums">
+          <span className="text-emerald-700">+{file.addedLines}</span>{" "}
+          <span className="text-[#BD0F32]">−{file.removedLines}</span>
+        </span>
+      </button>
+      {open && lines.length ? (
+        <div className="mt-1 overflow-x-auto rounded-[8px] border border-black/10 bg-white">
+          <pre className="min-w-full text-[10px] leading-[1.5]">
+            {lines.map((line, index) => (
+              <div
+                // Identical lines recur, so position is the only stable key.
+                key={`${index}-${line.text.slice(0, 24)}`}
+                className={`whitespace-pre px-2 ${
+                  line.kind === "add"
+                    ? "bg-emerald-50 text-emerald-800"
+                    : "bg-red-50 text-[#BD0F32]"
+                }`}
+              >
+                {line.kind === "add" ? "+" : "−"} {line.text || " "}
+              </div>
+            ))}
+          </pre>
+          {file.linesTruncated ? (
+            <p className="border-t border-black/10 px-2 py-1 text-[10px] font-bold text-black/40">
+              Trimmed. Open the frozen editor version for the whole file.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function EditorDiff({
   editor,
 }: {
   editor: NonNullable<ShipChanges["editor"]>;
 }) {
   const [openFiles, setOpenFiles] = useState(false);
-  const circuit = [
-    ...editor.parts.map((part) => ({
-      key: `part-${part.id}`,
-      status: part.status,
-      label: part.label,
-      detail: part.detail,
-    })),
-    ...editor.wires.map((wire) => ({
-      key: `wire-${wire.id}`,
-      status: wire.status,
-      label: "Wire",
-      detail: `${wire.from} → ${wire.to}`,
-    })),
+  // Components and boards are what a reviewer pictures when they ask "what did
+  // they add"; wiring is a separate question, so it gets its own list.
+  const components = [
     ...editor.boards.added.map((kind, index) => ({
       key: `board-add-${kind}-${index}`,
       status: "added",
@@ -355,7 +395,19 @@ function EditorDiff({
       label: `Board: ${kind}`,
       detail: "",
     })),
+    ...editor.parts.map((part) => ({
+      key: `part-${part.id}`,
+      status: part.status,
+      label: part.label,
+      detail: part.detail,
+    })),
   ];
+  const wires = editor.wires.map((wire) => ({
+    key: `wire-${wire.id}`,
+    status: wire.status,
+    label: `${wire.from} → ${wire.to}`,
+    detail: "",
+  }));
 
   return (
     <div className="mt-3">
@@ -366,17 +418,35 @@ function EditorDiff({
         {editor.summary}
       </p>
 
-      {circuit.length ? (
-        <ul className="mt-2 max-h-56 space-y-1 overflow-auto rounded-[10px] bg-black/[0.03] p-2 text-[11px]">
-          {circuit.map((row) => (
-            <ChangeRow
-              key={row.key}
-              status={row.status}
-              label={row.label}
-              detail={row.detail}
-            />
-          ))}
-        </ul>
+      {components.length ? (
+        <div className="mt-2">
+          <p className="text-[10px] font-black tracking-[0.08em] text-black/35 uppercase">
+            Components
+          </p>
+          <ul className="mt-1 max-h-56 space-y-1 overflow-auto rounded-[10px] bg-black/[0.03] p-2 text-[11px]">
+            {components.map((row) => (
+              <ChangeRow
+                key={row.key}
+                status={row.status}
+                label={row.label}
+                detail={row.detail}
+              />
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {wires.length ? (
+        <div className="mt-2">
+          <p className="text-[10px] font-black tracking-[0.08em] text-black/35 uppercase">
+            Wiring
+          </p>
+          <ul className="mt-1 max-h-40 space-y-1 overflow-auto rounded-[10px] bg-black/[0.03] p-2 text-[11px]">
+            {wires.map((row) => (
+              <ChangeRow key={row.key} status={row.status} label={row.label} />
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       {editor.movedParts > 0 ? (
@@ -405,31 +475,11 @@ function EditorDiff({
             )}
           </button>
           {openFiles ? (
-            <ul className="mt-1.5 space-y-1 rounded-[10px] bg-black/[0.03] p-2 text-[11px]">
-              {editor.files.map((file) => {
-                const style = statusStyle(file.status);
-                return (
-                  <li key={file.path} className="flex items-baseline gap-1.5">
-                    <span
-                      className={`w-3 shrink-0 text-center font-black ${style.className}`}
-                    >
-                      {style.sign}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate font-semibold text-black/75">
-                      {file.path}
-                    </span>
-                    <span className="shrink-0 font-black">
-                      <span className="text-emerald-700">
-                        +{file.addedLines}
-                      </span>{" "}
-                      <span className="text-[#BD0F32]">
-                        −{file.removedLines}
-                      </span>
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+            <div className="mt-1.5 max-h-96 overflow-auto rounded-[10px] bg-black/[0.03] px-2 py-1 text-[11px]">
+              {editor.files.map((file) => (
+                <EditorFileRow key={file.path} file={file} />
+              ))}
+            </div>
           ) : null}
         </div>
       ) : null}

@@ -967,12 +967,18 @@ export class RP2040Simulator {
       // waiting CPU spins indefinitely.
       const jump = clock?.nanosToNextAlarm ?? CYCLE_NANOS;
       if (jump > 0 && clock) clock.tick(jump);
-      this.totalCycles += Math.ceil((jump || CYCLE_NANOS) / CYCLE_NANOS);
-      return Math.ceil((jump || CYCLE_NANOS) / CYCLE_NANOS);
+      const advanced = Math.ceil((jump || CYCLE_NANOS) / CYCLE_NANOS);
+      this.totalCycles += advanced;
+      if (this.scheduledPinChanges.length > 0) this.flushScheduledPinChanges();
+      return advanced;
     }
     const cycles: number = core.executeInstruction();
     if (clock) clock.tick(cycles * CYCLE_NANOS);
     this.totalCycles += cycles;
+    // Deliver due pin changes here, not just in the rAF loop, so stepCycles()
+    // — which advertises itself as the harness path — sees the same sensor
+    // waveforms a real run does. See the matching note in AVRSimulator.step().
+    if (this.scheduledPinChanges.length > 0) this.flushScheduledPinChanges();
     return cycles;
   }
 

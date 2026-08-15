@@ -71,14 +71,10 @@ function boot() {
   sim.setPinState(BUTTON_2_PIN, true);
 
   const now = () => sim.getCurrentCycles() / 16_000; // ms of simulated time
-  // Mirror the rAF loop in start(): instruction, tick, then deliver any pin
-  // changes a part scheduled. Bare step() skips the flush, which silently
-  // drops every scheduled sensor waveform and makes the DHT read fail.
+  // step() delivers due pin changes itself, so a scheduled sensor waveform
+  // reaches the CPU here exactly as it does under start()'s rAF loop.
   const runTo = (targetMs) => {
-    while (now() < targetMs) {
-      sim.step();
-      sim.flushScheduledPinChanges();
-    }
+    while (now() < targetMs) sim.step();
   };
   return { sim, ledHigh, dhtEdges, detach, now, runTo, serial: () => serial };
 }

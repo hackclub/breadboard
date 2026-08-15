@@ -1154,6 +1154,12 @@ export class AVRSimulator {
     if (!this.cpu) return;
     avrInstruction(this.cpu);
     this.cpu.tick();
+    // Deliver any pin change that has come due, exactly as the rAF loop in
+    // start() does. Without this a step()-driven harness silently drops every
+    // waveform a part scheduled, so sensors that answer over a bit protocol
+    // (DHT, HC-SR04) look dead and any timing bug in them is invisible to
+    // tests. That is how the DHT RESPONSE_START regression survived.
+    if (this.scheduledPinChanges.length > 0) this.flushScheduledPinChanges();
   }
 
   /**

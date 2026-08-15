@@ -21,9 +21,14 @@ import { AVRSimulator } from "@/lib/velxio/simulation/AVRSimulator";
 import { PartSimulationRegistry } from "@/lib/velxio/simulation/parts/PartSimulationRegistry";
 import { PinManager } from "@/lib/velxio/simulation/PinManager";
 import "@/lib/velxio/simulation/parts/SensorParts";
+import "@/lib/velxio/simulation/parts/ProtocolParts";
 
 const HEX = readFileSync(
   join(import.meta.dir, "fixtures/hcsr04-uno.hex"),
+  "utf8",
+);
+const DHT22_HEX = readFileSync(
+  join(import.meta.dir, "fixtures/dht22-uno.hex"),
   "utf8",
 );
 
@@ -69,4 +74,39 @@ test("HC-SR04 echo pulse reads back the distance it was set to", () => {
     }
     console.log(`set ${cm} cm -> read ${readings.slice(0, 3).join(", ")} cm`);
   }
+}, 120_000);
+
+/**
+ * DHT22 shares scheduleDHT22Response with DHT11, so it shared the
+ * RESPONSE_START regression, but it encodes its payload differently: tenths of
+ * a unit across two bytes rather than whole numbers with zero decimals. The
+ * DHT11 coverage in plantWateringButtons.test.ts therefore does not prove the
+ * 16-bit path decodes, which is what this pins down.
+ */
+test("DHT22 reads back the tenths it was set to", () => {
+  const sim = new AVRSimulator(new PinManager(), "uno");
+  let serial = "";
+  sim.onSerialData = (ch) => {
+    serial += ch;
+  };
+  sim.loadHex(DHT22_HEX);
+
+  const detach = PartSimulationRegistry.get("dht22").attachEvents(
+    { temperature: 21.7, humidity: 63.4 },
+    sim,
+    (p) => (p === "SDA" ? 2 : null),
+  );
+
+  try {
+    while (sim.getCurrentCycles() / 16_000 < 12_000) sim.step();
+  } finally {
+    detach?.();
+  }
+
+  expect(serial).not.toContain("Failed to read");
+  const m = [...serial.matchAll(/H=([\d.]+) T=([\d.]+)/g)];
+  expect(m.length).toBeGreaterThan(0);
+  console.log(`DHT22 set 63.4/21.7 -> read ${m[0][1]}/${m[0][2]}`);
+  expect(Number(m[0][1])).toBeCloseTo(63.4, 1);
+  expect(Number(m[0][2])).toBeCloseTo(21.7, 1);
 }, 120_000);

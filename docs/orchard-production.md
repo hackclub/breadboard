@@ -50,6 +50,14 @@ Set `DATABASE_URL`, auth secrets, OAuth credentials, S3 credentials, and
 GrowthBook values in Orchard as real values. Do not paste Compose expressions
 such as `${VAR:-fallback}` into Orchard env vars.
 
+Also set one GitHub read credential on `prod-nextjs`, either `GH_PROXY_API_KEY`
+(Hack Club's shared proxy, preferred) or `GITHUB_READ_TOKEN` (any token with
+public-repo read; a fine-grained PAT with no permissions selected is enough).
+The review workspace's "changes this ship" card uses it to compare a project's
+repo between consecutive ships. Neither one set means 60 requests an hour per
+IP, which a review queue exhausts quickly — the card then says so in the open
+rather than rendering an empty diff. See `src/lib/github/repo-diff.ts`.
+
 ## Required editor backend env
 
 ```text

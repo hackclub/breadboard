@@ -8,10 +8,8 @@ import {
   HiShoppingBag,
   HiUsers,
 } from "react-icons/hi2";
-import { AdminHoursChart } from "@/components/platform/admin-hours-chart";
 import { BreadAmount } from "@/components/shared/bread-amount";
 import { LoginButton } from "@/components/shared/auth-buttons";
-import { loadHoursStats } from "@/lib/admin/hours-stats";
 import { getSession, isAdminSession } from "@/lib/auth/guards";
 import { db } from "@/lib/db/db";
 import {
@@ -74,7 +72,6 @@ export default async function PlatformAdminPage() {
     allProducts,
     reviewProjects,
     recentOrders,
-    hoursStats,
   ] = await Promise.all([
     db
       .select({ id: orders.id })
@@ -111,7 +108,6 @@ export default async function PlatformAdminPage() {
       .from(orders)
       .orderBy(desc(orders.updatedAt))
       .limit(5),
-    loadHoursStats(),
   ]);
 
   const stats = [
@@ -170,8 +166,6 @@ export default async function PlatformAdminPage() {
           </p>
         </div>
       </section>
-
-      <AdminHoursChart stats={hoursStats} />
 
       <section className="grid gap-5 lg:grid-cols-[1fr_1fr]">
         <div className="rounded-[16px] border border-black bg-white p-4 shadow-[4px_4px_0_#000]">

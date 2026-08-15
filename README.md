@@ -46,7 +46,6 @@
     <li><a href="#about-the-project">About The Project</a></li>
     <li><a href="#why-i-made-it">Why I Made It</a></li>
     <li><a href="#built-with">Built With</a></li>
-    <li><a href="#how-it-works">How It Works</a></li>
     <li><a href="#quick-start">Quick Start</a></li>
     <li><a href="#contact">Contact</a></li>
   </ol>
@@ -56,13 +55,11 @@
 
 Breadboard is a Hack Club YSWS program (You Ship, We Ship). A teen designs a real breadboard circuit, and a component kit gets mailed to them for free so they can build it.
 
-Design it in the editor, submit the design, a reviewer approves it, we ship the kit, you build it, film a demo, submit again, and get paid in bread.
+Design it in the editor, submit the design, a reviewer approves it, we ship the kit, you build it, film a demo, submit again, and get bread to build more cool stuff!
 
 ## Why I Made It
 
 Designing a circuit on paper and hoping it works is a bad first experience for someone who has never touched a breadboard. When the design is a circuit that runs, you find your own wiring mistakes before a single part is mailed, and the kit arrives for something you've already seen work. That's why most of this repo is a simulator.
-
-The program also pays for the hours you put in, so the editor counts them while you work and builds a timelapse of the circuit as it grows. Nobody has to fill in a spreadsheet at the end.
 
 ## Built With
 
@@ -71,12 +68,6 @@ Next.js 16 on the App Router with React 19, TypeScript, Tailwind CSS 4, and Bun 
 The simulator runs in the browser: [avr8js](https://github.com/wokwi/avr8js) for AVR, [rp2040js](https://github.com/wokwi/rp2040js) for the Pico, [ngspice](https://ngspice.sourceforge.io/) compiled to WASM for analog, and [`@wokwi/elements`](https://github.com/wokwi/elements) plus local custom elements for the parts.
 
 `editor-backend/` is a separate FastAPI service that shells out to arduino-cli and ESP-IDF to compile, and to QEMU to emulate the boards that don't run in a browser. Both halves build to Docker images in GitHub Actions and deploy to Hack Club's Orchard. Screenshots and evidence frames go to S3-compatible storage.
-
-## How It Works
-
-The landing page, the docs, and the gallery are open to anyone. The docs are what you read before submitting: requirements, breadboard basics, an LED workshop, the firmware guide, and how to journal your build.
-
-Logging in with Hack Club gets you the editor and the shop. In the editor you wire a board on the canvas, write the code, compile it for real, and run it, with Arduino, Pico, ESP32, STM32, and Raspberry Pi boards supported and analog parts solved by SPICE. When the design works you submit it, and once it's approved the kit ships. You build it, film a demo, and submit that.
 
 ## Quick Start
 

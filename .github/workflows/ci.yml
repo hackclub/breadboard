@@ -37,6 +37,9 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run lint
       - run: bunx tsc --noEmit
+      # Simulator regression tests. Hermetic: every one boots a prebuilt hex
+      # fixture, so no editor-backend, no database, no network.
+      - run: bun test
       - run: bun run build
         env:
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci

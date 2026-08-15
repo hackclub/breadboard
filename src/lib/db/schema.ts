@@ -14,6 +14,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import type { RepoDiffSummary } from "@/lib/github/repo-diff";
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -848,6 +849,14 @@ export const projectSubmissions = pgTable(
     unifiedJustificationOverride: text("unified_justification_override")
       .notNull()
       .default(""),
+    // HEAD commit of the project's GitHub repo when this ship was submitted.
+    // The anchor the next ship's "changes since last ship" diff compares
+    // against (src/lib/github/repo-diff.ts). Empty when the capture failed or
+    // the ship pre-dates it; the diff then falls back to submittedAt.
+    repoCommitSha: text("repo_commit_sha").notNull().default(""),
+    // Cached GitHub compare summary against the previous ship, computed once
+    // on first view. Null means not computed yet or nothing to compare.
+    repoDiff: jsonb("repo_diff").$type<RepoDiffSummary>(),
     userComment: text("user_comment").notNull().default(""),
     // The reviewer's in-progress maker-facing comment, autosaved as they type
     // so a half-written message survives navigating away, a reload, or coming

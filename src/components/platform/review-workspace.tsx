@@ -36,6 +36,7 @@ import {
   updateUnifiedJustification,
 } from "@/actions/admin/review";
 import { CodeAuthenticityCard } from "@/components/platform/code-authenticity-card";
+import { ShipChangesCard } from "@/components/platform/ship-changes-card";
 import { BreadAmount, BreadIcon } from "@/components/shared/bread-amount";
 import { Markdown } from "@/components/shared/markdown";
 import { breadForHours, roundHours } from "@/lib/constants";
@@ -1656,6 +1657,9 @@ export function ReviewWorkspace({
             </div>
           </div>
         </section>
+
+        {/* Hides itself on a first ship — there's nothing to compare against. */}
+        <ShipChangesCard projectId={initial.id} />
 
         <CodeAuthenticityCard projectId={initial.id} />
 

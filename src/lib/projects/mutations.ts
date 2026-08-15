@@ -13,6 +13,7 @@ import {
   refreshGitHubReadme,
   resolvePublicOrigin,
 } from "@/lib/projects/githubReadme";
+import { captureShipRepoSha } from "@/lib/projects/ship-changes";
 import { roundHours } from "@/lib/constants";
 import { clean } from "@/lib/utils";
 import type {
@@ -235,7 +236,9 @@ export async function shipProjectForUser(
 ) {
   await assertProjectCanShip(owner.userId, projectId);
 
-  return await db.transaction(async (tx) => {
+  // Filled in by the transaction, acted on only once it has committed.
+  let shipped: { submissionId: number; codeUrl: string } | null = null;
+  const result = await db.transaction(async (tx) => {
     const latest = await tx
       .select({ submissionNumber: max(projectSubmissions.submissionNumber) })
       .from(projectSubmissions)
@@ -308,31 +311,35 @@ export async function shipProjectForUser(
       createdAt: now,
     });
 
-    await tx.insert(projectSubmissions).values({
-      projectId,
-      userId: owner.userId,
-      submissionNumber,
-      email: clean(data.email),
-      codeUrl,
-      screenshotUrl: clean(data.screenshotUrl),
-      addressLine1: clean(data.addressLine1),
-      addressLine2: clean(data.addressLine2),
-      city: clean(data.city),
-      region: clean(data.region),
-      country: clean(data.country),
-      postalCode: clean(data.postalCode),
-      birthday: clean(data.birthday),
-      firstName: clean(data.firstName),
-      lastName: clean(data.lastName),
-      hoursSpent,
-      trackedSeconds: activeSeconds,
-      editorVersionNumber,
-      breadOnly: data.breadOnly ?? false,
-      status: "pending_review",
-      submittedAt: now,
-      createdAt: now,
-      updatedAt: now,
-    });
+    const [submission] = await tx
+      .insert(projectSubmissions)
+      .values({
+        projectId,
+        userId: owner.userId,
+        submissionNumber,
+        email: clean(data.email),
+        codeUrl,
+        screenshotUrl: clean(data.screenshotUrl),
+        addressLine1: clean(data.addressLine1),
+        addressLine2: clean(data.addressLine2),
+        city: clean(data.city),
+        region: clean(data.region),
+        country: clean(data.country),
+        postalCode: clean(data.postalCode),
+        birthday: clean(data.birthday),
+        firstName: clean(data.firstName),
+        lastName: clean(data.lastName),
+        hoursSpent,
+        trackedSeconds: activeSeconds,
+        editorVersionNumber,
+        breadOnly: data.breadOnly ?? false,
+        status: "pending_review",
+        submittedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: projectSubmissions.id });
+    if (submission) shipped = { submissionId: submission.id, codeUrl };
 
     await tx
       .update(projects)
@@ -363,6 +370,17 @@ export async function shipProjectForUser(
 
     return { hoursSpent, totalHours, activeSeconds };
   });
+
+  // Pins the far end of the next ship's repo diff to this exact commit, so the
+  // reviewer sees what this ship changed rather than everything pushed since.
+  // A GitHub round-trip, so it runs after the response; captureShipRepoSha
+  // swallows its own failures and the diff falls back to submittedAt.
+  if (shipped) {
+    const { submissionId, codeUrl } = shipped;
+    after(() => captureShipRepoSha(submissionId, codeUrl));
+  }
+
+  return result;
 }
 
 export async function shipCustomProjectForUser(
@@ -372,7 +390,10 @@ export async function shipCustomProjectForUser(
 ) {
   await assertProjectCanShip(owner.userId, projectId);
 
-  return await db.transaction(async (tx) => {
+  // Off-platform builds have no frozen editor payload to diff, so the repo is
+  // the only record of what an update ship changed. Same capture as above.
+  let shipped: { submissionId: number; codeUrl: string } | null = null;
+  const result = await db.transaction(async (tx) => {
     const latest = await tx
       .select({ submissionNumber: max(projectSubmissions.submissionNumber) })
       .from(projectSubmissions)
@@ -408,31 +429,35 @@ export async function shipCustomProjectForUser(
     if (!codeUrl)
       throw new Error("Git URL is required for custom submissions.");
 
-    await tx.insert(projectSubmissions).values({
-      projectId,
-      userId: owner.userId,
-      submissionNumber,
-      email: clean(data.email),
-      codeUrl,
-      screenshotUrl: clean(data.screenshotUrl),
-      addressLine1: clean(data.addressLine1),
-      addressLine2: clean(data.addressLine2),
-      city: clean(data.city),
-      region: clean(data.region),
-      country: clean(data.country),
-      postalCode: clean(data.postalCode),
-      birthday: clean(data.birthday),
-      firstName: clean(data.firstName),
-      lastName: clean(data.lastName),
-      hoursSpent,
-      trackedSeconds: totalSeconds,
-      submissionSource: "manual",
-      breadOnly: data.breadOnly ?? false,
-      status: "pending_review",
-      submittedAt: now,
-      createdAt: now,
-      updatedAt: now,
-    });
+    const [submission] = await tx
+      .insert(projectSubmissions)
+      .values({
+        projectId,
+        userId: owner.userId,
+        submissionNumber,
+        email: clean(data.email),
+        codeUrl,
+        screenshotUrl: clean(data.screenshotUrl),
+        addressLine1: clean(data.addressLine1),
+        addressLine2: clean(data.addressLine2),
+        city: clean(data.city),
+        region: clean(data.region),
+        country: clean(data.country),
+        postalCode: clean(data.postalCode),
+        birthday: clean(data.birthday),
+        firstName: clean(data.firstName),
+        lastName: clean(data.lastName),
+        hoursSpent,
+        trackedSeconds: totalSeconds,
+        submissionSource: "manual",
+        breadOnly: data.breadOnly ?? false,
+        status: "pending_review",
+        submittedAt: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: projectSubmissions.id });
+    if (submission) shipped = { submissionId: submission.id, codeUrl };
 
     await tx
       .update(projects)
@@ -472,6 +497,13 @@ export async function shipCustomProjectForUser(
 
     return { hoursSpent, totalHours };
   });
+
+  if (shipped) {
+    const { submissionId, codeUrl } = shipped;
+    after(() => captureShipRepoSha(submissionId, codeUrl));
+  }
+
+  return result;
 }
 
 async function assertProjectOwned(userId: string, projectId: number) {

@@ -91,6 +91,71 @@ describe("diffShipPayloads", () => {
     expect(diffShipPayloads(before, after).empty).toBe(true);
   });
 
+  test("ignores a potentiometer knob the maker only turned", () => {
+    const pot = (value: number) => ({
+      id: "c3",
+      metadataId: "potentiometer",
+      x: 0,
+      y: 0,
+      properties: { min: 0, max: 1023, value, step: 1 },
+    });
+    const diff = diffShipPayloads(
+      payload({ components: [pot(864)] }),
+      payload({ components: [pot(11)] }),
+    );
+    expect(diff.parts).toEqual([]);
+    expect(diff.empty).toBe(true);
+  });
+
+  test("still reports a potentiometer the maker actually reconfigured", () => {
+    const pot = (max: number, value: number) => ({
+      id: "c3",
+      metadataId: "potentiometer",
+      x: 0,
+      y: 0,
+      properties: { min: 0, max, value },
+    });
+    const diff = diffShipPayloads(
+      payload({ components: [pot(1023, 864)] }),
+      payload({ components: [pot(4095, 11)] }),
+    );
+    expect(diff.parts).toHaveLength(1);
+    expect(diff.parts[0].detail).toBe("max: 1023 → 4095");
+  });
+
+  test("ignores the on/off state a running board leaves on a part", () => {
+    const lit = {
+      ...led,
+      properties: { state: true, value: true, color: "red" },
+    };
+    const dark = {
+      ...led,
+      properties: { state: false, value: false, color: "red" },
+    };
+    const diff = diffShipPayloads(
+      payload({ components: [lit] }),
+      payload({ components: [dark] }),
+    );
+    expect(diff.parts).toEqual([]);
+    expect(diff.empty).toBe(true);
+  });
+
+  test("keeps a resistor's value, which the maker owns", () => {
+    const res = (value: string) => ({
+      id: "c4",
+      metadataId: "resistor",
+      x: 0,
+      y: 0,
+      properties: { value },
+    });
+    const diff = diffShipPayloads(
+      payload({ components: [res("220")] }),
+      payload({ components: [res("1000")] }),
+    );
+    expect(diff.parts).toHaveLength(1);
+    expect(diff.parts[0].detail).toBe("value: 220 → 1000");
+  });
+
   test("describes wire changes by the pins they land on", () => {
     const wire = (endPin: string) => ({
       id: "w1",

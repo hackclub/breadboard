@@ -3,6 +3,7 @@
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { requireAdminSession } from "@/lib/auth/guards";
+import { assertMakerYswsEligible } from "@/lib/auth/hackclub";
 import { audit } from "@/lib/audit";
 import {
   BREAD_PER_HOUR,
@@ -349,6 +350,9 @@ export async function markReviewed(
     revalidateReviewViews(id);
     return;
   }
+  // Checked after the replay short-circuit: a ship that already went through
+  // stays a no-op even if the maker's eligibility changed since.
+  await assertMakerYswsEligible((await getProjectOrThrow(id)).userId);
   const submission = target.submission;
   const hours = normalizeHours(overrideHours, submission.hoursSpent);
   const reviewJustification = normalizeReviewText(
@@ -420,6 +424,9 @@ export async function approveProject(
     revalidateReviewViews(id);
     return;
   }
+  // Same hold the review queue applies, enforced here because a stale tab or a
+  // typed URL reaches the action without going through the queue.
+  await assertMakerYswsEligible(project.userId);
   const submission = target.submission;
   // Bread-only is a design-flow concept (build ships have their own bar and
   // pay gold), so ignore the flag for builds even if a stale client sends it.
@@ -1286,6 +1293,9 @@ export async function payOutProject(projectId: number) {
   const project = await getProjectOrThrow(id);
   if (project.status !== "reviewed")
     throw new Error("Only reviewed projects can be paid out");
+  // The legacy flow approves in markReviewed and pays here, and this is where
+  // the ship reaches the Unified YSWS DB, so the hold applies again.
+  await assertMakerYswsEligible(project.userId);
   const hours = normalizeHours(
     project.overrideHoursSpent ?? project.hoursSpent,
   );

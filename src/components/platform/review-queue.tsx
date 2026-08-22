@@ -26,11 +26,19 @@ type ReviewProject = {
   userEmail: string;
   versionCount: number;
   kitType: string;
+  // The maker has no ysws_eligible claim and no admin exemption. Their ships
+  // are kept out of every other bucket, because approving one pays bread and
+  // files the project in the Unified YSWS Database under an unverified
+  // identity. Its own filter rather than a silent drop, so the backlog stays
+  // visible to whoever has to chase the verification.
+  yswsHold?: boolean;
 };
 
-// A pseudo-status bucket: not a real submission status but a cross-cut of
-// approved projects a reviewer flagged as simulator sketchy.
+// Pseudo-status buckets: not real submission statuses but cross-cuts of them.
+// Sketchy is approved projects a reviewer flagged as simulator sketchy; hold is
+// anything waiting on the maker's YSWS eligibility, at any status.
 const SIMULATOR_SKETCHY_FILTER = "approved_simulator_sketchy";
+const YSWS_HOLD_FILTER = "ysws_hold";
 
 const filters = [
   "all",
@@ -39,10 +47,12 @@ const filters = [
   "approved",
   SIMULATOR_SKETCHY_FILTER,
   "rejected",
+  YSWS_HOLD_FILTER,
 ];
 
 function filterLabel(name: string) {
   if (name === SIMULATOR_SKETCHY_FILTER) return "approved · simulator sketchy";
+  if (name === YSWS_HOLD_FILTER) return "waiting on verification";
   return name.replace(/_/g, " ");
 }
 
@@ -90,6 +100,10 @@ export function ReviewQueue({ projects }: { projects: ReviewProject[] }) {
             ? item.submissionType !== "demo"
             : item.submissionType === "demo";
         if (!inTab) return false;
+        // Held ships answer to their own filter and appear in no other one,
+        // including "all".
+        if (item.yswsHold) return filter === YSWS_HOLD_FILTER;
+        if (filter === YSWS_HOLD_FILTER) return false;
         if (filter === "all") return true;
         // The sketchy bucket is a cross-cut of approved-or-later, flagged
         // projects, so it doesn't map to a single status value.
@@ -103,10 +117,19 @@ export function ReviewQueue({ projects }: { projects: ReviewProject[] }) {
       }),
     [projects, filter, tab],
   );
+  // Tab counts and the hold chip's count are per tab, and the reviewable count
+  // leaves out what's held so the header matches what the tab actually opens on.
+  const inTab = (p: ReviewProject, which: "design" | "demo") =>
+    which === "demo"
+      ? p.submissionType === "demo"
+      : p.submissionType !== "demo";
   const designCount = projects.filter(
-    (p) => p.submissionType !== "demo",
+    (p) => inTab(p, "design") && !p.yswsHold,
   ).length;
-  const demoCount = projects.filter((p) => p.submissionType === "demo").length;
+  const demoCount = projects.filter(
+    (p) => inTab(p, "demo") && !p.yswsHold,
+  ).length;
+  const holdCount = projects.filter((p) => inTab(p, tab) && p.yswsHold).length;
 
   return (
     <DataPanel
@@ -148,9 +171,21 @@ export function ReviewQueue({ projects }: { projects: ReviewProject[] }) {
               className="rounded-full shadow-none"
             >
               {filterLabel(name)}
+              {name === YSWS_HOLD_FILTER && holdCount > 0
+                ? ` (${holdCount})`
+                : ""}
             </Button>
           ))}
         </div>
+        {filter === YSWS_HOLD_FILTER ? (
+          <p className="mt-3 text-xs text-black/50">
+            These makers shipped before Hack Club Auth marked them YSWS
+            eligible, so they are held out of the other filters and cannot be
+            approved or paid yet. They clear on their own once verification goes
+            through, or an admin can mark someone YSWS exempt from their user
+            page.
+          </p>
+        ) : null}
       </div>
 
       <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
@@ -200,6 +235,11 @@ export function ReviewQueue({ projects }: { projects: ReviewProject[] }) {
                       sim sketchy
                     </Badge>
                   ) : null}
+                  {project.yswsHold ? (
+                    <Badge tone="orange" className="shrink-0 text-[10px]">
+                      not YSWS eligible
+                    </Badge>
+                  ) : null}
                   <span className="text-xs text-black/50">
                     {project.hoursSpent}h
                   </span>
@@ -237,7 +277,11 @@ export function ReviewQueue({ projects }: { projects: ReviewProject[] }) {
         <div className="p-4 pt-0">
           <EmptyState
             title="No matching submissions"
-            description="Try a different review filter."
+            description={
+              filter === YSWS_HOLD_FILTER
+                ? "Nothing is waiting on YSWS verification."
+                : "Try a different review filter."
+            }
           />
         </div>
       ) : null}

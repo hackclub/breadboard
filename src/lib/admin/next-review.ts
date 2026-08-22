@@ -1,8 +1,8 @@
 import "server-only";
 
-import { and, asc, eq, notInArray } from "drizzle-orm";
+import { and, asc, eq, notInArray, or } from "drizzle-orm";
 import { db } from "@/lib/db/db";
-import { projectSubmissions } from "@/lib/db/schema";
+import { projectSubmissions, projects, user } from "@/lib/db/schema";
 
 // The project id of the next submission still awaiting review in the same lane
 // (materials or demo), oldest first to match the review queue's ordering. Used
@@ -11,6 +11,10 @@ import { projectSubmissions } from "@/lib/db/schema";
 // submission is still pending at page-load time) plus any the reviewer chose to
 // skip this session, so a deferred card doesn't reappear. Returns null when
 // nothing else is queued.
+//
+// Ships whose maker isn't YSWS eligible are skipped for the same reason the
+// queue hides them: nothing can be approved there yet. Without this, auto-
+// advance would hand the reviewer exactly the card the queue is holding back.
 export async function nextPendingReviewProjectId(
   type: "materials" | "demo",
   excludeProjectIds: number[],
@@ -21,10 +25,13 @@ export async function nextPendingReviewProjectId(
   const rows = await db
     .select({ projectId: projectSubmissions.projectId })
     .from(projectSubmissions)
+    .innerJoin(projects, eq(projects.id, projectSubmissions.projectId))
+    .innerJoin(user, eq(user.id, projects.userId))
     .where(
       and(
         eq(projectSubmissions.type, type),
         eq(projectSubmissions.status, "pending_review"),
+        or(eq(user.yswsEligible, true), eq(user.yswsExempt, true)),
         exclude.length
           ? notInArray(projectSubmissions.projectId, exclude)
           : undefined,

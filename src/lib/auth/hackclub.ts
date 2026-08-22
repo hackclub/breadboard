@@ -120,6 +120,47 @@ export async function assertHackClubYswsEligible(userId: string) {
   );
 }
 
+/**
+ * Whether a maker's ships should be held out of the review queue: no
+ * ysws_eligible claim and no admin exemption.
+ *
+ * The two carve-outs that let someone submit without the claim are treated
+ * differently here. An exemption is an admin saying "handle this one anyway",
+ * so those ships stay reviewable. An under-19 teen whose identity verification
+ * hasn't cleared yet has nothing a reviewer can finish: approving them pays out
+ * bread and files the ship in the Unified YSWS Database under an identity Hack
+ * Club hasn't confirmed. They can still submit, and their ship waits.
+ */
+export function yswsReviewHold(row: {
+  yswsEligible: boolean;
+  yswsExempt: boolean;
+}) {
+  return !row.yswsEligible && !row.yswsExempt;
+}
+
+/**
+ * The server-side half of that hold. The queue hides held ships, but a stale
+ * tab or a typed /platform/admin/review/<id> URL still reaches the actions, so
+ * every path that approves or pays checks here as well.
+ *
+ * The cached flag lags behind a maker who verified since their last sign-in, so
+ * a hold is confirmed against Hack Club Auth before a reviewer is turned away.
+ * That refresh also writes the flag through, which un-hides the card.
+ */
+export async function assertMakerYswsEligible(makerId: string) {
+  const [row] = await db
+    .select({ yswsEligible: user.yswsEligible, yswsExempt: user.yswsExempt })
+    .from(user)
+    .where(eq(user.id, makerId))
+    .limit(1);
+  if (!row) throw new Error("This project has no owner on file.");
+  if (!yswsReviewHold(row)) return;
+  if ((await refreshYswsEligible(makerId)).eligible) return;
+  throw new Error(
+    'This maker is not YSWS eligible yet, so their ship cannot be approved or paid. It sits in the queue\'s "waiting on verification" filter until they verify at auth.hackclub.com, or until an admin marks them YSWS exempt.',
+  );
+}
+
 export function countryFromHackClubClaims(claims: HackClubClaims) {
   return String(claims.address?.country ?? "").trim();
 }

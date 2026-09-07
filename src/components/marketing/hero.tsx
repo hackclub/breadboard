@@ -1,8 +1,10 @@
 "use client";
 
+import { motion, useMotionValue, useReducedMotion } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { KeyboardEvent } from "react";
 import {
   useActionState,
   useCallback,
@@ -108,6 +110,85 @@ function ModelPreview() {
   );
 }
 
+// The sticker rests half off the edge of its card, so constraints are measured
+// from wherever it happens to sit and always widened to include that spot.
+// Otherwise motion would yank it inside the viewport the moment you grab it.
+function DraggableSticker() {
+  const stickerRef = useRef<HTMLButtonElement>(null);
+  const reduceMotion = useReducedMotion();
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const [bounds, setBounds] = useState({
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+  });
+
+  useEffect(() => {
+    const measure = () => {
+      const el = stickerRef.current;
+      if (!el) return;
+      const box = el.getBoundingClientRect();
+      const restLeft = box.left - x.get();
+      const restTop = box.top + window.scrollY - y.get();
+      const room = document.documentElement.scrollHeight;
+      setBounds({
+        left: Math.min(16 - restLeft, 0),
+        right: Math.max(window.innerWidth - 16 - box.width - restLeft, 0),
+        top: Math.min(16 - restTop, 0),
+        bottom: Math.max(room - 16 - box.height - restTop, 0),
+      });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [x, y]);
+
+  const nudge = (event: KeyboardEvent<HTMLButtonElement>) => {
+    const step = event.shiftKey ? 48 : 12;
+    const clamp = (value: number, min: number, max: number) =>
+      Math.min(Math.max(value, min), max);
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      const delta = event.key === "ArrowLeft" ? -step : step;
+      x.set(clamp(x.get() + delta, bounds.left, bounds.right));
+    } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      const delta = event.key === "ArrowUp" ? -step : step;
+      y.set(clamp(y.get() + delta, bounds.top, bounds.bottom));
+    } else {
+      return;
+    }
+    event.preventDefault();
+  };
+
+  return (
+    <motion.button
+      ref={stickerRef}
+      type="button"
+      aria-label="Breadboard sticker. Drag it around, or move it with the arrow keys."
+      drag
+      dragConstraints={bounds}
+      dragElastic={0.12}
+      dragMomentum={!reduceMotion}
+      onKeyDown={nudge}
+      style={{ x, y, rotate: -25 }}
+      whileHover={reduceMotion ? undefined : { scale: 1.04 }}
+      whileDrag={{ scale: 1.08, rotate: -14 }}
+      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+      className="absolute right-[-10rem] bottom-[-16rem] z-20 w-[min(36vw,280px)] cursor-grab touch-none border-0 bg-transparent p-0 drop-shadow-[0_18px_16px_rgba(0,0,0,0.44)] active:cursor-grabbing focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-black max-sm:right-[-.5rem] max-sm:bottom-[-6.5rem] max-sm:w-[min(46vw,170px)]"
+    >
+      <Image
+        src="/favicon-sticker-cropped.png"
+        alt="Breadboard sticker"
+        width={280}
+        height={280}
+        draggable={false}
+        className="pointer-events-none h-auto w-full select-none"
+      />
+    </motion.button>
+  );
+}
+
 function SignupForm() {
   const [state, formAction, pending] = useActionState<SignupState, FormData>(
     subscribe,
@@ -160,13 +241,7 @@ function SignupForm() {
             Get Started
           </button>
         </form>
-        <Image
-          src="/favicon-sticker-cropped.png"
-          alt="Breadboard sticker"
-          width={280}
-          height={280}
-          className="pointer-events-auto absolute right-[-10rem] bottom-[-16rem] z-20 h-auto w-[min(36vw,280px)] rotate-[-25deg] drop-shadow-[0_18px_16px_rgba(0,0,0,0.44)] transition-transform hover:-translate-y-2.5 hover:scale-103 max-sm:right-[-.5rem] max-sm:bottom-[-6.5rem] max-sm:w-[min(46vw,170px)]"
-        />
+        <DraggableSticker />
       </div>
       {state.message || loginError ? (
         <p
